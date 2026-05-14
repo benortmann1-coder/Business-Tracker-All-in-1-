@@ -14,6 +14,7 @@ WoodWorks Pro streamlines project planning, estimating, material management, and
 - [`APP_STORE.md`](./APP_STORE.md) — App Store launch assets: name candidates, short + long descriptions, screenshot storyboard, pricing strategy, competitive analysis, and target personas.
 - [`DESIGN.md`](./DESIGN.md) — Design system and wireframes: brand direction, logo concept, color tokens, typography, components, navigation, and per-screen wireframe descriptions.
 - [`PITCH.md`](./PITCH.md) — 12-slide investor pitch deck content: problem, market, solution, business model, go-to-market, competition, roadmap, team, and ask.
+- [`API.md`](./API.md) — Backend specification: Firestore collections, field schemas, indexes, security rules, Cloud Functions, Storage layout, and offline sync strategy.
 - [`app/`](./app) — Flutter project scaffold (Riverpod + go_router, Material 3 theme matching `DESIGN.md`, 5-tab shell, working board-foot calculator).
 
 ## Target Platforms
