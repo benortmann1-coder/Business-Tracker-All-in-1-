@@ -1,6 +1,6 @@
 # Developer-Ready Requirements Document
 
-**App Name (Working Title):** WoodWorks Pro
+**App Name (Working Title):** Bevelry
 **Platform:** iOS + Android
 **Distribution:** Paid app on App Store & Google Play
 
@@ -16,7 +16,7 @@
 
 ## 1. Project Overview
 
-WoodWorks Pro is a professional-grade mobile app designed to streamline project planning, estimating, material management, and client communication for woodworking businesses. The app is inspired by the Premier Build app but tailored specifically to woodworking workflows, tools, materials, and business needs.
+Bevelry is a professional-grade mobile app designed to streamline project planning, estimating, material management, and client communication for woodworking businesses. The app is inspired by the Premier Build app but tailored specifically to woodworking workflows, tools, materials, and business needs.
 
 The app must support offline functionality, cloud sync, and exportable project files.
 

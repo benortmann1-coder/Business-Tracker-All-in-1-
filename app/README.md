@@ -1,4 +1,4 @@
-# WoodWorks Pro — Flutter App
+# Bevelry — Flutter App
 
 Mobile app for woodworking professionals. See the docs at the repo root for the product blueprint (REQUIREMENTS.md, APP_STORE.md, DESIGN.md, PITCH.md).
 
@@ -9,7 +9,7 @@ Mobile app for woodworking professionals. See the docs at the repo root for the 
 
 ## Setup
 ```
-flutter create . --project-name woodworks_pro --org com.woodworkspro --platforms ios,android
+flutter create . --project-name bevelry --org com.bevelry --platforms ios,android
 flutter pub get
 flutter run
 ```

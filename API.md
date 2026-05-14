@@ -1,6 +1,6 @@
-# API & Data Specification — WoodWorks Pro
+# API & Data Specification — Bevelry
 
-This document is the source of truth for the WoodWorks Pro backend. It covers the Firestore schema, authentication model, security rules, Cloud Functions, Cloud Storage layout, indexes, and offline sync strategy.
+This document is the source of truth for the Bevelry backend. It covers the Firestore schema, authentication model, security rules, Cloud Functions, Cloud Storage layout, indexes, and offline sync strategy.
 
 If a discrepancy exists between this document and code, **this document wins** until the discrepancy is resolved by a deliberate update here.
 

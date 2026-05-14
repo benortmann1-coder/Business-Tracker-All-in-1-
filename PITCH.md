@@ -1,4 +1,4 @@
-# Pitch Deck — WoodWorks Pro
+# Pitch Deck — Bevelry
 
 A 12-slide pitch deck for investors, strategic partners, and accelerator applications. Each section below is one slide. Speaker notes are included in italics. Replace `<TBD>` placeholders before sending.
 
@@ -6,7 +6,7 @@ A 12-slide pitch deck for investors, strategic partners, and accelerator applica
 
 ## Slide 1 — Title
 
-**WoodWorks Pro**
+**Bevelry**
 The shop manager built for woodworkers.
 
 *Subhead:* iOS + Android. Launching Q4.
@@ -72,7 +72,7 @@ Global TAM is **3–4× the US figure** (UK, AU, CA, DE are the top expansion ma
 - **Photo & shop drawing manager** with before/after sliders
 - **Works fully offline** — syncs when back online
 
-*Speaker notes: Other apps do one of these things in isolation. WoodWorks Pro is the first to combine them in a workflow built around how woodworkers actually move through a project.*
+*Speaker notes: Other apps do one of these things in isolation. Bevelry is the first to combine them in a workflow built around how woodworkers actually move through a project.*
 
 ---
 

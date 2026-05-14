@@ -1,6 +1,6 @@
 # Phase 2 — Pro Features Specification
 
-This document specifies the five Phase 2 features that turn WoodWorks Pro from a single-shop tool into a connected business platform: Cloud Sync, Team Collaboration, CNC File Manager, Finishing Schedule Tracker, and Advanced Analytics.
+This document specifies the five Phase 2 features that turn Bevelry from a single-shop tool into a connected business platform: Cloud Sync, Team Collaboration, CNC File Manager, Finishing Schedule Tracker, and Advanced Analytics.
 
 These features layer on top of the Phase 1 MVP. The base app remains fully functional offline without any of them. Each Phase 2 feature has its own gating (subscription or one-time IAP) and ships independently.
 
@@ -154,7 +154,7 @@ match /orgs/{orgId} {
 
 ### Invitations flow
 1. Owner / admin enters an email in the Team screen → creates an `invitations` doc.
-2. Cloud Function `onInvitationCreate` sends an email via Postmark with a deep link `woodworkspro://invite/{invitationId}`.
+2. Cloud Function `onInvitationCreate` sends an email via Postmark with a deep link `bevelry://invite/{invitationId}`.
 3. Recipient opens the link → sign in (or create account) → callable function `acceptInvitation` checks the invitation is valid and adds the user to `/orgs/{orgId}/members/{uid}`.
 4. Pending invitations auto-expire after 7 days; expired invitations can be re-sent.
 

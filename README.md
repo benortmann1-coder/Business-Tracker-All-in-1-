@@ -1,12 +1,14 @@
-# WoodWorks Pro
+# Bevelry
 
 A mobile app for woodworking professionals — cabinet makers, custom furniture builders, woodshop owners, and small woodworking businesses.
 
-WoodWorks Pro streamlines project planning, estimating, material management, and client communication, with woodworking-specific tools like a cut list generator, board-foot calculator, and material cost estimator built in.
+Bevelry streamlines project planning, estimating, material management, and client communication, with woodworking-specific tools like a cut list generator, board-foot calculator, and material cost estimator built in.
 
 ## Status
 
-**Concept / Blueprint phase.** No code yet — this repository currently holds the product and engineering blueprint that will drive Phase 1 (MVP) development.
+**Concept / Blueprint phase.** The repository holds the product and engineering blueprint plus a working Flutter scaffold for Phase 1, Phase 2, and Phase 3 features.
+
+**Brand name:** locked as **Bevelry** (coined word built on the woodworking term *bevel*). Selection process moved from "WoodWorks Pro" (generic working title) → "Bevel" (collision risk with the Matter reading app and P&G grooming brand) → **Bevelry**. Trademark + App Store availability checks are the next concrete branding tasks; see `APP_STORE.md` §1.
 
 ## Documents
 
@@ -40,7 +42,7 @@ Distribution model: paid app, optional in-app purchases for cloud sync, CNC file
 | Phase | Scope | Duration |
 | --- | --- | --- |
 | 1 — MVP | Projects, cut list, board-foot calc, material estimator, CRM, quotes, invoices, tool inventory | 8–12 weeks |
-| 2 | CNC file manager, finishing tracker, cloud sync, team collaboration, analytics | 6–10 weeks |
-| 3 | Marketing, ASO, feature expansion | Ongoing |
+| 2 — Pro | CNC file manager, finishing tracker, cloud sync, team collaboration, analytics | 6–10 weeks |
+| 3 — Expansion | Web companion, marketplace, AI cut optimization, internationalization (UK/AU/CA/DE) | 12 months |
 
 See [`REQUIREMENTS.md`](./REQUIREMENTS.md) for the full breakdown.

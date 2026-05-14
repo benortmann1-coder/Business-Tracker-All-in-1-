@@ -1,6 +1,6 @@
 # Phase 3 — Expansion Specification
 
-Phase 3 is the 12-month horizon after the Phase 2 Pro features ship. It is where WoodWorks Pro stops being just a mobile shop manager and becomes a platform — a desktop companion, a marketplace, an AI-augmented workflow, and a globally-localized product.
+Phase 3 is the 12-month horizon after the Phase 2 Pro features ship. It is where Bevelry stops being just a mobile shop manager and becomes a platform — a desktop companion, a marketplace, an AI-augmented workflow, and a globally-localized product.
 
 Phase 3 is not one ship. It is a portfolio of four tracks, each independently fundable and shippable.
 
@@ -59,7 +59,7 @@ The same Flutter widgets render at three breakpoints:
 Implemented via a `ResponsiveScaffold` wrapper in `lib/shared/layout/responsive_scaffold.dart` that swaps the navigation chrome based on `MediaQuery.sizeOf(context).width`.
 
 ### Hosting & auth
-- **Hosting:** Firebase Hosting with a custom domain `app.woodworkspro.com`.
+- **Hosting:** Firebase Hosting with a custom domain `app.bevelry.com`.
 - **Auth:** same Firebase Auth flows; Apple Sign-In on web works via OAuth web flow. Google Sign-In via the Identity Services library.
 - **Sessions:** persistent across browser sessions; signed-in users land on `/projects` from any page.
 
@@ -82,12 +82,12 @@ Bundled with Cloud Sync. No extra charge. The Web Companion is what makes Cloud 
 A directory + intake funnel where:
 - **Woodworkers** publish capacity (e.g. "I have 6 weeks open in June for kitchen cabinetry — here's my portfolio and average price range")
 - **Clients** browse, request quotes, and see verified shops near them
-- WoodWorks Pro takes a referral fee on jobs that originate via the marketplace
+- Bevelry takes a referral fee on jobs that originate via the marketplace
 
 ### Two-sided model
 | Side | Acquisition strategy |
 | --- | --- |
-| Supply (woodworkers) | Existing WoodWorks Pro users opt-in for free; listing fee is $0; we charge on successful match |
+| Supply (woodworkers) | Existing Bevelry users opt-in for free; listing fee is $0; we charge on successful match |
 | Demand (clients) | SEO landing pages + targeted Pinterest / Instagram ads + word-of-mouth from delivered projects |
 
 ### Domain model
@@ -190,7 +190,7 @@ match /marketplace/reviews/{id} {
 ### Payments
 - **Intake fee:** free for clients to submit a request; free for shops to publish a listing.
 - **Success fee:** 8% of the agreed-upon project total, billed to the **shop**, not the client. The shop sets their price already accounting for this fee; nothing is added to the client's invoice.
-- **Collection:** integrated with WoodWorks Pro's invoice flow. When a marketplace-originated invoice is marked `paid`, a Cloud Function automatically calculates and bills the success fee via Stripe Connect.
+- **Collection:** integrated with Bevelry's invoice flow. When a marketplace-originated invoice is marked `paid`, a Cloud Function automatically calculates and bills the success fee via Stripe Connect.
 - **Stripe Connect** is required only for shops who use the marketplace; not for solo app users.
 
 ### Trust & safety
@@ -304,7 +304,7 @@ This is a coarse plan. Each track has its own sub-plan once kicked off.
 | --- | --- | --- |
 | 1 | Web Companion | Bring `ResponsiveScaffold` and split-view to mobile (no regression); web build runs locally |
 | 2 | Web Companion | Bulk material import, keyboard shortcuts, command palette |
-| 3 | Web Companion | Public launch at `app.woodworkspro.com`; Cloud Sync subs +20% target |
+| 3 | Web Companion | Public launch at `app.bevelry.com`; Cloud Sync subs +20% target |
 | 4 | AI | Algorithmic cut optimization v1 shipped on mobile + web |
 | 5 | AI | Material substitution suggestions in private beta |
 | 6 | AI | Material substitution GA; collect quality metrics |
@@ -352,4 +352,4 @@ This is a coarse plan. Each track has its own sub-plan once kicked off.
 - [ ] Marketplace success-fee floor (recommend: $25 minimum so $200 jobs don't yield $16)
 - [ ] AI training data: collect only from opted-in users (recommend: yes — strict opt-in with clear UI)
 - [ ] Whether to localize the marketing site at the same time as the app (recommend: yes, but only landing pages, not the blog)
-- [ ] When to spin Marketplace out as its own product / brand (recommend: stay under WoodWorks Pro through Phase 3; revisit at Phase 4 if it grows past 20% of revenue)
+- [ ] When to spin Marketplace out as its own product / brand (recommend: stay under Bevelry through Phase 3; revisit at Phase 4 if it grows past 20% of revenue)

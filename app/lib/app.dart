@@ -4,14 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 
-class WoodWorksProApp extends ConsumerWidget {
-  const WoodWorksProApp({super.key});
+class BevelryApp extends ConsumerWidget {
+  const BevelryApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
-      title: 'WoodWorks Pro',
+      title: 'Bevelry',
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       routerConfig: router,

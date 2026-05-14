@@ -1,6 +1,6 @@
-# Design System & Wireframes — WoodWorks Pro
+# Design System & Wireframes — Bevelry
 
-This document defines the brand, design tokens, component library, and wireframe descriptions for WoodWorks Pro. It is the source of truth for Figma mocks and the UI implementation. Anything not specified here defers to platform-native defaults (iOS Human Interface Guidelines / Material Design 3).
+This document defines the brand, design tokens, component library, and wireframe descriptions for Bevelry. It is the source of truth for Figma mocks and the UI implementation. Anything not specified here defers to platform-native defaults (iOS Human Interface Guidelines / Material Design 3).
 
 ---
 
@@ -36,13 +36,13 @@ A stylized woodworking hand plane in profile, used both as a standalone app icon
 
 ### Alternate Directions to Test
 1. **Workbench profile** — flat-line drawing of a workbench end view; subtle grain texture in the worktop
-2. **Concentric grain rings** — abstract circular logo riffing on tree-ring growth; pairs well with "WoodWorks Pro" set in a slab serif
-3. **Tenon mark** — a tenon joint silhouette used as the "W" of WoodWorks; clever but risks being too inside-baseball
+2. **Concentric grain rings** — abstract circular logo riffing on tree-ring growth; pairs well with "Bevelry" set in a slab serif
+3. **Tenon mark** — a tenon joint silhouette used as the "B" of Bevelry; clever but risks being too inside-baseball
 4. **Compass / square** — fallback if hand plane reads too niche
 
 ### Wordmark
 - Primary face: **Söhne Breit** (or **Inter Display Bold** as open-source fallback)
-- All-lowercase "woodworks pro" or title-case "WoodWorks Pro" — A/B test both
+- Title-case "Bevelry" or all-lowercase "bevelry" — A/B test both
 - Letter spacing: -1% (tightened)
 - Mark sits to the left of the wordmark at 1.2× cap-height
 
@@ -142,7 +142,7 @@ Spacing tokens: `4, 8, 12, 16, 24, 32, 48, 64`
 - Hit target minimum: **48 × 48pt** — non-negotiable; users may be wearing gloves
 
 ### Touch Density
-WoodWorks Pro uses a **looser** touch density than typical consumer apps. List rows are 64pt minimum, primary buttons are 56pt tall. The cost is fewer items per screen; the win is reliable interaction with sawdust on hands.
+Bevelry uses a **looser** touch density than typical consumer apps. List rows are 64pt minimum, primary buttons are 56pt tall. The cost is fewer items per screen; the win is reliable interaction with sawdust on hands.
 
 ---
 
@@ -244,7 +244,7 @@ The descriptions below define layout, hierarchy, and key interactions for the 10
 
 ### 9.2 Home / Dashboard
 
-- Top app bar: WoodWorks Pro wordmark left, search-icon + notifications-icon right
+- Top app bar: Bevelry wordmark left, search-icon + notifications-icon right
 - **KPI strip** (horizontal scroll): Open Quotes • Unpaid Invoices • Jobs This Week • Tools Due for Maintenance — each a tappable card with number + label
 - **Today section**: vertical list of today's calendar items (job, material pickup, finishing step)
 - **Recent projects** (card carousel): last 5 projects, each card shows hero photo, project name, client, status pill, due date

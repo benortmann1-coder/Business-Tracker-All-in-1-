@@ -18,7 +18,7 @@ import '../../projects/domain/project.dart';
 ///       ),
 ///     ),
 ///   ],
-///   child: const WoodWorksProApp(),
+///   child: const BevelryApp(),
 /// );
 /// ```
 class FirestoreProjectRepository implements ProjectRepository {

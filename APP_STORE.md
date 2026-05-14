@@ -1,15 +1,27 @@
-# App Store Assets — WoodWorks Pro
+# App Store Assets — Bevelry
 
-This document contains the App Store launch assets: name candidates, long and short descriptions, a screenshot storyboard, pricing strategy, and a competitive analysis. It is a working draft for marketing / ASO and should be finalized once branding decisions are locked.
+This document contains the App Store launch assets: short and long descriptions, a screenshot storyboard, pricing strategy, and a competitive analysis. The brand name has been locked; the candidate list below is preserved as a record of the selection process.
 
 ---
 
-## 1. App Name Candidates
+## 1. Final Name: **Bevelry**
 
-Grouped by direction. Final pick should be paired with a trademark + App Store name availability check before locking branding.
+Bevelry is a coined word built on the woodworking term *bevel* (an angled cut joining two surfaces). It is short (7 letters), distinctive, brandable in the lineage of Linear / Notion / Stripe, and far less likely to collide with the existing "Bevel" reading app (Matter) or the "Bevel" grooming brand (P&G) than the bare word alone.
+
+**Locked branding tasks:**
+- [ ] USPTO TESS trademark search for "Bevelry" before logo work begins
+- [ ] App Store name availability check on iOS + Android
+- [ ] Domain registration: bevelry.com, bevelry.app, bevelry.io
+- [ ] Reserve social handles: @bevelry on Instagram, YouTube, X, Threads
+
+---
+
+## 2. Name Candidates (selection process record)
+
+Preserved for posterity. The selection process moved from "WoodWorks Pro" (generic working title) → "Bevel" (collision risk) → **Bevelry** (locked).
 
 ### Direct / Professional
-- **WoodWorks Pro** *(current working title)*
+- WoodWorks Pro *(original working title)*
 - Workshop Pro
 - Joinery Pro
 - BuildShop Pro
@@ -17,7 +29,7 @@ Grouped by direction. Final pick should be paired with a trademark + App Store n
 - Shop Foreman
 
 ### Tool / Process Inspired
-- **CutList** — names a core feature; extremely ASO-searchable
+- CutList — names a core feature; extremely ASO-searchable
 - Mortise
 - Tenon
 - Dovetail
@@ -25,7 +37,8 @@ Grouped by direction. Final pick should be paired with a trademark + App Store n
 - Routed
 
 ### Compound / Brandable
-- **ShopDeck** — modern, suggests dashboard
+- **Bevelry** ← LOCKED
+- ShopDeck — modern, suggests dashboard
 - BenchMate
 - BenchTop
 - BoardBook
@@ -41,15 +54,15 @@ Grouped by direction. Final pick should be paired with a trademark + App Store n
 - Builder's Journal
 - Toolbelt
 
-### Top 5 Recommended
+### Final Top 5
 
 | Rank | Name | Why |
 | --- | --- | --- |
-| 1 | **WoodWorks Pro** | Descriptive, on-brief, easy to communicate; current working title |
-| 2 | **ShopDeck** | Memorable, modern, alludes to a dashboard; strong brand potential |
-| 3 | **CutList** | Built-in keyword; very searchable; risks being too generic |
-| 4 | **BenchMate** | Friendly, suggests companion-in-the-shop |
-| 5 | **Joiner** | Short, trade-specific; verify name availability |
+| 1 | **Bevelry** | Locked. Coined, short, brandable, unique on the App Store and trademark databases (pending check). |
+| 2 | ShopDeck | Strong fallback if Bevelry fails a trademark search. |
+| 3 | CutList | Built-in keyword; very searchable; risks being too generic. |
+| 4 | BenchMate | Friendly, suggests companion-in-the-shop. |
+| 5 | Joiner | Short, trade-specific; verify availability. |
 
 ---
 
@@ -69,12 +82,12 @@ Grouped by direction. Final pick should be paired with a trademark + App Store n
 ## 3. App Store Description (Long, ~4000 char max)
 
 ```
-WoodWorks Pro is the only mobile shop manager built specifically for woodworkers,
+Bevelry is the only mobile shop manager built specifically for woodworkers,
 cabinet makers, and small woodshop owners. Stop juggling spreadsheets, paper
 notebooks, and three different apps — run every project, every client, and
 every quote from one place.
 
-WHY WOODWORKERS LOVE WOODWORKS PRO
+WHY WOODWORKERS LOVE BEVELRY
 
 Built for the shop, not a generic contractor app. Every feature is tuned to
 the way woodworkers actually work — from rough lumber to finished cabinet.
@@ -118,7 +131,7 @@ Calendar view for jobs, material pickups, and finishing schedules.
 Never miss a delivery date again.
 
 WORKS OFFLINE
-Cellular signal in the shop is unreliable. WoodWorks Pro works fully
+Cellular signal in the shop is unreliable. Bevelry works fully
 offline and syncs your data the moment you're back online.
 
 WHO IT'S FOR
@@ -137,14 +150,14 @@ PRIVACY-FIRST
 Your project, client, and pricing data belongs to you. Encrypted at rest
 and in transit. Optional biometric lock.
 
-Built by people who care about wood. Download WoodWorks Pro and turn your
+Built by people who care about wood. Download Bevelry and turn your
 phone into the most useful tool in the shop.
 ```
 
 Character count for the above body: ~2,800 (well under the 4,000 cap, leaving room for promo seasons / version notes).
 
 ### What's New (release notes template)
-> Version 1.0 — Welcome to WoodWorks Pro. Build cut lists, quote jobs, track clients, and manage your shop from anywhere. Thanks for being one of our first users — reply to any quote email to send us feedback directly.
+> Version 1.0 — Welcome to Bevelry. Build cut lists, quote jobs, track clients, and manage your shop from anywhere. Thanks for being one of our first users — reply to any quote email to send us feedback directly.
 
 ---
 
@@ -198,7 +211,7 @@ App Store allows up to 10 screenshots per device size. The first **three** are c
 
 ## 6. Competitive Analysis
 
-| App | Audience | Pricing | Strengths | Gaps WoodWorks Pro fills |
+| App | Audience | Pricing | Strengths | Gaps Bevelry fills |
 | --- | --- | --- | --- | --- |
 | **Premier Build** | General contractors | Free + subs | Project + estimate workflow, decent UX | Not woodworking-specific; no cut list, no board-foot, no CNC |
 | **Houzz Pro** | Designers / GCs | $65–$249/mo | CRM, lead gen, takeoffs | Expensive; designer-focused; weak for shop workflows |

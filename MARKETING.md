@@ -1,6 +1,6 @@
-# Marketing Playbook — WoodWorks Pro
+# Marketing Playbook — Bevelry
 
-A 90-day plan to take WoodWorks Pro from internal beta to a credible v1 launch on the App Store and Google Play. This is operational — every section ends with a specific deliverable or action, not a slogan.
+A 90-day plan to take Bevelry from internal beta to a credible v1 launch on the App Store and Google Play. This is operational — every section ends with a specific deliverable or action, not a slogan.
 
 ---
 
@@ -66,7 +66,7 @@ A 90-day plan to take WoodWorks Pro from internal beta to a credible v1 launch o
 | Week | Focus | Output |
 | --- | --- | --- |
 | 2 | YouTuber Wave 2 partnerships go live. Begin association newsletter placements. | 4–6 new videos, 2 newsletter mentions |
-| 3 | Content engine launches. Start the "WoodWorks Pro Shop Notes" blog. First 3 posts published. | 3 blog posts, repurposed into Instagram + YouTube Shorts |
+| 3 | Content engine launches. Start the "Bevelry Shop Notes" blog. First 3 posts published. | 3 blog posts, repurposed into Instagram + YouTube Shorts |
 | 4 | First A/B test on the App Store screenshots (Hero variant vs Cut List variant) | Winner declared and shipped |
 
 ### Phase D: Optimization (Day 31 → Day 60)
@@ -75,7 +75,7 @@ A 90-day plan to take WoodWorks Pro from internal beta to a credible v1 launch o
 | --- | --- | --- |
 | 5 | Review acquisition campaign: in-app prompt at finish-quote and finish-invoice moments | 4.5+ avg rating across new reviews |
 | 6 | Keyword expansion on App Store: target second-tier keywords (cabinet calculator, sheet optimizer) | Top-10 ranking on 5+ keywords |
-| 7 | First case study published: a maker shop using WoodWorks Pro at scale | Cross-promotion with that shop's own channels |
+| 7 | First case study published: a maker shop using Bevelry at scale | Cross-promotion with that shop's own channels |
 | 8 | Beta announce of CNC File Manager IAP to existing users; measure willingness-to-pay | Phase 2 pricing validated |
 
 ### Phase E: Expansion (Day 61 → Day 90)
@@ -245,7 +245,7 @@ Run one experiment at a time. Don't change copy and screenshots in the same week
 
 > Subject: Building a shop-manager app for woodworkers — want early access?
 >
-> Hi [Name] — I've been following your work on [specific project they posted]. I'm building WoodWorks Pro, a mobile app that handles cut lists, quotes, invoices, and client tracking for woodworkers. I'm putting together a small beta cohort of about 30 working pros to get real feedback before launch.
+> Hi [Name] — I've been following your work on [specific project they posted]. I'm building Bevelry, a mobile app that handles cut lists, quotes, invoices, and client tracking for woodworkers. I'm putting together a small beta cohort of about 30 working pros to get real feedback before launch.
 >
 > If you're in, I'll send you a TestFlight invite (or APK for Android) and a 5-minute survey, and you'll get a free Cloud Sync subscription for life when v1 ships. About 30 minutes of your time over the next month is all I'm asking.
 >
@@ -257,7 +257,7 @@ Run one experiment at a time. Don't change copy and screenshots in the same week
 >
 > Hi [Name],
 >
-> I'm [Founder name] and I'm shipping WoodWorks Pro — the first mobile shop manager built specifically for woodworkers. Cut list generator, board-foot calculator, quoting, invoicing, CRM. It's a paid app, $9.99, no required subscription.
+> I'm [Founder name] and I'm shipping Bevelry — the first mobile shop manager built specifically for woodworkers. Cut list generator, board-foot calculator, quoting, invoicing, CRM. It's a paid app, $9.99, no required subscription.
 >
 > I'd love to send you a free copy and explore a sponsored integration on your channel. Your audience is exactly who we built this for, and we have flexible options — paid integration, affiliate revenue share, or both. Happy to send a short demo video or hop on a call.
 >
@@ -273,7 +273,7 @@ Run one experiment at a time. Don't change copy and screenshots in the same week
 >
 > Hi [Editor name],
 >
-> I'm reaching out with what I think could be a strong feature for [publication]. We just shipped WoodWorks Pro, a mobile app built specifically for woodworking pros — and three beta testers have independently reported recovering 4–6 hours per week of admin time after switching from spreadsheets and paper.
+> I'm reaching out with what I think could be a strong feature for [publication]. We just shipped Bevelry, a mobile app built specifically for woodworking pros — and three beta testers have independently reported recovering 4–6 hours per week of admin time after switching from spreadsheets and paper.
 >
 > One in particular — [Beta tester name], owner of [Shop name] in [City] — has a great story about how his quote-to-cash cycle shrank from 12 days to 3. I can intro you and pull together build photos, before/after screenshots, and quotes from his client.
 >
@@ -283,11 +283,11 @@ Run one experiment at a time. Don't change copy and screenshots in the same week
 
 ### Template D — Association Partnership
 
-> Subject: Member benefit proposal: WoodWorks Pro
+> Subject: Member benefit proposal: Bevelry
 >
 > Hi [Director],
 >
-> [Association] is one of the strongest voices for working woodworkers, and I think we have a member benefit your community would actually use. WoodWorks Pro is a new mobile shop manager built for woodworkers — cut lists, quotes, invoices, the works — and we'd love to offer your members a 30% discount with a co-branded landing page and a dedicated support channel.
+> [Association] is one of the strongest voices for working woodworkers, and I think we have a member benefit your community would actually use. Bevelry is a new mobile shop manager built for woodworkers — cut lists, quotes, invoices, the works — and we'd love to offer your members a 30% discount with a co-branded landing page and a dedicated support channel.
 >
 > No fee to [Association]. We'd handle all the operational lift. In exchange, we'd ask for a single mention in your next member newsletter and an optional 1-hour demo webinar your members could attend.
 >
@@ -332,7 +332,7 @@ Tooling: App Store Connect + Play Console for ASO and installs; Firebase Analyti
 
 | Week | Blog post | Instagram / Shorts | YouTube partner topic |
 | --- | --- | --- | --- |
-| 1 | "Why we built WoodWorks Pro" (founder story) | Launch announcement carousel | Hands-on demo + cut list walkthrough |
+| 1 | "Why we built Bevelry" (founder story) | Launch announcement carousel | Hands-on demo + cut list walkthrough |
 | 2 | "10 cut list mistakes that cost lumber" | Cut list tip Reel | Quote-to-invoice in 90 seconds |
 | 3 | "Pricing a custom cabinet: a real-world breakdown" | Before/after gallery from a beta tester | "I ditched my spreadsheet" story |
 | 4 | "How fast is your quote-to-cash cycle?" | Polling Reel + screenshot proof | CNC integration teaser |
