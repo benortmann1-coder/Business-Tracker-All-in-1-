@@ -1,0 +1,37 @@
+{
+  "@@locale": "de",
+  "appTitle": "WoodWorks Pro",
+  "navProjects": "Projekte",
+  "navClients": "Kunden",
+  "navTools": "Werkzeuge",
+  "navMoney": "Finanzen",
+  "navSettings": "Einstellungen",
+
+  "actionNewProject": "Neues Projekt",
+  "actionNewClient": "Neuer Kunde",
+  "actionNewQuote": "Neues Angebot",
+  "actionAddTool": "Werkzeug hinzufügen",
+  "actionAddPart": "Teil hinzufügen",
+
+  "statusDraft": "Entwurf",
+  "statusInProgress": "In Bearbeitung",
+  "statusAwaitingApproval": "Warte auf Freigabe",
+  "statusCompleted": "Abgeschlossen",
+  "statusDelivered": "Geliefert",
+  "statusOverdue": "Überfällig",
+
+  "emptyProjectsTitle": "Noch keine Projekte",
+  "emptyProjectsSubtitle": "Starte dein erstes Projekt. Schnittliste, Material und Angebot — alles an einem Ort.",
+  "emptyProjectsCta": "Erstes Projekt starten",
+
+  "boardFootCalculatorTitle": "Brettfuß-Rechner",
+  "boardFootResultLabel": "Brettfuß",
+  "boardFootTotalLabel": "Gesamt",
+
+  "cutListTitle": "Schnittliste",
+  "cutListOptimize": "Optimieren",
+  "cutListEmpty": "Noch keine Teile. Tippe „Teil hinzufügen“, um zu beginnen.",
+
+  "cloudSyncTitle": "Geräteübergreifende Synchronisierung",
+  "cloudSyncSubtitle": "Deine Werkstatt auf jedem Gerät. Verschlüsselte Backups. Funktioniert offline, synchronisiert bei Verbindung."
+}

@@ -52,6 +52,14 @@ class SettingsScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () {},
           ),
+          const _SectionHeader('Marketplace'),
+          ListTile(
+            leading: const Icon(Icons.storefront_outlined),
+            title: const Text('Browse shops'),
+            subtitle: const Text('Find woodworkers near you'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/settings/marketplace'),
+          ),
           const _SectionHeader('Preferences'),
           ListTile(
             leading: const Icon(Icons.straighten_outlined),

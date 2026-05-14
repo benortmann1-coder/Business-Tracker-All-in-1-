@@ -59,6 +59,14 @@ lib/
 - `FirestoreProjectRepository` demonstrating the cloud-backed `ProjectRepository` pattern (not wired by default; activate via provider override after Firebase init)
 - Reusable `PaywallGate` widget for any future paid feature
 
+## What's Implemented (Phase 3)
+- `ResponsiveScaffold` wrapper that switches between mobile, navigation-rail, and extended-navigation-rail layouts for the Web Companion
+- Marketplace browse screen with sample listings (rating, trades, price range)
+- Marketplace domain models (`MarketplaceListing`, `BuildRequest`)
+- AI service interfaces with stub implementations: `CutOptimizationService` (LocalGuillotineOptimizer ships an algorithmic baseline; Cloud Function variant lives in Phase 3 v2) and `MaterialSubstitutionService`
+- `AiSuggestionsSheet` UI for surfacing material substitution suggestions
+- i18n: `flutter_localizations` wired into pubspec, `l10n.yaml` config, and ARB seed files for English, Spanish, French, and German (`lib/l10n/intl_*.arb`). Run `flutter gen-l10n` to generate the `AppLocalizations` class
+
 ## What's Next
 1. Swap `InMemoryProjectRepository` for a Hive-backed implementation
 2. Cut list optimization algorithm (1D guillotine + 2D bin-packing)

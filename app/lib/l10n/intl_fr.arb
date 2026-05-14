@@ -1,0 +1,37 @@
+{
+  "@@locale": "fr",
+  "appTitle": "WoodWorks Pro",
+  "navProjects": "Projets",
+  "navClients": "Clients",
+  "navTools": "Outils",
+  "navMoney": "Finances",
+  "navSettings": "Paramètres",
+
+  "actionNewProject": "Nouveau projet",
+  "actionNewClient": "Nouveau client",
+  "actionNewQuote": "Nouveau devis",
+  "actionAddTool": "Ajouter un outil",
+  "actionAddPart": "Ajouter une pièce",
+
+  "statusDraft": "Brouillon",
+  "statusInProgress": "En cours",
+  "statusAwaitingApproval": "En attente d'approbation",
+  "statusCompleted": "Terminé",
+  "statusDelivered": "Livré",
+  "statusOverdue": "En retard",
+
+  "emptyProjectsTitle": "Aucun projet pour l'instant",
+  "emptyProjectsSubtitle": "Commencez votre premier projet. Liste de coupes, matériaux et devis — tout au même endroit.",
+  "emptyProjectsCta": "Démarrer mon premier projet",
+
+  "boardFootCalculatorTitle": "Calculateur de pied-planche",
+  "boardFootResultLabel": "Pied-planche",
+  "boardFootTotalLabel": "Total",
+
+  "cutListTitle": "Liste de coupes",
+  "cutListOptimize": "Optimiser",
+  "cutListEmpty": "Aucune pièce pour l'instant. Touchez « Ajouter une pièce » pour commencer.",
+
+  "cloudSyncTitle": "Synchronisation multi-appareils",
+  "cloudSyncSubtitle": "Votre atelier sur tous vos appareils. Sauvegardes chiffrées. Fonctionne hors-ligne, se synchronise au retour en ligne."
+}

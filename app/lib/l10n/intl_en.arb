@@ -1,0 +1,55 @@
+{
+  "@@locale": "en",
+  "appTitle": "WoodWorks Pro",
+  "@appTitle": { "description": "The app name shown in the launcher and About screen." },
+
+  "navProjects": "Projects",
+  "navClients": "Clients",
+  "navTools": "Tools",
+  "navMoney": "Money",
+  "navSettings": "Settings",
+
+  "actionNewProject": "New Project",
+  "actionNewClient": "New Client",
+  "actionNewQuote": "New Quote",
+  "actionAddTool": "Add Tool",
+  "actionAddPart": "Add Part",
+
+  "statusDraft": "Draft",
+  "statusInProgress": "In Progress",
+  "statusAwaitingApproval": "Awaiting Approval",
+  "statusCompleted": "Completed",
+  "statusDelivered": "Delivered",
+  "statusOverdue": "Overdue",
+
+  "emptyProjectsTitle": "No projects yet",
+  "emptyProjectsSubtitle": "Start your first one. Cut list, materials, and quote — all in one place.",
+  "emptyProjectsCta": "Start Your First Project",
+
+  "emptyClientsTitle": "Add your first client",
+  "emptyClientsSubtitle": "Stop digging through text threads. Keep every contact, project, and approval in one place.",
+
+  "boardFootCalculatorTitle": "Board-Foot Calculator",
+  "boardFootResultLabel": "Board Feet",
+  "boardFootTotalLabel": "Total",
+  "boardFootThickness": "Thickness (in)",
+  "boardFootWidth": "Width (in)",
+  "boardFootLength": "Length (ft)",
+  "boardFootQuantity": "Quantity",
+  "boardFootPricePerBf": "Price per BF ($)",
+
+  "cutListTitle": "Cut List",
+  "cutListOptimize": "Optimize",
+  "cutListEmpty": "No parts yet. Tap \"Add Part\" to begin.",
+
+  "cloudSyncTitle": "Multi-device sync",
+  "cloudSyncSubtitle": "Your shop, on every device. Encrypted backups. Works offline first, syncs when online.",
+  "cloudSyncStartTrial": "Start trial — $4.99/mo",
+  "cloudSyncAnnual": "Or pay annually — $39.99/yr",
+
+  "settingsAccount": "Account",
+  "settingsInsights": "Insights",
+  "settingsSubscriptions": "Subscription & Add-Ons",
+  "settingsPreferences": "Preferences",
+  "settingsAbout": "About"
+}

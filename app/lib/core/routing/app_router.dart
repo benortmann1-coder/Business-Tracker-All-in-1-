@@ -8,6 +8,7 @@ import '../../features/clients/presentation/clients_list_screen.dart';
 import '../../features/cnc/presentation/cnc_files_screen.dart';
 import '../../features/cut_list/presentation/cut_list_screen.dart';
 import '../../features/finishing/presentation/finishing_schedule_screen.dart';
+import '../../features/marketplace/presentation/marketplace_browse_screen.dart';
 import '../../features/projects/presentation/project_detail_screen.dart';
 import '../../features/projects/presentation/projects_list_screen.dart';
 import '../../features/quotes/presentation/quotes_list_screen.dart';
@@ -105,6 +106,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'insights',
                     builder: (_, __) => const AnalyticsDashboardScreen(),
+                  ),
+                  GoRoute(
+                    path: 'marketplace',
+                    builder: (_, __) => const MarketplaceBrowseScreen(),
                   ),
                 ],
               ),
