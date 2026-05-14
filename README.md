@@ -13,6 +13,7 @@ WoodWorks Pro streamlines project planning, estimating, material management, and
 - [`REQUIREMENTS.md`](./REQUIREMENTS.md) — Developer-ready requirements document covering features, tech stack, database structure, security, UI/UX, user flows, monetization, roadmap, and launch checklist.
 - [`APP_STORE.md`](./APP_STORE.md) — App Store launch assets: name candidates, short + long descriptions, screenshot storyboard, pricing strategy, competitive analysis, and target personas.
 - [`DESIGN.md`](./DESIGN.md) — Design system and wireframes: brand direction, logo concept, color tokens, typography, components, navigation, and per-screen wireframe descriptions.
+- [`PITCH.md`](./PITCH.md) — 12-slide investor pitch deck content: problem, market, solution, business model, go-to-market, competition, roadmap, team, and ask.
 
 ## Target Platforms
 
