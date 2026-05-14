@@ -11,6 +11,7 @@ WoodWorks Pro streamlines project planning, estimating, material management, and
 ## Documents
 
 - [`REQUIREMENTS.md`](./REQUIREMENTS.md) — Developer-ready requirements document covering features, tech stack, database structure, security, UI/UX, user flows, monetization, roadmap, and launch checklist.
+- [`APP_STORE.md`](./APP_STORE.md) — App Store launch assets: name candidates, short + long descriptions, screenshot storyboard, pricing strategy, competitive analysis, and target personas.
 
 ## Target Platforms
 
