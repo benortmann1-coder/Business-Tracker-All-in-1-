@@ -1,6 +1,9 @@
 # setup-mcp-windows.ps1
 # One-shot installer for the Windows-MCP and BigQuery MCP servers in Claude Code.
 # Run from PowerShell on the Windows PC where you use Claude Code.
+#
+# BigQuery: uses LucasHild/mcp-server-bigquery (Python via uvx) — supports
+# read AND write (DDL/DML), gated only by the service account's IAM permissions.
 
 $ErrorActionPreference = 'Stop'
 $cc      = "$env:USERPROFILE\.claude.json"
@@ -10,21 +13,14 @@ if (-not (Test-Path $cc)) {
   throw "Claude config not found at $cc. Make sure Claude Code is installed and has been run at least once."
 }
 
-# 1) Node.js (needed for the BigQuery server's npx command)
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  Write-Host "Installing Node.js LTS..." -ForegroundColor Cyan
-  winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
-  $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-}
-
-# 2) uv (needed for the Windows-MCP server's uvx command)
+# 1) uv (needed for both servers — uvx runs mcp-server-bigquery and windows-mcp)
 if (-not (Get-Command uvx -ErrorAction SilentlyContinue)) {
   Write-Host "Installing uv..." -ForegroundColor Cyan
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
   $env:Path += ";$env:USERPROFILE\.local\bin"
 }
 
-# 3) Move the BigQuery service account key out of Downloads into a stable spot
+# 2) Move the BigQuery service account key out of Downloads into a stable spot
 if (-not (Test-Path $keyFile)) {
   $found = Get-ChildItem "$env:USERPROFILE\Downloads\*premiercustomstorage*.json" -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($found) {
@@ -35,11 +31,11 @@ if (-not (Test-Path $keyFile)) {
   }
 }
 
-# 4) Back up the current .claude.json
+# 3) Back up the current .claude.json
 Copy-Item $cc "$cc.bak" -Force
 Write-Host "Backed up $cc to $cc.bak" -ForegroundColor Cyan
 
-# 5) Merge mcpServers into .claude.json
+# 4) Merge mcpServers into .claude.json
 $j   = Get-Content $cc -Raw | ConvertFrom-Json
 $mcp = [PSCustomObject]@{}
 Add-Member -InputObject $mcp -NotePropertyName 'windows-mcp' -NotePropertyValue ([PSCustomObject]@{
@@ -47,12 +43,12 @@ Add-Member -InputObject $mcp -NotePropertyName 'windows-mcp' -NotePropertyValue 
   args    = ,'windows-mcp'
 })
 Add-Member -InputObject $mcp -NotePropertyName 'bigquery' -NotePropertyValue ([PSCustomObject]@{
-  command = 'npx'
-  args    = @('-y','@ergut/mcp-bigquery-server','--project-id','premiercustomstorage','--key-file',$keyFile)
+  command = 'uvx'
+  args    = @('mcp-server-bigquery','--project','premiercustomstorage','--location','US','--key-file',$keyFile)
 })
 $j | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $mcp -Force
 
-# 6) Save without BOM (UTF-8)
+# 5) Save without BOM (UTF-8)
 [System.IO.File]::WriteAllText($cc, ($j | ConvertTo-Json -Depth 100), [System.Text.UTF8Encoding]::new($false))
 
 Write-Host ""
