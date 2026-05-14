@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/analytics/presentation/analytics_dashboard_screen.dart';
 import '../../features/board_foot/presentation/board_foot_calculator_screen.dart';
 import '../../features/clients/presentation/clients_list_screen.dart';
+import '../../features/cnc/presentation/cnc_files_screen.dart';
 import '../../features/cut_list/presentation/cut_list_screen.dart';
+import '../../features/finishing/presentation/finishing_schedule_screen.dart';
 import '../../features/projects/presentation/project_detail_screen.dart';
 import '../../features/projects/presentation/projects_list_screen.dart';
 import '../../features/quotes/presentation/quotes_list_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
+import '../../features/sync/presentation/cloud_sync_screen.dart';
+import '../../features/team/presentation/team_screen.dart';
 import '../../features/tools/presentation/tools_list_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -36,6 +41,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         builder: (_, state) => CutListScreen(
                           projectId: state.pathParameters['id']!,
                         ),
+                      ),
+                      GoRoute(
+                        path: 'cnc',
+                        builder: (_, state) => CncFilesScreen(
+                          projectId: state.pathParameters['id']!,
+                        ),
+                      ),
+                      GoRoute(
+                        path: 'finishing',
+                        builder: (_, __) => const FinishingScheduleScreen(),
                       ),
                     ],
                   ),
@@ -78,6 +93,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/settings',
                 builder: (_, __) => const SettingsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'cloud-sync',
+                    builder: (_, __) => const CloudSyncScreen(),
+                  ),
+                  GoRoute(
+                    path: 'team',
+                    builder: (_, __) => const TeamScreen(),
+                  ),
+                  GoRoute(
+                    path: 'insights',
+                    builder: (_, __) => const AnalyticsDashboardScreen(),
+                  ),
+                ],
               ),
             ],
           ),

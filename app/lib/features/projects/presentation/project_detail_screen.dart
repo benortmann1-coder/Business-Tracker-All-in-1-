@@ -48,6 +48,20 @@ class ProjectDetailScreen extends ConsumerWidget {
                 subtitle: 'Progress photos and shop drawings',
                 icon: Icons.image_outlined,
               ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'CNC Files',
+                subtitle: 'DXF, SVG, and G-code files for this project',
+                icon: Icons.precision_manufacturing_outlined,
+                onTap: () => context.go('/projects/$projectId/cnc'),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Finishing Schedule',
+                subtitle: 'Multi-step finish with drying reminders',
+                icon: Icons.timer_outlined,
+                onTap: () => context.go('/projects/$projectId/finishing'),
+              ),
               const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: () {},

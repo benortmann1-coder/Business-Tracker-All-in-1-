@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -21,13 +22,28 @@ class SettingsScreen extends StatelessWidget {
             title: const Text('Biometric lock'),
             trailing: Switch(value: false, onChanged: (_) {}),
           ),
+          const _SectionHeader('Insights'),
+          ListTile(
+            leading: const Icon(Icons.bar_chart_outlined),
+            title: const Text('View insights'),
+            subtitle: const Text('Revenue, margin, days to pay'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/settings/insights'),
+          ),
           const _SectionHeader('Subscription & Add-Ons'),
           ListTile(
             leading: const Icon(Icons.cloud_outlined),
             title: const Text('Cloud Sync'),
             subtitle: const Text('Not subscribed'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
+            onTap: () => context.go('/settings/cloud-sync'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.groups_outlined),
+            title: const Text('Team Collaboration'),
+            subtitle: const Text('Solo account'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/settings/team'),
           ),
           ListTile(
             leading: const Icon(Icons.precision_manufacturing_outlined),
