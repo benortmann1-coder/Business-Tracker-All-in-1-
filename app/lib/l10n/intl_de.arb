@@ -1,6 +1,7 @@
 {
   "@@locale": "de",
-  "appTitle": "WoodWorks Pro",
+  "appTitle": "Bevelry",
+
   "navProjects": "Projekte",
   "navClients": "Kunden",
   "navTools": "Werkzeuge",
@@ -24,14 +25,30 @@
   "emptyProjectsSubtitle": "Starte dein erstes Projekt. Schnittliste, Material und Angebot — alles an einem Ort.",
   "emptyProjectsCta": "Erstes Projekt starten",
 
+  "emptyClientsTitle": "Erfasse deinen ersten Kunden",
+  "emptyClientsSubtitle": "Schluss mit dem Suchen in Textnachrichten. Halte jeden Kontakt, jedes Projekt und jede Freigabe an einem Ort fest.",
+
   "boardFootCalculatorTitle": "Brettfuß-Rechner",
   "boardFootResultLabel": "Brettfuß",
   "boardFootTotalLabel": "Gesamt",
+  "boardFootThickness": "Stärke (Zoll)",
+  "boardFootWidth": "Breite (Zoll)",
+  "boardFootLength": "Länge (Fuß)",
+  "boardFootQuantity": "Menge",
+  "boardFootPricePerBf": "Preis pro Brettfuß ($)",
 
   "cutListTitle": "Schnittliste",
   "cutListOptimize": "Optimieren",
   "cutListEmpty": "Noch keine Teile. Tippe „Teil hinzufügen“, um zu beginnen.",
 
   "cloudSyncTitle": "Geräteübergreifende Synchronisierung",
-  "cloudSyncSubtitle": "Deine Werkstatt auf jedem Gerät. Verschlüsselte Backups. Funktioniert offline, synchronisiert bei Verbindung."
+  "cloudSyncSubtitle": "Deine Werkstatt auf jedem Gerät. Verschlüsselte Backups. Funktioniert offline, synchronisiert bei Verbindung.",
+  "cloudSyncStartTrial": "Test starten — 4,99 $/Monat",
+  "cloudSyncAnnual": "Oder jährlich zahlen — 39,99 $/Jahr",
+
+  "settingsAccount": "Konto",
+  "settingsInsights": "Auswertungen",
+  "settingsSubscriptions": "Abonnement & Erweiterungen",
+  "settingsPreferences": "Einstellungen",
+  "settingsAbout": "Über"
 }

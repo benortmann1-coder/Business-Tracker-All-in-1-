@@ -19,8 +19,9 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final hasAction = actionLabel != null;
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -28,7 +29,7 @@ class EmptyState extends StatelessWidget {
             Icon(
               icon,
               size: 64,
-              color: t.colorScheme.onSurface.withOpacity(0.4),
+              color: t.colorScheme.onSurface.withValues(alpha: 0.4),
             ),
             const SizedBox(height: 24),
             Text(
@@ -44,7 +45,7 @@ class EmptyState extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ],
-            if (actionLabel != null && onAction != null) ...[
+            if (hasAction) ...[
               const SizedBox(height: 24),
               FilledButton(onPressed: onAction, child: Text(actionLabel!)),
             ],

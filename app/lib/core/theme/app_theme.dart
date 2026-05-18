@@ -69,7 +69,7 @@ abstract class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: isDark ? AppColors.charcoal900 : AppColors.cream50,
-        indicatorColor: scheme.primary.withOpacity(0.12),
+        indicatorColor: scheme.primary.withValues(alpha: 0.12),
         labelTextStyle: const WidgetStatePropertyAll(
           TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),

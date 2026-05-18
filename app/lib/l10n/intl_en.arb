@@ -1,6 +1,6 @@
 {
   "@@locale": "en",
-  "appTitle": "WoodWorks Pro",
+  "appTitle": "Bevelry",
   "@appTitle": { "description": "The app name shown in the launcher and About screen." },
 
   "navProjects": "Projects",

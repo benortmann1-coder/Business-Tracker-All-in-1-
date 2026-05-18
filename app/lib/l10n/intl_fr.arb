@@ -1,6 +1,7 @@
 {
   "@@locale": "fr",
-  "appTitle": "WoodWorks Pro",
+  "appTitle": "Bevelry",
+
   "navProjects": "Projets",
   "navClients": "Clients",
   "navTools": "Outils",
@@ -24,14 +25,30 @@
   "emptyProjectsSubtitle": "Commencez votre premier projet. Liste de coupes, matériaux et devis — tout au même endroit.",
   "emptyProjectsCta": "Démarrer mon premier projet",
 
+  "emptyClientsTitle": "Ajoutez votre premier client",
+  "emptyClientsSubtitle": "Arrêtez de chercher dans vos SMS. Gardez chaque contact, projet et approbation au même endroit.",
+
   "boardFootCalculatorTitle": "Calculateur de pied-planche",
   "boardFootResultLabel": "Pied-planche",
   "boardFootTotalLabel": "Total",
+  "boardFootThickness": "Épaisseur (po)",
+  "boardFootWidth": "Largeur (po)",
+  "boardFootLength": "Longueur (pi)",
+  "boardFootQuantity": "Quantité",
+  "boardFootPricePerBf": "Prix par pied-planche ($)",
 
   "cutListTitle": "Liste de coupes",
   "cutListOptimize": "Optimiser",
   "cutListEmpty": "Aucune pièce pour l'instant. Touchez « Ajouter une pièce » pour commencer.",
 
   "cloudSyncTitle": "Synchronisation multi-appareils",
-  "cloudSyncSubtitle": "Votre atelier sur tous vos appareils. Sauvegardes chiffrées. Fonctionne hors-ligne, se synchronise au retour en ligne."
+  "cloudSyncSubtitle": "Votre atelier sur tous vos appareils. Sauvegardes chiffrées. Fonctionne hors-ligne, se synchronise au retour en ligne.",
+  "cloudSyncStartTrial": "Commencer l'essai — 4,99 $/mois",
+  "cloudSyncAnnual": "Ou payer à l'année — 39,99 $/an",
+
+  "settingsAccount": "Compte",
+  "settingsInsights": "Statistiques",
+  "settingsSubscriptions": "Abonnement et modules",
+  "settingsPreferences": "Préférences",
+  "settingsAbout": "À propos"
 }

@@ -20,6 +20,31 @@ import '../../features/tools/presentation/tools_list_screen.dart';
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/projects',
+    errorBuilder: (context, state) => Scaffold(
+      appBar: AppBar(title: const Text('Page not found')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.broken_image_outlined, size: 64),
+              const SizedBox(height: 16),
+              Text(
+                "We couldn't find ${state.uri}",
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: () => context.go('/projects'),
+                child: const Text('Back to Projects'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
     routes: [
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
@@ -51,7 +76,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       ),
                       GoRoute(
                         path: 'finishing',
-                        builder: (_, __) => const FinishingScheduleScreen(),
+                        builder: (_, state) => FinishingScheduleScreen(
+                          projectId: state.pathParameters['id'],
+                        ),
                       ),
                     ],
                   ),
@@ -110,6 +137,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'marketplace',
                     builder: (_, __) => const MarketplaceBrowseScreen(),
+                  ),
+                  GoRoute(
+                    path: 'cnc',
+                    builder: (_, __) => const CncFilesScreen(),
                   ),
                 ],
               ),

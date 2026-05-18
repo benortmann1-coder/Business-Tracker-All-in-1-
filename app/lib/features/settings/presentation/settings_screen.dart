@@ -50,7 +50,7 @@ class SettingsScreen extends StatelessWidget {
             title: const Text('CNC File Manager'),
             subtitle: const Text('Not purchased'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
+            onTap: () => context.go('/settings/cnc'),
           ),
           const _SectionHeader('Marketplace'),
           ListTile(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/colors.dart';
 import '../domain/listing.dart';
 
 class MarketplaceBrowseScreen extends StatelessWidget {
@@ -86,7 +87,7 @@ class _ListingCard extends StatelessWidget {
                   ),
                 ),
                 if (listing.averageRating != null) ...[
-                  const Icon(Icons.star, size: 16, color: Colors.amber),
+                  const Icon(Icons.star, size: 16, color: AppColors.amber500),
                   const SizedBox(width: 4),
                   Text(
                     '${listing.averageRating!.toStringAsFixed(1)} '

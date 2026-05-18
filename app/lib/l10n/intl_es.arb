@@ -1,6 +1,7 @@
 {
   "@@locale": "es",
-  "appTitle": "WoodWorks Pro",
+  "appTitle": "Bevelry",
+
   "navProjects": "Proyectos",
   "navClients": "Clientes",
   "navTools": "Herramientas",
@@ -24,14 +25,30 @@
   "emptyProjectsSubtitle": "Comienza tu primer proyecto. Lista de cortes, materiales y presupuestos, todo en un solo lugar.",
   "emptyProjectsCta": "Empezar mi primer proyecto",
 
+  "emptyClientsTitle": "Agrega tu primer cliente",
+  "emptyClientsSubtitle": "Deja de buscar en mensajes de texto. Mantén cada contacto, proyecto y aprobación en un solo lugar.",
+
   "boardFootCalculatorTitle": "Calculadora de pies-tabla",
   "boardFootResultLabel": "Pies-tabla",
   "boardFootTotalLabel": "Total",
+  "boardFootThickness": "Espesor (pulg)",
+  "boardFootWidth": "Ancho (pulg)",
+  "boardFootLength": "Largo (pies)",
+  "boardFootQuantity": "Cantidad",
+  "boardFootPricePerBf": "Precio por pie-tabla ($)",
 
   "cutListTitle": "Lista de cortes",
   "cutListOptimize": "Optimizar",
   "cutListEmpty": "No hay piezas todavía. Toca \"Agregar pieza\" para comenzar.",
 
   "cloudSyncTitle": "Sincronización en la nube",
-  "cloudSyncSubtitle": "Tu taller en cada dispositivo. Copias de seguridad cifradas. Funciona sin conexión y se sincroniza al volver en línea."
+  "cloudSyncSubtitle": "Tu taller en cada dispositivo. Copias de seguridad cifradas. Funciona sin conexión y se sincroniza al volver en línea.",
+  "cloudSyncStartTrial": "Iniciar prueba — $4.99/mes",
+  "cloudSyncAnnual": "O paga anualmente — $39.99/año",
+
+  "settingsAccount": "Cuenta",
+  "settingsInsights": "Estadísticas",
+  "settingsSubscriptions": "Suscripción y complementos",
+  "settingsPreferences": "Preferencias",
+  "settingsAbout": "Acerca de"
 }

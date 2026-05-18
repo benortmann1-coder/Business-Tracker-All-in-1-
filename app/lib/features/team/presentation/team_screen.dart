@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/widgets/paywall_gate.dart';
+import '../../subscriptions/data/entitlements.dart';
 import '../domain/team_member.dart';
 
-class TeamScreen extends StatelessWidget {
-  const TeamScreen({this.unlocked = false, super.key});
-
-  final bool unlocked;
+class TeamScreen extends ConsumerWidget {
+  const TeamScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unlocked = ref.watch(entitlementsProvider).teamActive;
+
     if (!unlocked) {
       return Scaffold(
         appBar: AppBar(title: const Text('Team')),

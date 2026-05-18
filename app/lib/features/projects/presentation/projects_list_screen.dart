@@ -16,8 +16,10 @@ class ProjectsListScreen extends ConsumerWidget {
 
     Future<void> createProject() async {
       final repo = ref.read(projectRepositoryProvider);
-      await repo.upsert(Project(name: 'Untitled Project'));
+      final newProject = Project(name: 'Untitled Project');
+      await repo.upsert(newProject);
       ref.invalidate(projectsListProvider);
+      ref.invalidate(projectProvider(newProject.id));
     }
 
     return Scaffold(

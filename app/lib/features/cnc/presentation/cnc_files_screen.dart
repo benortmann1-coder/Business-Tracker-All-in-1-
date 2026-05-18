@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/widgets/paywall_gate.dart';
+import '../../subscriptions/data/entitlements.dart';
 
-class CncFilesScreen extends StatelessWidget {
-  const CncFilesScreen({this.projectId, this.unlocked = false, super.key});
+class CncFilesScreen extends ConsumerWidget {
+  const CncFilesScreen({this.projectId, super.key});
 
   final String? projectId;
-  final bool unlocked;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unlocked = ref.watch(entitlementsProvider).cncOwned;
+
     if (!unlocked) {
       return Scaffold(
         appBar: AppBar(title: const Text('CNC Files')),

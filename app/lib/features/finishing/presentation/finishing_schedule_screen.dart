@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import '../domain/finishing_step.dart';
 
 class FinishingScheduleScreen extends StatelessWidget {
-  const FinishingScheduleScreen({super.key});
+  const FinishingScheduleScreen({this.projectId, super.key});
+
+  final String? projectId;
 
   @override
   Widget build(BuildContext context) {
+    // Until a FinishingScheduleRepository lands, the screen renders a
+    // representative sample so the wireframe is walkable.
     final schedule = FinishingSchedule(
       name: 'Walnut bookcase — front',
       steps: [
@@ -66,7 +70,7 @@ class _StepCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: t.colorScheme.primary.withOpacity(0.12),
+              backgroundColor: t.colorScheme.primary.withValues(alpha: 0.12),
               foregroundColor: t.colorScheme.primary,
               child: Text('${index + 1}'),
             ),

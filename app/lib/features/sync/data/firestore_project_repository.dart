@@ -28,6 +28,13 @@ class FirestoreProjectRepository implements ProjectRepository {
   })  : _firestore = firestore,
         _uid = uid;
 
+  static const _tsFields = <String>{
+    'createdAt',
+    'updatedAt',
+    'dueDate',
+    'deletedAt',
+  };
+
   final FirebaseFirestore _firestore;
   final String _uid;
 
@@ -41,7 +48,7 @@ class FirestoreProjectRepository implements ProjectRepository {
         .orderBy('createdAt', descending: true)
         .get();
     return snapshot.docs
-        .map((d) => Project.fromJson(_normalize(d.data())))
+        .map((d) => Project.fromJson(_normalizeRead(d.data())))
         .toList();
   }
 
@@ -50,37 +57,47 @@ class FirestoreProjectRepository implements ProjectRepository {
     final doc = await _collection.doc(id).get();
     final data = doc.data();
     if (data == null) return null;
-    return Project.fromJson(_normalize(data));
+    final normalized = _normalizeRead(data);
+    if (normalized['deletedAt'] != null) return null;
+    return Project.fromJson(normalized);
   }
 
   @override
   Future<void> upsert(Project project) async {
-    await _collection.doc(project.id).set(
-      {
-        ...project.toJson(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'deletedAt': null,
-      },
-      SetOptions(merge: true),
-    );
+    final payload = _normalizeWrite(project.toJson())
+      ..['updatedAt'] = FieldValue.serverTimestamp();
+    await _collection.doc(project.id).set(payload, SetOptions(merge: true));
   }
 
   @override
   Future<void> delete(String id) async {
     await _collection.doc(id).update({
       'deletedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
-  /// Firestore returns [Timestamp] for date fields; the [Project.fromJson]
-  /// constructor expects ISO 8601 strings. Normalize before deserializing.
-  Map<String, dynamic> _normalize(Map<String, dynamic> data) {
+  /// Firestore returns [Timestamp] for date fields; [Project.fromJson] expects
+  /// ISO 8601 strings. Normalize before deserializing.
+  Map<String, dynamic> _normalizeRead(Map<String, dynamic> data) {
     final result = Map<String, dynamic>.from(data);
-    const tsFields = ['createdAt', 'updatedAt', 'dueDate', 'deletedAt'];
-    for (final key in tsFields) {
+    for (final key in _tsFields) {
       final value = data[key];
       if (value is Timestamp) {
         result[key] = value.toDate().toIso8601String();
+      }
+    }
+    return result;
+  }
+
+  /// [Project.toJson] emits ISO 8601 strings; Firestore should store
+  /// [Timestamp] so `orderBy(createdAt)` and range queries work.
+  Map<String, dynamic> _normalizeWrite(Map<String, dynamic> data) {
+    final result = Map<String, dynamic>.from(data);
+    for (final key in _tsFields) {
+      final value = data[key];
+      if (value is String) {
+        result[key] = Timestamp.fromDate(DateTime.parse(value));
       }
     }
     return result;
