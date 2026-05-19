@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
 import '../data/material_substitution_service.dart';
 
 class AiSuggestionsSheet extends StatelessWidget {
@@ -84,9 +85,17 @@ class _SuggestionRow extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(onPressed: () {}, child: const Text('Dismiss')),
+                TextButton(
+                  onPressed: () =>
+                      showComingSoon(context, 'AI suggestion actions'),
+                  child: const Text('Dismiss'),
+                ),
                 const SizedBox(width: 8),
-                FilledButton(onPressed: () {}, child: const Text('Apply')),
+                FilledButton(
+                  onPressed: () =>
+                      showComingSoon(context, 'AI suggestion actions'),
+                  child: const Text('Apply'),
+                ),
               ],
             ),
           ],

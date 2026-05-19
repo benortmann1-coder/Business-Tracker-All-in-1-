@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
+
 class CloudSyncScreen extends StatelessWidget {
   const CloudSyncScreen({super.key});
 
@@ -36,12 +38,14 @@ class CloudSyncScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   FilledButton(
-                    onPressed: () {},
+                    onPressed: () =>
+                        showComingSoon(context, 'Cloud Sync subscriptions'),
                     child: const Text(r'Start trial — $4.99/mo'),
                   ),
                   const SizedBox(height: 8),
                   TextButton(
-                    onPressed: () {},
+                    onPressed: () =>
+                        showComingSoon(context, 'Cloud Sync subscriptions'),
                     child: const Text(r'Or pay annually — $39.99/yr'),
                   ),
                 ],

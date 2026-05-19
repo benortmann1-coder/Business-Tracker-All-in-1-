@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
 import '../../../shared/widgets/paywall_gate.dart';
 import '../../subscriptions/data/entitlements.dart';
 
@@ -38,7 +39,7 @@ class CncFilesScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.upload_file_outlined),
             tooltip: 'Upload CNC file',
-            onPressed: () {},
+            onPressed: () => showComingSoon(context, 'CNC upload'),
           ),
         ],
       ),

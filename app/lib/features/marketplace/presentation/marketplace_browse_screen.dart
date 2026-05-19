@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/colors.dart';
+import '../../../shared/widgets/coming_soon.dart';
 import '../domain/listing.dart';
 
 class MarketplaceBrowseScreen extends StatelessWidget {
@@ -42,7 +43,7 @@ class MarketplaceBrowseScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.tune_outlined),
             tooltip: 'Filter',
-            onPressed: () {},
+            onPressed: () => showComingSoon(context, 'Marketplace filtering'),
           ),
         ],
       ),

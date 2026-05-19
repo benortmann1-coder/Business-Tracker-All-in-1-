@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
 import '../../../shared/widgets/empty_state.dart';
 
 class QuotesListScreen extends StatelessWidget {
@@ -11,7 +12,7 @@ class QuotesListScreen extends StatelessWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Money'),
+          title: const Text('Quotes & Invoices'),
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Quotes'),
@@ -22,7 +23,7 @@ class QuotesListScreen extends StatelessWidget {
         floatingActionButton: FloatingActionButton.extended(
           icon: const Icon(Icons.add),
           label: const Text('New Quote'),
-          onPressed: () {},
+          onPressed: () => showComingSoon(context, 'Quote builder'),
         ),
         body: const TabBarView(
           children: [

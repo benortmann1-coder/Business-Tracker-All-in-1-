@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
 import '../domain/finishing_step.dart';
 
 class FinishingScheduleScreen extends StatelessWidget {
@@ -42,7 +43,7 @@ class FinishingScheduleScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
         label: const Text('Add Step'),
-        onPressed: () {},
+        onPressed: () => showComingSoon(context, 'Finishing step editor'),
       ),
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
@@ -101,7 +102,7 @@ class _StepCard extends StatelessWidget {
               ),
             ),
             FilledButton.tonal(
-              onPressed: () {},
+              onPressed: () => showComingSoon(context, 'Drying timer'),
               child: const Text('Start'),
             ),
           ],

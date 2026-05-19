@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/typography.dart';
+import '../../../shared/widgets/coming_soon.dart';
 
 class AnalyticsDashboardScreen extends StatelessWidget {
   const AnalyticsDashboardScreen({super.key});
@@ -14,19 +15,42 @@ class AnalyticsDashboardScreen extends StatelessWidget {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.date_range_outlined),
+            tooltip: 'Time period',
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'week', child: Text('This Week')),
               PopupMenuItem(value: 'month', child: Text('This Month')),
               PopupMenuItem(value: 'quarter', child: Text('This Quarter')),
               PopupMenuItem(value: 'year', child: Text('This Year')),
             ],
-            onSelected: (_) {},
+            onSelected: (_) => showComingSoon(context, 'Period filtering'),
           ),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Card(
+            color: t.colorScheme.secondaryContainer
+                .withValues(alpha: 0.5),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.science_outlined, color: t.colorScheme.secondary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Sample data — these numbers are placeholders. '
+                      'Real insights light up once you have quotes and '
+                      'invoices in the app.',
+                      style: t.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           const Row(
             children: [
               Expanded(
@@ -82,7 +106,7 @@ class AnalyticsDashboardScreen extends StatelessWidget {
           const _ClientRow(name: 'Cedar Stoneworks', value: r'$2,100'),
           const SizedBox(height: 32),
           OutlinedButton.icon(
-            onPressed: () {},
+            onPressed: () => showComingSoon(context, 'PDF export'),
             icon: const Icon(Icons.ios_share_outlined),
             label: const Text('Export PDF'),
           ),
@@ -124,12 +148,22 @@ class _KpiCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              delta,
-              style: t.textTheme.bodySmall?.copyWith(
-                color: deltaColor,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: [
+                Icon(
+                  good ? Icons.arrow_upward : Icons.arrow_downward,
+                  size: 14,
+                  color: deltaColor,
+                ),
+                const SizedBox(width: 2),
+                Text(
+                  delta,
+                  style: t.textTheme.bodySmall?.copyWith(
+                    color: deltaColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

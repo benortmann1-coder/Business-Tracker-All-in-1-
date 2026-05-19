@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -15,12 +17,14 @@ class SettingsScreen extends StatelessWidget {
             leading: const Icon(Icons.person_outline),
             title: const Text('Profile'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
+            onTap: () => showComingSoon(context, 'Profile editing'),
           ),
-          ListTile(
-            leading: const Icon(Icons.fingerprint),
+          SwitchListTile(
+            secondary: const Icon(Icons.fingerprint),
             title: const Text('Biometric lock'),
-            trailing: Switch(value: false, onChanged: (_) {}),
+            subtitle: const Text('Coming soon'),
+            value: false,
+            onChanged: null,
           ),
           const _SectionHeader('Insights'),
           ListTile(
@@ -52,28 +56,28 @@ class SettingsScreen extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.go('/settings/cnc'),
           ),
-          const _SectionHeader('Marketplace'),
-          ListTile(
-            leading: const Icon(Icons.storefront_outlined),
-            title: const Text('Browse shops'),
-            subtitle: const Text('Find woodworkers near you'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go('/settings/marketplace'),
-          ),
           const _SectionHeader('Preferences'),
           ListTile(
             leading: const Icon(Icons.straighten_outlined),
             title: const Text('Units'),
             subtitle: const Text('Imperial (in, ft, lb)'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
+            onTap: () => showComingSoon(context, 'Unit preferences'),
           ),
           ListTile(
             leading: const Icon(Icons.attach_money),
             title: const Text('Default markup'),
             subtitle: const Text('25%'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
+            onTap: () => showComingSoon(context, 'Markup preferences'),
+          ),
+          const _SectionHeader('Data'),
+          ListTile(
+            leading: const Icon(Icons.ios_share_outlined),
+            title: const Text('Export data (CSV)'),
+            subtitle: const Text('Download projects and clients'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showComingSoon(context, 'CSV export'),
           ),
           const _SectionHeader('About'),
           const ListTile(

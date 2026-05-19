@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ai/data/cut_optimization_service.dart';
 import '../domain/cut_list_item.dart';
+import 'cut_list_part_form_sheet.dart';
 
 class CutListScreen extends ConsumerStatefulWidget {
   const CutListScreen({required this.projectId, super.key});
@@ -92,7 +93,8 @@ class _CutListScreenState extends ConsumerState<CutListScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Optimized: ${_result!.sheetCount} sheet${_result!.sheetCount == 1 ? '' : 's'} '
+                                'Optimized: ${_result!.sheetCount} '
+                                'sheet${_result!.sheetCount == 1 ? '' : 's'} '
                                 '• ${_result!.wastePercent.toStringAsFixed(1)}% waste',
                               ),
                             ),
@@ -110,16 +112,20 @@ class _CutListScreenState extends ConsumerState<CutListScreen> {
                       return ListTile(
                         title: Text(item.partName),
                         subtitle: Text(
-                          '${item.lengthInches}" × ${item.widthInches}" × ${item.quantity}',
+                          '${item.lengthInches}" × ${item.widthInches}" × ${item.quantity}'
+                          '${item.grainDirection == GrainDirection.none ? '' : ' • grain: ${item.grainDirection.name}'}',
                         ),
                         trailing: IconButton(
                           icon: const Icon(Icons.delete_outline),
                           tooltip: 'Remove part',
+                          iconSize: 24,
+                          padding: const EdgeInsets.all(12),
                           onPressed: () => setState(() {
                             _items.removeAt(i);
                             _result = null;
                           }),
                         ),
+                        onTap: () => _editItem(i),
                       );
                     },
                   ),
@@ -145,15 +151,38 @@ class _CutListScreenState extends ConsumerState<CutListScreen> {
     });
   }
 
-  void _addItem() {
+  Future<void> _addItem() async {
+    final result = await CutListPartFormSheet.show(context);
+    if (result == null) return;
     setState(() {
       _items.add(
         CutListItem(
-          partName: 'Part ${_items.length + 1}',
+          partName: result.partName,
           materialId: 'placeholder',
-          lengthInches: 24,
-          widthInches: 12,
+          lengthInches: result.lengthInches,
+          widthInches: result.widthInches,
+          quantity: result.quantity,
+          grainDirection: result.grainDirection,
         ),
+      );
+      _result = null;
+    });
+  }
+
+  Future<void> _editItem(int index) async {
+    final existing = _items[index];
+    final result =
+        await CutListPartFormSheet.show(context, existing: existing);
+    if (result == null) return;
+    setState(() {
+      _items[index] = CutListItem(
+        id: existing.id,
+        partName: result.partName,
+        materialId: existing.materialId,
+        lengthInches: result.lengthInches,
+        widthInches: result.widthInches,
+        quantity: result.quantity,
+        grainDirection: result.grainDirection,
       );
       _result = null;
     });

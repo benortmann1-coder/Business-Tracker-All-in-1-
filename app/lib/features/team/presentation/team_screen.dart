@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/widgets/coming_soon.dart';
 import '../../../shared/widgets/paywall_gate.dart';
 import '../../subscriptions/data/entitlements.dart';
 import '../domain/team_member.dart';
@@ -52,7 +53,7 @@ class TeamScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.person_add_outlined),
             tooltip: 'Invite member',
-            onPressed: () {},
+            onPressed: () => showComingSoon(context, 'Team invitations'),
           ),
         ],
       ),
