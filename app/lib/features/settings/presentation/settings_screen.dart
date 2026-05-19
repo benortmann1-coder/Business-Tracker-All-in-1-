@@ -68,6 +68,14 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.go('/settings/cnc'),
           ),
+          const _SectionHeader('Library'),
+          ListTile(
+            leading: const Icon(Icons.layers_outlined),
+            title: const Text('Materials & hardware'),
+            subtitle: const Text('Lumber, hinges, finishes, fasteners'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/settings/materials'),
+          ),
           const _SectionHeader('Preferences'),
           ListTile(
             leading: const Icon(Icons.straighten_outlined),

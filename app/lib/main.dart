@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'features/clients/data/hive_client_repository.dart';
+import 'features/materials/data/hive_material_repository.dart';
 import 'features/projects/data/hive_project_repository.dart';
 import 'features/quotes/data/hive_quote_repository.dart';
 import 'features/settings/data/shop_settings_provider.dart';
@@ -16,6 +17,7 @@ Future<void> main() async {
     Hive.openBox<String>(HiveProjectRepository.boxName),
     Hive.openBox<String>(HiveClientRepository.boxName),
     Hive.openBox<String>(HiveQuoteRepository.boxName),
+    Hive.openBox<String>(HiveMaterialRepository.boxName),
     SharedPreferences.getInstance(),
   ]);
   final prefs = results.last as SharedPreferences;
