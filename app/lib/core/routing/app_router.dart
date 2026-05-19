@@ -11,6 +11,7 @@ import '../../features/finishing/presentation/finishing_schedule_screen.dart';
 import '../../features/marketplace/presentation/marketplace_browse_screen.dart';
 import '../../features/materials/presentation/materials_list_screen.dart';
 import '../../features/projects/presentation/project_detail_screen.dart';
+import '../../features/projects/presentation/project_photos_screen.dart';
 import '../../features/projects/presentation/projects_list_screen.dart';
 import '../../features/quotes/presentation/quotes_list_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
@@ -80,6 +81,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         path: 'finishing',
                         builder: (_, state) => FinishingScheduleScreen(
                           projectId: state.pathParameters['id'],
+                        ),
+                      ),
+                      GoRoute(
+                        path: 'photos',
+                        builder: (_, state) => ProjectPhotosScreen(
+                          projectId: state.pathParameters['id']!,
                         ),
                       ),
                     ],

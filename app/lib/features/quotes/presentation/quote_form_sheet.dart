@@ -16,6 +16,7 @@ import '../domain/quote.dart';
 import '../domain/quote_line_item.dart';
 import '../domain/quote_templates.dart';
 import 'quote_line_item_form_sheet.dart';
+import 'signature_capture_screen.dart';
 
 /// Full-screen quote builder. Push as a modal route via [show].
 class QuoteFormSheet extends ConsumerStatefulWidget {
@@ -451,6 +452,15 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
             ),
             const Divider(height: 1),
             ListTile(
+              leading: const Icon(Icons.draw_outlined),
+              title: const Text('Capture client signature'),
+              subtitle: const Text(
+                'In-person — hand the device to your client',
+              ),
+              onTap: () => Navigator.of(sheetCtx).pop('signature'),
+            ),
+            const Divider(height: 1),
+            ListTile(
               leading: const Icon(Icons.picture_as_pdf_outlined),
               title: const Text('PDF — preview, print, save, or share'),
               subtitle: const Text('Branded quote with signature line'),
@@ -485,15 +495,21 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     if (action == null || !mounted) return;
     final shop = ref.read(shopSettingsProvider);
     switch (action) {
+      case 'signature':
+        await _captureSignature(quote);
       case 'pdf':
+        // Re-fetch in case we just captured a signature mid-flow.
+        final freshQuote =
+            await ref.read(quoteRepositoryProvider).get(quote.id) ?? quote;
         await Printing.layoutPdf(
           onLayout: (_) => renderQuotePdf(
-            quote: quote,
+            quote: freshQuote,
             client: client,
             shopName: shop.shopName,
             shopAddress: shop.shopAddress,
             shopPhone: shop.shopPhone,
             shopEmail: shop.shopEmail,
+            shopLicenseNumber: shop.licenseNumber,
           ),
           name: quote.title.isEmpty ? 'Quote' : quote.title,
         );
@@ -507,6 +523,35 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
           subject: quote.title.isEmpty ? 'Quote' : quote.title,
         );
     }
+  }
+
+  Future<void> _captureSignature(Quote draftQuote) async {
+    // Persist any unsaved edits first so the signed quote includes them.
+    await ref.read(quoteRepositoryProvider).upsert(draftQuote);
+    if (!mounted) return;
+    final path = await SignatureCaptureScreen.capture(
+      context,
+      quoteId: draftQuote.id,
+    );
+    if (path == null || !mounted) return;
+    final signed = draftQuote.copyWith(
+      signatureStoragePath: path,
+      signedAt: DateTime.now(),
+      status: QuoteStatus.approved,
+      updatedAt: DateTime.now(),
+    );
+    await ref.read(quoteRepositoryProvider).upsert(signed);
+    ref.invalidate(quotesListProvider);
+    ref.invalidate(quoteProvider(signed.id));
+    if (!mounted) return;
+    setState(() => _status = QuoteStatus.approved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Signed and approved. Open the PDF to share or print.',
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
@@ -17,10 +18,23 @@ Future<Uint8List> renderQuotePdf({
   String? shopAddress,
   String? shopPhone,
   String? shopEmail,
+  String? shopLicenseNumber,
 }) async {
   final doc = pw.Document(
     title: quote.title.isEmpty ? 'Quote' : quote.title,
   );
+
+  Uint8List? signatureBytes;
+  if (quote.signatureStoragePath != null) {
+    try {
+      final file = File(quote.signatureStoragePath!);
+      if (file.existsSync()) {
+        signatureBytes = await file.readAsBytes();
+      }
+    } on FileSystemException {
+      signatureBytes = null;
+    }
+  }
 
   String money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
   String date(DateTime d) =>
@@ -53,6 +67,11 @@ Future<Uint8List> renderQuotePdf({
                   pw.Text(shopPhone, style: const pw.TextStyle(fontSize: 10)),
                 if (shopEmail != null)
                   pw.Text(shopEmail, style: const pw.TextStyle(fontSize: 10)),
+                if (shopLicenseNumber != null)
+                  pw.Text(
+                    'License: $shopLicenseNumber',
+                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+                  ),
               ],
             ),
             pw.Column(
@@ -228,21 +247,35 @@ Future<Uint8List> renderQuotePdf({
           pw.Text(quote.notes, style: const pw.TextStyle(fontSize: 10)),
         ],
 
-        // Signature line
+        // Signature
         pw.SizedBox(height: 36),
         pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Expanded(
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Container(
+                    height: 60,
+                    margin: const pw.EdgeInsets.only(right: 24),
+                    alignment: pw.Alignment.bottomLeft,
+                    child: signatureBytes != null
+                        ? pw.Image(
+                            pw.MemoryImage(signatureBytes),
+                            fit: pw.BoxFit.contain,
+                          )
+                        : null,
+                  ),
+                  pw.Container(
                     height: 1,
                     color: PdfColors.black,
-                    margin: const pw.EdgeInsets.only(top: 28, right: 24),
+                    margin: const pw.EdgeInsets.only(top: 4, right: 24),
                   ),
                   pw.Text(
-                    'Customer signature',
+                    signatureBytes != null
+                        ? 'Customer signature (captured ${date(quote.signedAt ?? quote.updatedAt)})'
+                        : 'Customer signature',
                     style: const pw.TextStyle(
                         fontSize: 9, color: PdfColors.grey600),
                   ),
@@ -254,9 +287,20 @@ Future<Uint8List> renderQuotePdf({
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Container(
+                    height: 60,
+                    alignment: pw.Alignment.bottomLeft,
+                    padding: const pw.EdgeInsets.only(bottom: 4),
+                    child: signatureBytes != null
+                        ? pw.Text(
+                            date(quote.signedAt ?? quote.updatedAt),
+                            style: const pw.TextStyle(fontSize: 14),
+                          )
+                        : null,
+                  ),
+                  pw.Container(
                     height: 1,
                     color: PdfColors.black,
-                    margin: const pw.EdgeInsets.only(top: 28),
+                    margin: const pw.EdgeInsets.only(top: 4),
                   ),
                   pw.Text(
                     'Date',

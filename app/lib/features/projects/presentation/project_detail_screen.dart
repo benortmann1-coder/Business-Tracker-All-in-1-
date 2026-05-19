@@ -97,11 +97,13 @@ class ProjectDetailScreen extends ConsumerWidget {
                 enabled: false,
               ),
               const SizedBox(height: 12),
-              const _SectionCard(
+              _SectionCard(
                 title: 'Photos & Drawings',
-                subtitle: 'Coming soon — progress photos and shop drawings',
+                subtitle: project.photoPaths.isEmpty
+                    ? 'Snap progress shots and shop drawings'
+                    : '${project.photoPaths.length} photo${project.photoPaths.length == 1 ? '' : 's'} attached',
                 icon: Icons.image_outlined,
-                enabled: false,
+                onTap: () => context.go('/projects/$projectId/photos'),
               ),
             ],
           );

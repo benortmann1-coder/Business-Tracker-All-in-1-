@@ -15,6 +15,39 @@ flutter run
 ```
 The `flutter create` line above generates the platform folders (`ios/`, `android/`) and `pubspec.lock` that aren't tracked here — run it once after cloning.
 
+### Platform permissions (one-time after the initial `flutter create`)
+
+The app uses `image_picker` (camera + photo library) and `url_launcher`
+(mailto + sms schemes). After `flutter create`, edit the platform files:
+
+**iOS** — `ios/Runner/Info.plist`, add inside `<dict>`:
+```xml
+<key>NSCameraUsageDescription</key>
+<string>Take photos of your projects, finishes, and shop drawings.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>Attach photos from your library to a project.</string>
+<key>LSApplicationQueriesSchemes</key>
+<array>
+  <string>mailto</string>
+  <string>sms</string>
+</array>
+```
+
+**Android** — `android/app/src/main/AndroidManifest.xml`, inside `<manifest>`:
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+<queries>
+  <intent>
+    <action android:name="android.intent.action.SENDTO" />
+    <data android:scheme="mailto" />
+  </intent>
+  <intent>
+    <action android:name="android.intent.action.SENDTO" />
+    <data android:scheme="sms" />
+  </intent>
+</queries>
+```
+
 ## Project Layout
 ```
 lib/
