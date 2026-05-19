@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../shared/utils/quote_pdf_renderer.dart';
 import '../../../shared/utils/share_helpers.dart';
 import '../../clients/data/client_repository.dart';
 import '../../clients/domain/client.dart';
@@ -442,8 +444,15 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
             ),
             const Divider(height: 1),
             ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('PDF — preview, print, save, or share'),
+              subtitle: const Text('Branded quote with signature line'),
+              onTap: () => Navigator.of(sheetCtx).pop('pdf'),
+            ),
+            const Divider(height: 1),
+            ListTile(
               leading: const Icon(Icons.mail_outline),
-              title: const Text('Email'),
+              title: const Text('Email (plain text)'),
               subtitle: client?.email == null
                   ? const Text('Opens your mail composer')
                   : Text('To: ${client?.email}'),
@@ -451,7 +460,7 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
             ),
             ListTile(
               leading: const Icon(Icons.sms_outlined),
-              title: const Text('Text message'),
+              title: const Text('Text message (plain text)'),
               subtitle: client?.phone == null
                   ? const Text('Opens your messages app')
                   : Text('To: ${client?.phone}'),
@@ -459,7 +468,7 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
             ),
             ListTile(
               leading: const Icon(Icons.ios_share_outlined),
-              title: const Text('Other (system share sheet)'),
+              title: const Text('Plain text — system share sheet'),
               onTap: () => Navigator.of(sheetCtx).pop('system'),
             ),
           ],
@@ -468,6 +477,11 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     );
     if (action == null || !mounted) return;
     switch (action) {
+      case 'pdf':
+        await Printing.layoutPdf(
+          onLayout: (_) => renderQuotePdf(quote: quote, client: client),
+          name: quote.title.isEmpty ? 'Quote' : quote.title,
+        );
       case 'email':
         await openMailWithQuote(quote, client: client);
       case 'sms':
