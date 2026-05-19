@@ -8,6 +8,9 @@ import '../../../shared/utils/share_helpers.dart';
 import '../../clients/data/client_repository.dart';
 import '../../clients/domain/client.dart';
 import '../../clients/presentation/client_form_sheet.dart';
+import '../../invoices/data/invoice_repository.dart';
+import '../../invoices/domain/invoice.dart';
+import '../../invoices/presentation/invoice_form_sheet.dart';
 import '../../projects/data/project_repository.dart';
 import '../../projects/domain/project.dart';
 import '../../settings/data/shop_settings_provider.dart';
@@ -111,6 +114,12 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
+          if (widget.existing?.status == QuoteStatus.approved)
+            IconButton(
+              icon: const Icon(Icons.receipt_long_outlined),
+              tooltip: 'Convert to invoice',
+              onPressed: _convertToInvoice,
+            ),
           IconButton(
             icon: const Icon(Icons.ios_share_outlined),
             tooltip: 'Share quote',
@@ -523,6 +532,28 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
           subject: quote.title.isEmpty ? 'Quote' : quote.title,
         );
     }
+  }
+
+  Future<void> _convertToInvoice() async {
+    // Persist current edits first so the invoice reflects them.
+    final quote = _buildCurrentQuote();
+    await ref.read(quoteRepositoryProvider).upsert(quote);
+    final invoice = Invoice(
+      title: quote.title.isEmpty ? 'Invoice' : quote.title,
+      quoteId: quote.id,
+      projectId: quote.projectId,
+      clientId: quote.clientId,
+      subtotalCents: quote.subtotalCents,
+      taxCents: quote.totalCents - quote.afterMarkupCents,
+      totalCents: quote.totalCents,
+      notes: quote.notes,
+      dueDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    await ref.read(invoiceRepositoryProvider).upsert(invoice);
+    ref.invalidate(invoicesListProvider);
+    if (!mounted) return;
+    Navigator.of(context).pop(quote);
+    await InvoiceFormSheet.show(context, existing: invoice);
   }
 
   Future<void> _captureSignature(Quote draftQuote) async {
