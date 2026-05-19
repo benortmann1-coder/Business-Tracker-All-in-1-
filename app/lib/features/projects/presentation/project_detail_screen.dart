@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../shared/widgets/status_pill.dart';
+import '../../time_tracking/presentation/project_timer_card.dart';
 import '../data/project_repository.dart';
-import '../domain/project.dart';
 import 'project_form_sheet.dart';
 
 class ProjectDetailScreen extends ConsumerWidget {
@@ -69,6 +69,15 @@ class ProjectDetailScreen extends ConsumerWidget {
                 ),
               ],
               const SizedBox(height: 24),
+              ProjectTimerCard(projectId: projectId),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Time entries',
+                subtitle: 'See and edit logged shop hours',
+                icon: Icons.timer_outlined,
+                onTap: () => context.go('/projects/$projectId/time'),
+              ),
+              const SizedBox(height: 12),
               _SectionCard(
                 title: 'Cut List',
                 subtitle: 'Build an optimized cut list for this project',

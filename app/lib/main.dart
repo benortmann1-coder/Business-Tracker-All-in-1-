@@ -10,6 +10,7 @@ import 'features/materials/data/hive_material_repository.dart';
 import 'features/projects/data/hive_project_repository.dart';
 import 'features/quotes/data/hive_quote_repository.dart';
 import 'features/settings/data/shop_settings_provider.dart';
+import 'features/time_tracking/data/hive_time_entry_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +21,7 @@ Future<void> main() async {
     Hive.openBox<String>(HiveQuoteRepository.boxName),
     Hive.openBox<String>(HiveMaterialRepository.boxName),
     Hive.openBox<String>(HiveInvoiceRepository.boxName),
+    Hive.openBox<String>(HiveTimeEntryRepository.boxName),
     SharedPreferences.getInstance(),
   ]);
   final prefs = results.last as SharedPreferences;

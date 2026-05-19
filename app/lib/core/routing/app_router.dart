@@ -13,6 +13,7 @@ import '../../features/materials/presentation/materials_list_screen.dart';
 import '../../features/projects/presentation/project_detail_screen.dart';
 import '../../features/projects/presentation/project_photos_screen.dart';
 import '../../features/projects/presentation/projects_list_screen.dart';
+import '../../features/time_tracking/presentation/time_entries_screen.dart';
 import '../../features/quotes/presentation/quotes_list_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/settings/presentation/shop_settings_screen.dart';
@@ -86,6 +87,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'photos',
                         builder: (_, state) => ProjectPhotosScreen(
+                          projectId: state.pathParameters['id']!,
+                        ),
+                      ),
+                      GoRoute(
+                        path: 'time',
+                        builder: (_, state) => TimeEntriesScreen(
                           projectId: state.pathParameters['id']!,
                         ),
                       ),
