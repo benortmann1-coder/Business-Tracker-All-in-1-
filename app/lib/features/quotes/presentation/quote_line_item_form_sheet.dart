@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../materials/data/material_repository.dart';
+import '../../materials/domain/material_item.dart';
 import '../domain/quote_line_item.dart';
 
-class QuoteLineItemFormSheet extends StatefulWidget {
+class QuoteLineItemFormSheet extends ConsumerStatefulWidget {
   const QuoteLineItemFormSheet({this.existing, super.key});
 
   final QuoteLineItem? existing;
@@ -20,10 +23,12 @@ class QuoteLineItemFormSheet extends StatefulWidget {
   }
 
   @override
-  State<QuoteLineItemFormSheet> createState() => _QuoteLineItemFormSheetState();
+  ConsumerState<QuoteLineItemFormSheet> createState() =>
+      _QuoteLineItemFormSheetState();
 }
 
-class _QuoteLineItemFormSheetState extends State<QuoteLineItemFormSheet> {
+class _QuoteLineItemFormSheetState
+    extends ConsumerState<QuoteLineItemFormSheet> {
   late final TextEditingController _description;
   late final TextEditingController _quantity;
   late final TextEditingController _unitCost;
@@ -85,7 +90,14 @@ class _QuoteLineItemFormSheetState extends State<QuoteLineItemFormSheet> {
               widget.existing == null ? 'Add line item' : 'Edit line item',
               style: t.textTheme.headlineMedium,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            if (widget.existing == null)
+              OutlinedButton.icon(
+                icon: const Icon(Icons.layers_outlined),
+                label: const Text('Pick from materials library'),
+                onPressed: _pickFromLibrary,
+              ),
+            const SizedBox(height: 12),
             TextField(
               controller: _description,
               textInputAction: TextInputAction.next,
@@ -190,6 +202,89 @@ class _QuoteLineItemFormSheetState extends State<QuoteLineItemFormSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _pickFromLibrary() async {
+    final materials = await ref.read(materialRepositoryProvider).list();
+    if (!mounted) return;
+    if (materials.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Your materials library is empty. Add materials in Settings.',
+          ),
+        ),
+      );
+      return;
+    }
+    final selected = await showModalBottomSheet<MaterialItem>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Pick a material',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: materials.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final m = materials[i];
+                  return ListTile(
+                    title: Text(m.name),
+                    subtitle: Text(
+                      '${m.category.label}'
+                      '${m.vendor == null ? '' : ' • ${m.vendor}'}',
+                    ),
+                    trailing: Text(
+                      m.defaultUnitCostCents == 0
+                          ? ''
+                          : '\$${(m.defaultUnitCostCents / 100).toStringAsFixed(2)} / ${m.defaultUnit}',
+                    ),
+                    onTap: () => Navigator.of(context).pop(m),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    setState(() {
+      _description.text = selected.name;
+      _unit = selected.defaultUnit;
+      _category = _categoryFromMaterial(selected.category);
+      if (selected.defaultUnitCostCents > 0) {
+        _unitCost.text =
+            (selected.defaultUnitCostCents / 100).toStringAsFixed(2);
+      }
+    });
+  }
+
+  QuoteLineCategory _categoryFromMaterial(MaterialCategory c) {
+    switch (c) {
+      case MaterialCategory.lumber:
+      case MaterialCategory.sheetGoods:
+        return QuoteLineCategory.material;
+      case MaterialCategory.hardware:
+      case MaterialCategory.fasteners:
+        return QuoteLineCategory.hardware;
+      case MaterialCategory.finishes:
+      case MaterialCategory.adhesives:
+        return QuoteLineCategory.finish;
+      case MaterialCategory.other:
+        return QuoteLineCategory.other;
+    }
   }
 
   void _save() {
