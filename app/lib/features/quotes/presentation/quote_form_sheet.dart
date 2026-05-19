@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../../shared/utils/share_helpers.dart';
 import '../../clients/data/client_repository.dart';
 import '../../clients/domain/client.dart';
 import '../../clients/presentation/client_form_sheet.dart';
@@ -9,6 +11,7 @@ import '../../projects/domain/project.dart';
 import '../data/quote_repository.dart';
 import '../domain/quote.dart';
 import '../domain/quote_line_item.dart';
+import '../domain/quote_templates.dart';
 import 'quote_line_item_form_sheet.dart';
 
 /// Full-screen quote builder. Push as a modal route via [show].
@@ -98,6 +101,13 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.ios_share_outlined),
+            tooltip: 'Share quote',
+            onPressed: _lineItems.isEmpty && _laborHoursVal == 0
+                ? null
+                : _share,
+          ),
           TextButton(
             onPressed: _saving ? null : _save,
             child: _saving
@@ -120,6 +130,15 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (widget.existing == null && _lineItems.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('Start from a template'),
+                onPressed: _pickTemplate,
+              ),
+            ),
           TextField(
             controller: _title,
             textInputAction: TextInputAction.next,
@@ -323,6 +342,144 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     });
   }
 
+  Quote _buildCurrentQuote() {
+    final existing = widget.existing;
+    if (existing == null) {
+      return Quote(
+        title: _title.text.trim(),
+        clientId: _clientId,
+        projectId: _projectId,
+        status: _status,
+        lineItems: _lineItems,
+        laborHours: _laborHoursVal,
+        laborRateCents: _laborRateCents,
+        markupPercent: _markupVal,
+        taxPercent: _taxVal,
+        notes: _notes.text.trim(),
+      );
+    }
+    return existing.copyWith(
+      title: _title.text.trim(),
+      clientId: _clientId,
+      setClientIdToNull: _clientId == null,
+      projectId: _projectId,
+      setProjectIdToNull: _projectId == null,
+      status: _status,
+      lineItems: _lineItems,
+      laborHours: _laborHoursVal,
+      laborRateCents: _laborRateCents,
+      markupPercent: _markupVal,
+      taxPercent: _taxVal,
+      notes: _notes.text.trim(),
+    );
+  }
+
+  Future<void> _pickTemplate() async {
+    final selected = await showModalBottomSheet<QuoteTemplate>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Start from template',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                'Pre-built line items and markup — overwrite to match your job.',
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final t in kQuoteTemplates)
+                    ListTile(
+                      title: Text(t.name),
+                      subtitle: Text(t.description),
+                      onTap: () => Navigator.of(context).pop(t),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    setState(() {
+      if (_title.text.trim().isEmpty) {
+        _title.text = selected.name;
+      }
+      _lineItems = List.of(selected.lineItems);
+      _laborHours.text = selected.laborHours.toString();
+      _markup.text = selected.markupPercent.toString();
+    });
+  }
+
+  Future<void> _share() async {
+    final quote = _buildCurrentQuote();
+    Client? client;
+    if (_clientId != null) {
+      client = await ref.read(clientRepositoryProvider).get(_clientId!);
+    }
+    if (!mounted) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Share quote',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.mail_outline),
+              title: const Text('Email'),
+              subtitle: client?.email == null
+                  ? const Text('Opens your mail composer')
+                  : Text('To: ${client?.email}'),
+              onTap: () => Navigator.of(sheetCtx).pop('email'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.sms_outlined),
+              title: const Text('Text message'),
+              subtitle: client?.phone == null
+                  ? const Text('Opens your messages app')
+                  : Text('To: ${client?.phone}'),
+              onTap: () => Navigator.of(sheetCtx).pop('sms'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.ios_share_outlined),
+              title: const Text('Other (system share sheet)'),
+              onTap: () => Navigator.of(sheetCtx).pop('system'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'email':
+        await openMailWithQuote(quote, client: client);
+      case 'sms':
+        await openSmsWithQuote(quote, client: client);
+      case 'system':
+        await Share.share(
+          formatQuoteText(quote, client: client),
+          subject: quote.title.isEmpty ? 'Quote' : quote.title,
+        );
+    }
+  }
+
   Future<void> _save() async {
     final title = _title.text.trim();
     if (title.isEmpty) {
@@ -332,35 +489,7 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
       return;
     }
     setState(() => _saving = true);
-    final existing = widget.existing;
-    final quote = existing == null
-        ? Quote(
-            title: title,
-            clientId: _clientId,
-            projectId: _projectId,
-            status: _status,
-            lineItems: _lineItems,
-            laborHours: _laborHoursVal,
-            laborRateCents: _laborRateCents,
-            markupPercent: _markupVal,
-            taxPercent: _taxVal,
-            notes: _notes.text.trim(),
-          )
-        : existing.copyWith(
-            title: title,
-            clientId: _clientId,
-            setClientIdToNull: _clientId == null,
-            projectId: _projectId,
-            setProjectIdToNull: _projectId == null,
-            status: _status,
-            lineItems: _lineItems,
-            laborHours: _laborHoursVal,
-            laborRateCents: _laborRateCents,
-            markupPercent: _markupVal,
-            taxPercent: _taxVal,
-            notes: _notes.text.trim(),
-            updatedAt: DateTime.now(),
-          );
+    final quote = _buildCurrentQuote();
     await ref.read(quoteRepositoryProvider).upsert(quote);
     ref.invalidate(quotesListProvider);
     ref.invalidate(quoteProvider(quote.id));
