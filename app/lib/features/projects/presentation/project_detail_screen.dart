@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../shared/utils/voice_capture_sheet.dart';
 import '../../../shared/widgets/status_pill.dart';
 import '../../time_tracking/presentation/project_timer_card.dart';
 import '../data/project_repository.dart';
@@ -22,11 +23,40 @@ class ProjectDetailScreen extends ConsumerWidget {
           projectAsync.maybeWhen(
             data: (project) {
               if (project == null) return const SizedBox.shrink();
-              return IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: 'Edit project',
-                onPressed: () =>
-                    ProjectFormSheet.show(context, existing: project),
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.mic_none_outlined),
+                    tooltip: 'Voice note',
+                    onPressed: () async {
+                      final captured = await VoiceCaptureSheet.show(context);
+                      if (captured == null || captured.isEmpty) return;
+                      final timestamp = DateTime.now();
+                      final stamp =
+                          '${timestamp.month.toString().padLeft(2, '0')}/'
+                          '${timestamp.day.toString().padLeft(2, '0')} '
+                          '${timestamp.hour.toString().padLeft(2, '0')}:'
+                          '${timestamp.minute.toString().padLeft(2, '0')}';
+                      final updated = project.copyWith(
+                        description: project.description.isEmpty
+                            ? '[$stamp] $captured'
+                            : '${project.description}\n\n[$stamp] $captured',
+                        updatedAt: DateTime.now(),
+                      );
+                      await ref
+                          .read(projectRepositoryProvider)
+                          .upsert(updated);
+                      ref.invalidate(projectProvider(projectId));
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: 'Edit project',
+                    onPressed: () =>
+                        ProjectFormSheet.show(context, existing: project),
+                  ),
+                ],
               );
             },
             orElse: () => const SizedBox.shrink(),

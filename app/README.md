@@ -36,6 +36,7 @@ The app uses `image_picker` (camera + photo library) and `url_launcher`
 **Android** — `android/app/src/main/AndroidManifest.xml`, inside `<manifest>`:
 ```xml
 <uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
 <queries>
   <intent>
     <action android:name="android.intent.action.SENDTO" />
@@ -46,6 +47,14 @@ The app uses `image_picker` (camera + photo library) and `url_launcher`
     <data android:scheme="sms" />
   </intent>
 </queries>
+```
+
+**Voice notes** (iOS only):
+```xml
+<key>NSMicrophoneUsageDescription</key>
+<string>Dictate quick notes while you work.</string>
+<key>NSSpeechRecognitionUsageDescription</key>
+<string>Transcribe your voice notes into project notes.</string>
 ```
 
 ## Project Layout
