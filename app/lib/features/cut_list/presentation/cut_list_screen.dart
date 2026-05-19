@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/utils/fractional_inches.dart';
 import '../../ai/data/cut_optimization_service.dart';
 import '../domain/cut_list_item.dart';
 import 'cut_list_part_form_sheet.dart';
@@ -112,7 +113,9 @@ class _CutListScreenState extends ConsumerState<CutListScreen> {
                       return ListTile(
                         title: Text(item.partName),
                         subtitle: Text(
-                          '${item.lengthInches}" × ${item.widthInches}" × ${item.quantity}'
+                          '${formatInchesFractional(item.lengthInches)} × '
+                          '${formatInchesFractional(item.widthInches)} × '
+                          '${item.quantity}'
                           '${item.grainDirection == GrainDirection.none ? '' : ' • grain: ${item.grainDirection.name}'}',
                         ),
                         trailing: IconButton(

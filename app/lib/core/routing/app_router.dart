@@ -13,6 +13,7 @@ import '../../features/projects/presentation/project_detail_screen.dart';
 import '../../features/projects/presentation/projects_list_screen.dart';
 import '../../features/quotes/presentation/quotes_list_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
+import '../../features/settings/presentation/shop_settings_screen.dart';
 import '../../features/sync/presentation/cloud_sync_screen.dart';
 import '../../features/team/presentation/team_screen.dart';
 import '../../features/tools/presentation/tools_list_screen.dart';
@@ -141,6 +142,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'cnc',
                     builder: (_, __) => const CncFilesScreen(),
+                  ),
+                  GoRoute(
+                    path: 'shop-info',
+                    builder: (_, __) => const ShopSettingsScreen(),
                   ),
                 ],
               ),

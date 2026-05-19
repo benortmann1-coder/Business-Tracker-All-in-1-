@@ -10,6 +10,7 @@ import '../../clients/domain/client.dart';
 import '../../clients/presentation/client_form_sheet.dart';
 import '../../projects/data/project_repository.dart';
 import '../../projects/domain/project.dart';
+import '../../settings/data/shop_settings_provider.dart';
 import '../data/quote_repository.dart';
 import '../domain/quote.dart';
 import '../domain/quote_line_item.dart';
@@ -52,13 +53,19 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
   void initState() {
     super.initState();
     final e = widget.existing;
+    final defaults = ref.read(shopSettingsProvider);
     _title = TextEditingController(text: e?.title ?? '');
     _laborHours = TextEditingController(text: (e?.laborHours ?? 0).toString());
     _laborRate = TextEditingController(
-      text: e == null ? '75.00' : (e.laborRateCents / 100).toStringAsFixed(2),
+      text: ((e?.laborRateCents ?? defaults.defaultLaborRateCents) / 100)
+          .toStringAsFixed(2),
     );
-    _markup = TextEditingController(text: (e?.markupPercent ?? 25).toString());
-    _tax = TextEditingController(text: (e?.taxPercent ?? 0).toString());
+    _markup = TextEditingController(
+      text: (e?.markupPercent ?? defaults.defaultMarkupPercent).toString(),
+    );
+    _tax = TextEditingController(
+      text: (e?.taxPercent ?? defaults.defaultTaxPercent).toString(),
+    );
     _notes = TextEditingController(text: e?.notes ?? '');
     _lineItems = List.of(e?.lineItems ?? const []);
     _clientId = e?.clientId;
@@ -476,10 +483,18 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
       ),
     );
     if (action == null || !mounted) return;
+    final shop = ref.read(shopSettingsProvider);
     switch (action) {
       case 'pdf':
         await Printing.layoutPdf(
-          onLayout: (_) => renderQuotePdf(quote: quote, client: client),
+          onLayout: (_) => renderQuotePdf(
+            quote: quote,
+            client: client,
+            shopName: shop.shopName,
+            shopAddress: shop.shopAddress,
+            shopPhone: shop.shopPhone,
+            shopEmail: shop.shopEmail,
+          ),
           name: quote.title.isEmpty ? 'Quote' : quote.title,
         );
       case 'email':

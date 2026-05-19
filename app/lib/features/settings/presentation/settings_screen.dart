@@ -19,6 +19,13 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           const _SectionHeader('Account'),
           ListTile(
+            leading: const Icon(Icons.storefront_outlined),
+            title: const Text('Shop info'),
+            subtitle: const Text('Name, address, license, defaults'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/settings/shop-info'),
+          ),
+          ListTile(
             leading: const Icon(Icons.person_outline),
             title: const Text('Profile'),
             trailing: const Icon(Icons.chevron_right),
