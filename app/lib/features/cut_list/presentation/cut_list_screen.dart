@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../shared/utils/fractional_inches.dart';
 import '../../ai/data/cut_optimization_service.dart';
@@ -77,33 +78,7 @@ class _CutListScreenState extends ConsumerState<CutListScreen> {
                     ),
                   ),
                 ),
-                if (_result != null)
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    child: Card(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withValues(alpha: 0.5),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.auto_awesome),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Optimized: ${_result!.sheetCount} '
-                                'sheet${_result!.sheetCount == 1 ? '' : 's'} '
-                                '• ${_result!.wastePercent.toStringAsFixed(1)}% waste',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                if (_result != null) _OptimizationResultPanel(result: _result!),
                 Expanded(
                   child: ListView.separated(
                     itemCount: _items.length,
@@ -189,5 +164,148 @@ class _CutListScreenState extends ConsumerState<CutListScreen> {
       );
       _result = null;
     });
+  }
+}
+
+class _OptimizationResultPanel extends StatefulWidget {
+  const _OptimizationResultPanel({required this.result});
+
+  final CutOptimizationResult result;
+
+  @override
+  State<_OptimizationResultPanel> createState() =>
+      _OptimizationResultPanelState();
+}
+
+class _OptimizationResultPanelState extends State<_OptimizationResultPanel> {
+  final PageController _controller = PageController(viewportFraction: 0.92);
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final sheets = widget.result.sheets;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: t.colorScheme.primaryContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Optimized: ${widget.result.sheetCount} '
+                    'sheet${widget.result.sheetCount == 1 ? '' : 's'} • '
+                    '${widget.result.wastePercent.toStringAsFixed(1)}% waste',
+                    style: t.textTheme.bodyLarge,
+                  ),
+                ),
+              ],
+            ),
+            if (sheets.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 180,
+                child: PageView.builder(
+                  controller: _controller,
+                  itemCount: sheets.length,
+                  onPageChanged: (i) => setState(() => _page = i),
+                  itemBuilder: (_, i) => _SheetCard(
+                    layout: sheets[i],
+                    index: i + 1,
+                    total: sheets.length,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              if (sheets.length > 1)
+                Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < sheets.length; i++)
+                        Container(
+                          width: 6,
+                          height: 6,
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: i == _page
+                                ? t.colorScheme.primary
+                                : t.colorScheme.onSurface.withValues(alpha: 0.2),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetCard extends StatelessWidget {
+  const _SheetCard({
+    required this.layout,
+    required this.index,
+    required this.total,
+  });
+
+  final SheetLayout layout;
+  final int index;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Card(
+        elevation: 0,
+        color: t.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: t.dividerColor),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Sheet $index / $total — '
+                '${layout.sheetLengthInches.toStringAsFixed(0)}" × '
+                '${layout.sheetWidthInches.toStringAsFixed(0)}" '
+                '• ${layout.wastePercent.toStringAsFixed(1)}% waste',
+                style: t.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: SvgPicture.string(
+                  layout.toSvg(),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
