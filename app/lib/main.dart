@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'app.dart';
 import 'features/clients/data/hive_client_repository.dart';
 import 'features/projects/data/hive_project_repository.dart';
+import 'features/quotes/data/hive_quote_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,7 @@ Future<void> main() async {
   await Future.wait<dynamic>([
     Hive.openBox<String>(HiveProjectRepository.boxName),
     Hive.openBox<String>(HiveClientRepository.boxName),
+    Hive.openBox<String>(HiveQuoteRepository.boxName),
   ]);
   runApp(const ProviderScope(child: BevelryApp()));
 }
