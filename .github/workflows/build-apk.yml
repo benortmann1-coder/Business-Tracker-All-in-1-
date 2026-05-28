@@ -1,0 +1,116 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: ['main', 'master', 'claude/**']
+  workflow_dispatch:
+    inputs:
+      build-mode:
+        description: 'debug or release'
+        required: false
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Scaffold Android platform folder
+        # `app/android/` isn't checked in — `flutter create .` adds it without
+        # touching pubspec.yaml or lib/.
+        working-directory: app
+        run: |
+          flutter create . \
+            --project-name bevelry \
+            --org com.bevelry \
+            --platforms android \
+            --no-overwrite || true
+
+      - name: Patch AndroidManifest for permissions
+        working-directory: app/android/app/src/main
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('AndroidManifest.xml')
+          src = path.read_text()
+          inject = (
+            '    <uses-permission android:name="android.permission.CAMERA"/>\n'
+            '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n'
+            '    <uses-permission android:name="android.permission.INTERNET"/>\n'
+            '    <queries>\n'
+            '      <intent>\n'
+            '        <action android:name="android.intent.action.SENDTO"/>\n'
+            '        <data android:scheme="mailto"/>\n'
+            '      </intent>\n'
+            '      <intent>\n'
+            '        <action android:name="android.intent.action.SENDTO"/>\n'
+            '        <data android:scheme="sms"/>\n'
+            '      </intent>\n'
+            '    </queries>\n'
+          )
+          if 'android.permission.CAMERA' in src:
+            print('Permissions already present, skipping')
+          else:
+            src = re.sub(r'(    <application)', inject + r'\1', src, count=1)
+            path.write_text(src)
+            print('Patched AndroidManifest.xml')
+          PY
+
+      - name: pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Generate localizations
+        working-directory: app
+        run: flutter gen-l10n || true
+
+      - name: Build APK (${{ github.event.inputs.build-mode || 'debug' }})
+        working-directory: app
+        run: |
+          MODE="${{ github.event.inputs.build-mode || 'debug' }}"
+          if [ "$MODE" = "release" ]; then
+            flutter build apk --release
+          else
+            flutter build apk --debug
+          fi
+
+      - name: Locate APK
+        id: locate
+        working-directory: app
+        run: |
+          APK_PATH=$(find build/app/outputs/flutter-apk -name "*.apk" | head -n1)
+          echo "Found APK: $APK_PATH"
+          echo "apk_path=app/$APK_PATH" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK_PATH"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bevelry-${{ github.event.inputs.build-mode || 'debug' }}-apk
+          path: ${{ steps.locate.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 14
