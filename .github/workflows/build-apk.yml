@@ -114,3 +114,28 @@ jobs:
           path: ${{ steps.locate.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Set up Python (for Drive upload)
+        if: env.GDRIVE_SA_JSON != ''
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: pip
+
+      - name: Install Drive client
+        if: env.GDRIVE_SA_JSON != ''
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+        run: pip install --quiet google-api-python-client google-auth
+
+      - name: Upload APK to Google Drive
+        if: env.GDRIVE_SA_JSON != ''
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          APK_PATH: ${{ steps.locate.outputs.apk_path }}
+          BUILD_LABEL: "${{ github.event.inputs.build-mode || 'debug' }}-${{ github.run_number }}-${{ github.sha }}"
+        run: python3 .github/workflows/upload_to_drive.py
+
