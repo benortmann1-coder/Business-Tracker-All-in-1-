@@ -1,0 +1,137 @@
+name: Build WealthTrack APK
+
+on:
+  push:
+    branches: ['main', 'master', 'claude/**']
+    paths:
+      - 'wealthtrack/**'
+      - '.github/workflows/wealthtrack-apk.yml'
+  workflow_dispatch:
+    inputs:
+      build-mode:
+        description: 'debug or release'
+        required: false
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build WealthTrack APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Core logic tests
+        run: node --test wealthtrack/tests/core.test.js wealthtrack/tests/security.test.js wealthtrack/tests/smartbudget.test.js wealthtrack/tests/smartplan.test.js wealthtrack/tests/wealth.test.js
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Build APK (${{ github.event.inputs.build-mode || 'release' }})
+        working-directory: wealthtrack/android
+        env:
+          WT_KEYSTORE_B64: ${{ secrets.WT_KEYSTORE_B64 }}
+          WT_KEYSTORE_PASSWORD: ${{ secrets.WT_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          # Same signing key every build so updates install over the app.
+          if [ -n "$WT_KEYSTORE_B64" ] && [ -n "$WT_KEYSTORE_PASSWORD" ]; then
+            echo "$WT_KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/wealthtrack.jks"
+            export WT_KEYSTORE_FILE="$RUNNER_TEMP/wealthtrack.jks"
+            echo "Signing with the WealthTrack release key"
+          else
+            echo "::warning::WT_KEYSTORE_B64 / WT_KEYSTORE_PASSWORD not set: signing with a throwaway debug key, so this APK can't update an installed copy"
+          fi
+          MODE="${{ github.event.inputs.build-mode || 'release' }}"
+          if [ "$MODE" = "release" ]; then
+            ./gradlew --no-daemon assembleRelease
+          else
+            ./gradlew --no-daemon assembleDebug
+          fi
+
+      - name: Locate APK
+        id: locate
+        run: |
+          MODE="${{ github.event.inputs.build-mode || 'release' }}"
+          APK_PATH=$(find wealthtrack/android/app/build/outputs/apk/$MODE -name "*.apk" | head -n1)
+          echo "Found APK: $APK_PATH"
+          mkdir -p wealthtrack/dist
+          OUT="wealthtrack/dist/WealthTrack-$MODE.apk"
+          cp "$APK_PATH" "$OUT"
+          echo "apk_path=$OUT" >> "$GITHUB_OUTPUT"
+          ls -lh "$OUT"
+
+      # The SHA-1 is public (it's in every installed copy). Google Cloud needs it to allow
+      # "Sign in with Google" for this app: see wealthtrack/GOOGLE-SIGNIN.md.
+      - name: Show signing fingerprint (for Google sign-in setup)
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n1)apksigner
+          "$APKSIGNER" verify --print-certs "${{ steps.locate.outputs.apk_path }}" | grep -E "SHA-1|SHA-256|DN:" || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wealthtrack-${{ github.event.inputs.build-mode || 'release' }}-apk
+          path: ${{ steps.locate.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build single-file web app
+        run: node wealthtrack/build.js
+
+      # Drive upload runs only when its secrets are set (see wealthtrack/DRIVE-SETUP.md).
+      # Personal Gmail: GDRIVE_CLIENT_ID + GDRIVE_CLIENT_SECRET + GDRIVE_REFRESH_TOKEN (+ optional GDRIVE_FOLDER_ID).
+      # Workspace shared drive: GDRIVE_SA_JSON + GDRIVE_FOLDER_ID.
+      - name: Set up Python (for Drive upload)
+        if: env.DRIVE_OAUTH != '' || env.DRIVE_SA != ''
+        env:
+          DRIVE_OAUTH: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          DRIVE_SA: ${{ secrets.GDRIVE_SA_JSON }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Drive client
+        if: env.DRIVE_OAUTH != '' || env.DRIVE_SA != ''
+        env:
+          DRIVE_OAUTH: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          DRIVE_SA: ${{ secrets.GDRIVE_SA_JSON }}
+        run: pip install --quiet google-api-python-client google-auth
+
+      - name: Upload to Google Drive (replaces WealthTrack.apk and WealthTrack.html)
+        if: env.DRIVE_OAUTH != '' || env.DRIVE_SA != ''
+        env:
+          DRIVE_OAUTH: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          DRIVE_SA: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          APK_PATH: ${{ steps.locate.outputs.apk_path }}
+          FIXED_NAME: WealthTrack.apk
+          EXTRA_UPLOADS: |
+            wealthtrack/dist/WealthTrack.html|WealthTrack.html|text/html
+        run: python3 .github/workflows/upload_to_drive.py

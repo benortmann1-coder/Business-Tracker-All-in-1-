@@ -1,0 +1,83 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The web app lives in wealthtrack/web/ and is bundled as-is into the APK's
+// assets, so every build ships the latest index.html / JS / CSS.
+def webDir = file("${rootDir}/../web")
+
+android {
+    namespace 'com.wealthtrack.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.wealthtrack.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 25
+        versionName '1.4.2'
+    }
+
+    buildFeatures {
+        buildConfig true // VERSION_NAME for the address lookup's User-Agent
+    }
+
+    // Release builds must always be signed with the same key, or Android refuses
+    // to install an update over the app ("App not installed"). CI decodes the
+    // WT_KEYSTORE_B64 secret to a file and passes it in through these env vars.
+    // Without them (local builds) it falls back to the debug key.
+    def ksFile = System.getenv('WT_KEYSTORE_FILE')
+    def ksPass = System.getenv('WT_KEYSTORE_PASSWORD')
+    def haveReleaseKey = ksFile && ksPass && file(ksFile).exists()
+    signingConfigs {
+        if (haveReleaseKey) {
+            release {
+                storeFile file(ksFile)
+                storePassword ksPass
+                keyAlias 'wealthtrack'
+                keyPassword ksPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig haveReleaseKey ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += webDir
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+tasks.register('checkWebAssets') {
+    doLast {
+        if (!new File(webDir, 'index.html').exists()) {
+            logger.warn("WARNING: ${webDir}/index.html not found - the APK will show a blank page.")
+        }
+    }
+}
+preBuild.dependsOn 'checkWebAssets'
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'androidx.core:core:1.13.1'
+    // Sign in with Google -> Drive backup
+    implementation 'com.google.android.gms:play-services-auth:21.2.0'
+    // keep every kotlin-stdlib-jdk7/jdk8 at one version (avoids duplicate-class build errors)
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}

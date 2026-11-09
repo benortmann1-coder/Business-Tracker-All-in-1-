@@ -71,3 +71,10 @@ firestore-debug.log
 # ---- Misc ----
 tmp/
 temp/
+!wealthtrack/dist/
+!wealthtrack/dist/WealthTrack.html
+!wealthtrack/dist/WealthTrack.apk
+.claude/
+
+# APKs come from CI (Google Drive / Actions artifacts), never from the repo
+wealthtrack/dist/*.apk
