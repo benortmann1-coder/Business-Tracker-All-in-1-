@@ -284,7 +284,7 @@
       goals: g => str(g, 'name', 200, true) && int(g, 'targetCents', true, 0) && intDef(g, 'startCents', 0) && date(g, 'targetDate') && src(g, 'accountId') && str(g, 'type', 50) && bool(g, 'archived'),
       goalTxns: x => ref(x, 'goalId', true) && int(x, 'amountCents', true) && date(x, 'date', true) && src(x, 'fromAccountId') && ref(x, 'transferId') && str(x, 'note', 500) && bool(x, 'voided'),
       transfers: t => src(t, 'fromId') && src(t, 'toId') && t.fromId && t.toId && int(t, 'amountCents', true, 0) && date(t, 'date', true) && str(t, 'note', 500) && bool(t, 'voided'),
-      accounts: a => str(a, 'name', 100, true) && ((a.type = ['checking', 'savings', 'cash', 'other'].includes(a.type) ? a.type : 'other'), true) && intDef(a, 'openingCents', 0) &&
+      accounts: a => str(a, 'name', 100, true) && ((a.type = ['checking', 'savings', 'cash', 'investment', 'property', 'other'].includes(a.type) ? a.type : 'other'), true) && intDef(a, 'openingCents', 0) &&
         (date(a, 'openingDate') || ((a.openingDate = null), true)) && bool(a, 'inAvailable') && intDef(a, 'order', 0, -1e6, 1e6) && bool(a, 'archived'),
       categories: c => str(c, 'name', 100, true) && (COLOR.test(c.color || '') || ((c.color = '#94a3b8'), report.fixed++, true)) && bool(c, 'archived'),
       meta: m => m.id === 'settings' && sanitizeSettings(m),
@@ -317,6 +317,8 @@
         keep.dashboard = { order: m.dashboard.order.filter(ok), hidden: m.dashboard.hidden.filter(ok) };
       }
       if (['due', 'status', 'name', 'mine', 'category', 'paycheck'].includes(m.billView)) keep.billView = m.billView;
+      if (['date', 'month', '30', '60'].includes(m.upRange)) keep.upRange = m.upRange;
+      if (m.demoDone === true) keep.demoDone = true;
       if (Array.isArray(m.billOrder)) keep.billOrder = Array.from(new Set(m.billOrder.filter(isRef))).slice(0, 1000); // My order (Bills)
       if (Array.isArray(m.setAsides)) keep.setAsides = m.setAsides.filter(x => x && typeof x === 'object').slice(0, 50).map(x => ({ id: isRef(x.id) ? x.id : 'sa_' + Math.random().toString(36).slice(2), name: String(x.name == null ? '' : x.name).slice(0, 100), amountCents: Number.isInteger(x.amountCents) && x.amountCents >= 0 ? x.amountCents : 0 }));
       if ('projectionIncludesSetAsides' in m) keep.projectionIncludesSetAsides = !!m.projectionIncludesSetAsides;

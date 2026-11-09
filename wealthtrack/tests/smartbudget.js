@@ -21,7 +21,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   const open = async (opts) => {
     opts = Object.assign({}, opts || {}); const blank = opts.blank; delete opts.blank;
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: SHOTS ? 2 : 1 }, opts));
-    await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) { } });
+    await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) { } });
     if (!blank) await ctx.addInitScript({ path: path.join(__dirname, 'fixtures/sample-data.js') });
     const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message));
     await page.goto(FILE); await page.waitForFunction(() => window.__wtReady);

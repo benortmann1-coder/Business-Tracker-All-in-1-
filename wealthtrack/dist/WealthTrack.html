@@ -1046,6 +1046,10 @@ html:has(body.reordering), body.reordering { overflow-anchor: none; } /* no scro
 body.reordering { -webkit-user-select: none; user-select: none; touch-action: none; }
 body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[data-tpl]:not(.dragging) { transition: background .12s; }
 #main .dragging { position: relative; z-index: 6; background: var(--surface); box-shadow: 0 10px 28px rgba(0, 0, 0, .18), 0 0 0 2px var(--brand); border-radius: 10px; cursor: grabbing; }
+/* demo banner */
+.demo-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin: 12px 0 16px; border: 1px solid var(--line-2); border-left: 3px solid var(--auto); border-radius: 10px; background: var(--surface); font-size: 13px; color: var(--ink-2); }
+.demo-tag { font-weight: 800; letter-spacing: .08em; font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--auto); color: #fff; }
+.demo-bar .grow { flex: 1 1 200px; }
 
 </style>
 </head>
@@ -4208,6 +4212,47 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
 
 </script>
   <script>
+/* Demonstration budget for new users: exactly 6 fictional bills and 2 fictional debts.
+ * It is loaded into memory only while the app shows the DEMO banner and is never saved,
+ * never backed up and never mixed with real records. All names and amounts are made up.
+ */
+(function (root) {
+  'use strict';
+  function load(WT, opts) {
+    opts = opts || {};
+    const today = opts.today || WT.todayStr();
+    const mk = today.slice(0, 7);
+    const day = d => mk + '-' + String(d).padStart(2, '0');
+    const S = root.WTSeed || (typeof require === 'function' ? require('./seed.js') : null);
+    if (S) S.seed(WT, { blank: true, today });
+    WT.save('accounts', Object.assign({}, WT.D.accounts.acc_checking, { openingCents: 125000 })); // fictional checking balance
+    WT.save('accounts', { id: 'acc_demo_savings', name: 'Savings', type: 'savings', openingCents: 150000, openingDate: today, inAvailable: false, order: 2 });
+    // Pay: $2,300 every two weeks, starting on the most recent Friday.
+    const t = new Date(today + 'T12:00:00'); const back = (t.getDay() + 2) % 7; t.setDate(t.getDate() - back);
+    const anchor = t.toISOString().slice(0, 10);
+    WT.addIncome({ id: 'inc_demo', name: 'Demo paycheck', employer: '', kind: 'net', netCents: 230000, grossCents: null, schedule: 'biweekly', anchor, startDate: anchor, accountId: 'acc_checking' });
+    WT.saveSettings({ setAsides: [{ id: 'sa_demo_food', name: 'Groceries & gas', amountCents: 30000 }] });
+    // 2 debts
+    WT.addDebt({ id: 'debt_demo_card', name: 'Demo Credit Card', type: 'credit_card', startBalanceCents: 380000, startDate: today, aprCenti: 2199, minCents: 11500, dueDay: 12, limitCents: 600000, autoInterest: true });
+    WT.addDebt({ id: 'debt_demo_auto', name: 'Demo Auto Loan', type: 'auto', startBalanceCents: 1240000, startDate: today, aprCenti: 689, minCents: 34500, dueDay: 20, limitCents: null, autoInterest: true });
+    // 6 bills (two of them pay the debts above)
+    const bills = [
+      ['bill_demo_home', 'Demo Rent', 115000, 'cat_housing', 1, null],
+      ['bill_demo_power', 'Demo Electric', 11000, 'cat_utilities', 9, null],
+      ['bill_demo_net', 'Demo Internet', 6000, 'cat_phone', 15, null],
+      ['bill_demo_ins', 'Demo Car Insurance', 9500, 'cat_insurance', 24, null],
+      ['bill_demo_card', 'Demo Credit Card Payment', 11500, 'cat_credit_cards', 12, 'debt_demo_card'],
+      ['bill_demo_auto', 'Demo Auto Loan Payment', 34500, 'cat_loans', 20, 'debt_demo_auto'],
+    ];
+    bills.forEach(([id, name, cents, category, d, debtId]) => WT.addTemplate({ id, name, amountCents: cents, category, anchor: day(d), frequency: 'monthly', debtId, subscription: false, accountId: 'acc_checking', payFrom: 'auto' }));
+    WT.saveSettings({ seeded: 'demo', seededAt: today, demo: true });
+  }
+  const api = { load, BILLS: 6, DEBTS: 2 };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.WTDemo = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
 /* WealthTrack persistence: IndexedDB, one object store per collection.
  * Writes are queued and flushed in a single transaction (coalesced per record).
  * Failed writes (quota exceeded, transient errors) are re-queued and retried with backoff,
@@ -4494,7 +4539,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
       goals: g => str(g, 'name', 200, true) && int(g, 'targetCents', true, 0) && intDef(g, 'startCents', 0) && date(g, 'targetDate') && src(g, 'accountId') && str(g, 'type', 50) && bool(g, 'archived'),
       goalTxns: x => ref(x, 'goalId', true) && int(x, 'amountCents', true) && date(x, 'date', true) && src(x, 'fromAccountId') && ref(x, 'transferId') && str(x, 'note', 500) && bool(x, 'voided'),
       transfers: t => src(t, 'fromId') && src(t, 'toId') && t.fromId && t.toId && int(t, 'amountCents', true, 0) && date(t, 'date', true) && str(t, 'note', 500) && bool(t, 'voided'),
-      accounts: a => str(a, 'name', 100, true) && ((a.type = ['checking', 'savings', 'cash', 'other'].includes(a.type) ? a.type : 'other'), true) && intDef(a, 'openingCents', 0) &&
+      accounts: a => str(a, 'name', 100, true) && ((a.type = ['checking', 'savings', 'cash', 'investment', 'property', 'other'].includes(a.type) ? a.type : 'other'), true) && intDef(a, 'openingCents', 0) &&
         (date(a, 'openingDate') || ((a.openingDate = null), true)) && bool(a, 'inAvailable') && intDef(a, 'order', 0, -1e6, 1e6) && bool(a, 'archived'),
       categories: c => str(c, 'name', 100, true) && (COLOR.test(c.color || '') || ((c.color = '#94a3b8'), report.fixed++, true)) && bool(c, 'archived'),
       meta: m => m.id === 'settings' && sanitizeSettings(m),
@@ -4527,6 +4572,8 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
         keep.dashboard = { order: m.dashboard.order.filter(ok), hidden: m.dashboard.hidden.filter(ok) };
       }
       if (['due', 'status', 'name', 'mine', 'category', 'paycheck'].includes(m.billView)) keep.billView = m.billView;
+      if (['date', 'month', '30', '60'].includes(m.upRange)) keep.upRange = m.upRange;
+      if (m.demoDone === true) keep.demoDone = true;
       if (Array.isArray(m.billOrder)) keep.billOrder = Array.from(new Set(m.billOrder.filter(isRef))).slice(0, 1000); // My order (Bills)
       if (Array.isArray(m.setAsides)) keep.setAsides = m.setAsides.filter(x => x && typeof x === 'object').slice(0, 50).map(x => ({ id: isRef(x.id) ? x.id : 'sa_' + Math.random().toString(36).slice(2), name: String(x.name == null ? '' : x.name).slice(0, 100), amountCents: Number.isInteger(x.amountCents) && x.amountCents >= 0 ? x.amountCents : 0 }));
       if ('projectionIncludesSetAsides' in m) keep.projectionIncludesSetAsides = !!m.projectionIncludesSetAsides;
@@ -4720,9 +4767,13 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const fmt = c => W.fmt(c);
   const fmt0 = c => W.fmt(c, { noCents: Math.abs(c) >= 100000 });
   const today = () => W.todayStr();
+  // "Good Morning / Afternoon / Evening" from the phone's local time
+  const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening'; };
+  // Demo for new users: 6 fictional bills + 2 fictional debts (web/demo.js), kept in memory only and never saved.
+  const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.4.2'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.4.3'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -4770,7 +4821,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const ROUTES = [
     ['dashboard', 'Dashboard', 'home'], ['bills', 'Bills', 'bills'], ['paychecks', 'Paychecks', 'wallet'], ['calendar', 'Calendar', 'cal'],
     ['expenses', 'Expenses', 'cash'], ['debts', 'Debt', 'card'], ['smart', 'Smart Budget', 'sliders'], ['goals', 'Savings goals', 'target'],
-    ['reports', 'Reports', 'chart'], ['history', 'History', 'list'], ['settings', 'Settings', 'gear'],
+    ['reports', 'Reports', 'chart'], ['progress', 'Progress', 'trend'], ['history', 'History', 'list'], ['settings', 'Settings', 'gear'],
   ];
   const MOBILE = ['dashboard', 'bills', 'paychecks', 'calendar'];
   function go(r) { location.hash = '#/' + r; }
@@ -4780,7 +4831,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const NAV_GROUPS = [
     ['Overview', ['dashboard', 'bills', 'paychecks', 'calendar']],
     ['Money', ['expenses', 'smart', 'debts', 'goals']],
-    ['Records', ['reports', 'history', 'settings']],
+    ['Records', ['reports', 'progress', 'history', 'settings']],
   ];
   function shell() {
     const item = id => { const r = ROUTES.find(x => x[0] === id); return `<a class="nav-item" href="#/${id}" data-nav="${id}">${ic(r[2])}<span>${r[1]}</span>${id === 'bills' ? '<span class="count" id="navOverdue"></span>' : ''}</a>`; };
@@ -4812,7 +4863,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     const oc = $('#navOverdue'); if (oc) { const n = W.overdue().length; oc.textContent = n ? n : ''; oc.title = n ? n + ' overdue' : ''; }
     $$('[data-nav-btn]').forEach(b => b.classList.toggle('active', b.dataset.navBtn === ui.route || (b.dataset.navBtn === 'more' && !MOBILE.includes(ui.route))));
     const y = window.scrollY;
-    try { main.innerHTML = (VIEWS[ui.route] || VIEWS.dashboard)(); }
+    try { main.innerHTML = demoBar() + (VIEWS[ui.route] || VIEWS.dashboard)(); }
     catch (e) { console.error(e); main.innerHTML = `<div class="card"><h3>Something went wrong</h3><p class="muted">${esc(e.message)}</p></div>`; }
     if (render.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
     render.keepScroll = false;
@@ -5212,10 +5263,10 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     const col = c => order.filter(k => WIDGETS[k].col === c).sort((a, b) => (a === 'overdue' ? -1 : 0) - (b === 'overdue' ? -1 : 0)).map(k => WIDGETS[k].html()).join('');
     const nxt = W.nextPaycheck(W.addDays(today(), 1));
     const days = nxt ? W.diffDays(today(), nxt.date) : null;
-    const nm = profile().first; const hr = new Date().getHours();
-    return `<div class="topbar"><div><h1>${nm ? `Good ${hr < 12 ? 'morning' : hr < 17 ? 'afternoon' : 'evening'}, ${esc(nm)}` : 'Overview'}</h1><div class="sub">${W.dateLabel(today(), true)}${days != null ? ` · payday ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days'}` : ''}</div></div>
+    const nm = profile().first; const greet = greeting();
+    return `<div class="topbar"><div><h1 class="greet">${esc(greet)}${nm ? ', ' + esc(nm) : ''}</h1><div class="sub">${W.dateLabel(today(), true)}${days != null ? ` · payday ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days'}` : ''}</div></div>
       <div class="row wrap">${monthSel('month', ui.month)}<button class="btn icon" data-act="customizeDash" aria-label="Customize dashboard" title="Customize dashboard">${ic('gear')}</button></div></div>
-      <div class="fade-in">${W.settings().guest && GD.supported() && !(W.settings().account && W.settings().account.email) ? `<div class="callout red guest-banner">${ic('alert')}<div><b>Guest mode: your data is not backed up.</b> If you lose or reset this phone, it's gone. <button class="link" data-act="gdSignIn">Sign in with Google</button></div></div>` : ''}${col('top')}<div class="split" style="margin-top:30px"><div>${col('main')}</div><div>${col('side')}</div></div></div>`;
+      <div class="fade-in">${homeExt('renderDashboardTop')}${W.settings().guest && GD.supported() && !(W.settings().account && W.settings().account.email) ? `<div class="callout red guest-banner">${ic('alert')}<div><b>Guest mode: your data is not backed up.</b> If you lose or reset this phone, it's gone. <button class="link" data-act="gdSignIn">Sign in with Google</button></div></div>` : ''}${col('top')}<div class="split" style="margin-top:30px"><div>${col('main')}</div><div>${col('side')}</div></div></div>`;
   }
   // ------------------------------------------------------------ BILLS
   function viewBills() {
@@ -5315,13 +5366,15 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     }[group];
     return groupedList(items.slice().sort(sorter), fn, { order: ord, row: { showPaycheck: group !== 'paycheck' } });
   }
-  const UP_RANGES = [['date', 'Through a date…'], ['7', 'Next 7 days'], ['14', '14 days'], ['30', '30 days'], ['60', '60 days'], ['pay', 'Until next payday'], ['month', 'Rest of month']];
+  const UP_RANGES = [['date', 'Through a date'], ['month', 'End of month'], ['30', '30 days'], ['60', '60 days']];
+  // remembered per device (ui) and with your data (settings.upRange); older saved choices fall back to End of month
+  const upRangeOf = () => { const v = UP_RANGES.some(x => x[0] === ui.upRange) ? ui.upRange : (W.D && W.settings().upRange) || ''; return UP_RANGES.some(x => x[0] === v) ? v : 'month'; };
   // default "through" date: the 1st of next month, so bills due on the 1st can be paid the month before
   const upDateOf = t => (ui.upDate && /^\d{4}-\d{2}-\d{2}$/.test(ui.upDate) && ui.upDate >= t) ? ui.upDate : W.addMonthKey(W.monthOf(t), 1) + '-01';
   function viewUpcoming() {
-    const t = today(); const r = ui.upRange || '14';
+    const t = today(); const r = upRangeOf();
     const nxt = W.nextPaycheck(W.addDays(t, 1));
-    const end = r === 'date' ? upDateOf(t) : r === 'pay' ? (nxt ? W.addDays(nxt.date, -1) : W.addDays(t, 14)) : r === 'month' ? W.monthEnd(W.monthOf(t)) : W.addDays(t, +r);
+    const end = r === 'date' ? upDateOf(t) : r === 'month' ? W.monthEnd(W.monthOf(t)) : W.addDays(t, +r);
     W.ensureGenerated(W.monthOf(end) > curMonth() ? W.monthOf(end) : undefined);
     let items = W.instancesBetween(t, end).map(i => ({ i, s: W.instStatus(i) }));
     const over = W.overdue().map(x => ({ i: x.i, s: x.s }));
@@ -5335,9 +5388,9 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     const incoming = pays.reduce((a, p) => a + p.amountCents, 0);
     const avail = W.availableBalance(t);
     const after = avail + incoming - needed;
-    const rangeLabel = r === 'pay' && nxt ? 'before payday ' + W.shortDate(nxt.date) : r === 'month' ? 'through ' + W.shortDate(end) : 'through ' + W.dateLabel(end);
+    const rangeLabel = r === 'month' ? 'through ' + W.shortDate(end) : 'through ' + W.dateLabel(end);
     return `
-      <div class="chips" style="padding:16px 0 4px">${UP_RANGES.map(([k, l]) => `<button class="chip ${r === k ? 'on' : ''}" data-act="upRange" data-r="${k}">${l}</button>`).join('')}</div>
+      <div class="seg boxed up-range" role="group" aria-label="Show bills through" style="margin:16px 0 4px">${UP_RANGES.map(([k, l]) => `<button class="${r === k ? 'on' : ''}" data-act="upRange" data-r="${k}" aria-pressed="${r === k}">${l}</button>`).join('')}</div>
       ${r === 'date' ? `<label class="row wrap small" style="gap:8px;margin:10px 0 2px"><span class="muted">Show bills due up to the end of</span><input class="input" type="date" style="width:auto" min="${t}" value="${end}" data-bind="upDate" aria-label="Show bills due through this date"></label>` : ''}
       <div class="figures" style="--n:4;margin-top:12px">
         ${fig('Due ' + rangeLabel, fmt(needed), items.length + ' bills' + (autoAmt ? ' · ' + fmt(autoAmt) + ' on auto-pay' : ''))}
@@ -6038,6 +6091,12 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const sbHead = sub => `<div class="topbar"><div><h1>Smart Budget</h1><div class="sub">${sub}</div></div><div class="row wrap"><button class="btn" data-act="sbCats">${ic('tag')}Categories used</button></div></div>`;
   const sbDebtSplit = (st, s) => { const d = s.debtSplit; const min = Math.min(+s.amounts.debt || 0, +st.a.debtMinimums || 0); return d && isFinite(+d.minimum) && isFinite(+d.extra) ? { minimum: +d.minimum, extra: +d.extra } : { minimum: min, extra: Math.max(0, (+s.amounts.debt || 0) - (+st.a.debtMinimums || 0)) }; };
 
+  // home-ui.js (WTHomeUI) renders the daily tip, net worth card and the Progress page; never let it break the app
+  function homeExt(fn) { const H = window.WTHomeUI; if (!H || !H.ready || typeof H[fn] !== 'function') return ''; try { return H[fn]() || ''; } catch (e) { console.error(e); return ''; } }
+  function viewProgress() {
+    const html = homeExt('renderProgress');
+    return html || `<div class="topbar"><div><h1>Progress</h1><div class="sub">Net worth and milestones.</div></div></div><div class="empty"><b>Progress isn't available right now</b>The rest of WealthTrack works as usual.</div>`;
+  }
   function viewSmart() {
     const intro = 'A plan for your take-home pay, built from your paychecks, bills and debts. It never changes them.';
     sbLive = null;
@@ -6688,7 +6747,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   }
   function accountModal(id) {
     const a = id ? W.D.accounts[id] : null;
-    modal({ title: a ? 'Edit account' : 'Add account', submit: 'Save', body: `<div class="form-grid">${field('Name', `<input class="input" name="name" value="${esc(a ? a.name : '')}" autofocus>`)}${field('Type', `<select class="input" name="type">${['checking', 'savings', 'cash', 'other'].map(t => opt(t, t, a ? a.type : 'checking')).join('')}</select>`)}${a ? '' : field('Current balance', moneyInput('bal', 0))}<label class="check full"><input type="checkbox" name="avail" ${!a || a.inAvailable ? 'checked' : ''}> Count in "available balance"</label>${a ? `<label class="check full"><input type="checkbox" name="def" ${W.defaultAccountId() === id ? 'checked' : ''}> Default account for payments</label>` : ''}</div>`,
+    modal({ title: a ? 'Edit account' : 'Add account', submit: 'Save', body: `<div class="form-grid">${field('Name', `<input class="input" name="name" value="${esc(a ? a.name : '')}" autofocus>`)}${field('Type', `<select class="input" name="type">${[['checking', 'Checking'], ['savings', 'Savings'], ['cash', 'Cash'], ['investment', 'Investment (retirement, brokerage)'], ['property', 'Property or vehicle (value)'], ['other', 'Other']].map(([t, l]) => opt(t, l, a ? a.type : 'checking')).join('')}</select>`)}${a ? '' : field('Current balance', moneyInput('bal', 0))}<label class="check full"><input type="checkbox" name="avail" ${!a || a.inAvailable ? 'checked' : ''}> Count in "available balance"</label>${a ? `<label class="check full"><input type="checkbox" name="def" ${W.defaultAccountId() === id ? 'checked' : ''}> Default account for payments</label>` : ''}</div>`,
       onSubmit: f => { if (!f.name.trim()) throw new UserError('Enter a name'); if (a) { Object.assign(a, { name: f.name.trim(), type: f.type, inAvailable: !!f.avail }); W.save('accounts', a); if (f.def) W.saveSettings({ defaultAccountId: id }); } else { W.save('accounts', { id: W.uid('acc'), name: f.name.trim(), type: f.type, openingCents: W.parseMoney(f.bal) || 0, openingDate: today(), inAvailable: !!f.avail, order: 9 }); } toast('Saved'); refresh(); } });
   }
   function balanceModal(id) {
@@ -6774,7 +6833,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
         if (f.pre) saveFile('WealthTrack-before-restore-' + today() + '.json', 'application/json', backupJson());
         const before = backupJson();
         try {
-          await S.replaceAll(data); W.init(data, S); W.runMaintenance(); applyTheme(); toast('Backup restored'); try { localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ } refresh();
+          DEMO.on = false; DEMO.real = null; if (DEMO.restoreSave) DEMO.restoreSave(); await S.replaceAll(data); W.init(data, S); W.runMaintenance(); applyTheme(); toast('Backup restored'); try { localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ } refresh();
         } catch (err) {
           console.error(err);
           // put the previous data back so a bad file can never leave the app empty or broken
@@ -6800,7 +6859,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     dirty: false, timer: null, busy: false, manual: false,
     schedule(ms) { if (!GD.on() || !GD.supported()) return; clearTimeout(GD.timer); GD.timer = setTimeout(() => GD.backup(false), ms == null ? 60000 : ms); },
     backup(manual) {
-      if (!GD.supported() || !GD.on() || GD.busy) return;
+      if (!GD.supported() || !GD.on() || GD.busy || DEMO.on) return; // demo data is never backed up
       if (AUTH.resetMode()) return; // never overwrite the Drive backup with a freshly reset phone before it's restored
       GD.busy = true; GD.manual = !!manual; GD.dirty = false;
       try { Bridge.googleBackup(backupJson()); } catch (e) { GD.busy = false; GD.setState({ err: e.message || String(e) }); }
@@ -6845,6 +6904,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   let remTimer = null;
   function scheduleReminders() {
     clearTimeout(remTimer);
+    if (DEMO.on) return; // no reminders for demo bills
     remTimer = setTimeout(() => {
       const list = W.reminderList(today(), 45);
       if (Bridge && Bridge.setReminders) {
@@ -6871,8 +6931,9 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     const row = $(`[data-inst="${instId}"]`); if (row) row.classList.add('flash');
   }
   const A = {
+    demoExit: async () => { if (await confirmBox('Use your own data?', 'The demo bills and debts are removed and WealthTrack starts empty, ready for your own paychecks, bills and debts.', 'Start with my own data')) { leaveDemo(); refresh(); toast('Demo closed. Add your first paycheck or bill to get started.'); } },
     billMine: () => { setBillView('mine'); toast('My order is on. Hold a bill and drag it up or down.'); refresh(); },
-    markPaid: d => { if (W.isAutopay(W.D.instances[d.id])) return toast('This bill is on auto-pay. It\'s marked paid automatically on its due date.'); withUndoPay(d.id); },
+    markPaid: d => { if (Date.now() - (A.markPaid.at || 0) < 700 && A.markPaid.id && A.markPaid.id !== d.id) return; A.markPaid.at = Date.now(); A.markPaid.id = d.id; if (W.isAutopay(W.D.instances[d.id])) return toast('This bill is on auto-pay. It\'s marked paid automatically on its due date.'); withUndoPay(d.id); },
     paidMenu: (d, el) => menu(el, [{ label: 'Payment details / add payment', icon: 'cash', run: () => paymentModal(d.id) }, { label: 'Mark unpaid', icon: 'undo', danger: true, run: async () => { if (await confirmBox('Mark unpaid?', 'The payment will be voided. It stays in your history and other months aren\'t affected.', 'Mark unpaid', true)) { W.markUnpaid(d.id); toast('Marked unpaid'); refresh(); } } }]),
     billMenu: (d, el) => {
       const i = W.D.instances[d.id]; const s = W.instStatus(i); const t = W.D.templates[i.templateId];
@@ -6918,7 +6979,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     editTpl: d => { const t = W.D.templates[d.id]; if (t && !t.deleted) editTemplate(d.id); },
     addBill: () => addBill(), addBillOn: d => { closeAllModals(); addBill(d.date); },
     billsTab: d => { ui.billsTab = d.tab; refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
-    upRange: d => { ui.upRange = d.r; refresh(); },
+    upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
     billTools: () => { ui.billTools = !ui.billTools; refresh(); },
     openUpcoming: () => { ui.billsTab = 'upcoming'; go('bills'); },
     monthStep: d => setMonth(d.key, W.addMonthKey(ui[d.key], +d.n)), monthToday: d => setMonth(d.key, curMonth()),
@@ -7116,6 +7177,27 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     document.addEventListener('click', e => { if (Date.now() - eatClick < 400) { e.preventDefault(); e.stopPropagation(); } }, true);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && drag) { const d = drag; drag = null; d.row.classList.remove('dragging'); d.row.style.transform = ''; document.body.classList.remove('reordering'); document.documentElement.style.overflowAnchor = ''; refresh(); } });
   }
+  // ------------------------------------------------------------ demo banner
+  function demoBar() {
+    if (!DEMO.on) return '';
+    return `<div class="demo-bar" role="status"><span class="demo-tag">DEMO</span><span class="grow">Example data so you can look around. Nothing here is saved, backed up or counted as yours.</span><button class="btn sm" data-act="demoExit">Use my own data</button></div>`;
+  }
+  // back to the real (blank or restored) records; the demo is gone for good on this device
+  function leaveDemo() {
+    if (!DEMO.on) return;
+    try { localStorage.setItem('wt.demoDone', '1'); } catch (e) { /* storage blocked */ }
+    const real = DEMO.real; DEMO.on = false; DEMO.real = null; if (DEMO.restoreSave) DEMO.restoreSave();
+    real.meta.settings.demoDone = true; S.put('meta', real.meta.settings); // remembered with your data, not just this browser
+    W.init(real, S); S.flush(); W.runMaintenance(); applyTheme(); scheduleReminders();
+  }
+  const DEMO_ADD = ['addBill', 'addIncome', 'addExpense', 'addDebt', 'addGoal', 'addAccount', 'quickAdd', 'addTransfer'];
+  async function demoGuard(name) {
+    if (!DEMO.on || !DEMO_ADD.includes(name)) return true;
+    const ok = await confirmBox('Leave the demo?', 'You\'re looking at example data. To add your own, WealthTrack switches to your real (empty) records. The demo bills and debts are not kept.', 'Start with my own data');
+    if (!ok) return false;
+    leaveDemo(); refresh(); toast('Demo closed. Everything you add now is yours.');
+    return true;
+  }
   function extAct(name) { const X = window.WTExt || {}; for (const k in X) { const f = X[k] && X[k].act && X[k].act[name]; if (typeof f === 'function') return f; } return null; }
   function bindGlobal() {
     document.addEventListener('click', e => {
@@ -7123,6 +7205,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
       const nav = e.target.closest('[data-nav-btn]'); if (nav && nav.dataset.navBtn !== 'more') { go(nav.dataset.navBtn); return; }
       const ng = e.target.closest('[data-nav-go]'); if (ng) { go(ng.dataset.navGo); return; }
       const a = e.target.closest('[data-act]');
+      if (a && !(a.tagName === 'SELECT' || a.tagName === 'INPUT') && DEMO.on && DEMO_ADD.includes(a.dataset.act)) { e.preventDefault(); const nm = a.dataset.act, ds = Object.assign({}, a.dataset); demoGuard(nm).then(go2 => { if (go2 && A[nm]) A[nm](ds, a, e); }); return; }
       if (a && !(a.tagName === 'SELECT' || a.tagName === 'INPUT')) { const fn = A[a.dataset.act] || extAct(a.dataset.act); if (fn) { e.preventDefault(); try { fn(a.dataset, a, e); } catch (err) { console.error(err); toast(err.message, { error: true }); } } return; }
       const day = e.target.closest('.cal .day'); if (day) dayModal(day.dataset.day);
     });
@@ -7170,7 +7253,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     let m = $('meta[name=theme-color]'); if (m) m.setAttribute('content', dark ? '#0b1020' : t === 'blue' ? '#e8eff7' : '#f4f6fb');
   }
 
-  const VIEWS = { dashboard: viewDashboard, bills: viewBills, paychecks: viewPaychecks, calendar: viewCalendar, expenses: viewExpenses, debts: viewDebts, smart: viewSmart, goals: viewGoals, reports: viewReports, history: viewHistory, settings: viewSettings };
+  const VIEWS = { dashboard: viewDashboard, bills: viewBills, paychecks: viewPaychecks, calendar: viewCalendar, expenses: viewExpenses, debts: viewDebts, smart: viewSmart, progress: viewProgress, goals: viewGoals, reports: viewReports, history: viewHistory, settings: viewSettings };
   const AFTER = { calendar: calendarAfter };
 
 
@@ -7359,7 +7442,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
         links: '<button type="button" class="link" data-auth="restart">Start again</button>',
         onSubmit: async p2 => {
           if (p2 !== p1) { setTimeout(() => first('Those PINs didn\'t match. Try again.'), 0); return true; }
-          await S.changeLock(p1, W.D);
+          await S.changeLock(p1, DEMO.on ? DEMO.real : W.D);
           res(p1); return true;
         },
       });
@@ -7464,6 +7547,25 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
         // fresh install on a phone: check Google Drive for a backup before anything is backed up over it
         if (AUTH.android()) { try { localStorage.setItem('wt.restoreAfterReset', '1'); } catch (e) { /* ignore */ } }
       }
+      // New user with nothing entered yet: show the demo (memory only). Real records are never touched.
+      const realBlank = () => !Object.keys(W.D.templates).length && !Object.keys(W.D.incomes).length && !Object.keys(W.D.debts).length && !Object.keys(W.D.expenses).length && !Object.keys(W.D.payments).length;
+      let demoDone = !!W.settings().demoDone; try { demoDone = demoDone || localStorage.getItem('wt.demoDone') === '1'; } catch (e) { /* storage blocked */ }
+      if (!demoDone && !S.key && window.WTDemo && realBlank()) {
+        DEMO.real = W.D; DEMO.on = true;
+        W.init(null, { put() { }, del() { } }); // in-memory only: nothing the demo does is saved or backed up
+        WTSeed.seed(W, { blank: true }); WTDemo.load(W);
+        // device/account choices made while the demo is showing (sign-in, guest, PIN-free choice, name, theme...)
+        // are real: save them to the real settings too. Budget and plan settings stay demo-only.
+        const DEVICE_KEYS = ['guest', 'account', 'gdrive', 'profile', 'theme', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange'];
+        const demoSave = W.saveSettings;
+        W.saveSettings = patch => {
+          demoSave(patch);
+          if (!DEMO.on || !DEMO.real) return;
+          const keep = {}; DEVICE_KEYS.forEach(k => { if (patch && k in patch) keep[k] = patch[k]; });
+          if (Object.keys(keep).length) { Object.assign(DEMO.real.meta.settings, keep); S.put('meta', DEMO.real.meta.settings); }
+        };
+        DEMO.restoreSave = () => { W.saveSettings = demoSave; };
+      }
       S.onSaved = () => { const el = $('#saveState'); if (el) el.textContent = 'All changes saved · ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); GD.dirty = true; GD.schedule(); };
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && GD.dirty) GD.backup(false); });
       if (GD.on() && GD.supported() && Date.now() - (GD.state().last || 0) > 24 * 3600 * 1000) GD.schedule(5000);
@@ -7481,6 +7583,8 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
         if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
         if (S.key && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && Date.now() - AUTH.external > 10 * 60 * 1000) S.flush().then(() => location.reload());
       });
+      let lastGreet = greeting();
+      setInterval(() => { const g = greeting(); if (g !== lastGreet) { lastGreet = g; if (ui.route === 'dashboard' && document.visibilityState === 'visible') refresh(); } }, 60000);
       let lastDay = today();
       setInterval(() => { if (today() !== lastDay && document.visibilityState === 'visible') { lastDay = today(); W.runMaintenance(); refresh(); } }, 60000);
       window.__wtReady = true;
@@ -7964,6 +8068,11 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   window.WTExt.plan = { act };
   window.WTPlanUI = { ready: true, renderPaychecks, renderDebt, _draft: draft };
 })();
+
+</script>
+  <script>
+// Home screen extras (WTHomeUI): daily wealth tip, net worth card, Progress page. Placeholder; filled in by the home UI work.
+(function () { 'use strict'; window.WTHomeUI = { ready: false }; })();
 
 </script>
 </body>

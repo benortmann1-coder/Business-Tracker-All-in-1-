@@ -11,7 +11,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fa
 (async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: SHOTS ? 2 : 1 });
-  await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) { } });
+  await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) { } });
   await ctx.addInitScript({ path: path.join(__dirname, 'fixtures/sample-data.js') }); // made-up sample bills
   const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
   const cdp = await ctx.newCDPSession(page);

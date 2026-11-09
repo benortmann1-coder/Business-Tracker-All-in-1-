@@ -2,7 +2,7 @@
 // since Google sign-in itself only runs on a real phone.
 // Run: NODE_PATH=$(npm root -g) node wealthtrack/tests/gdrive.js
 const { chromium } = require('playwright');
-const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) {} }); return c; };
+const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) {} }); return c; };
 const path = require('path');
 const FILE = 'file://' + path.join(__dirname, '../dist/WealthTrack.html');
 const SAMPLE = path.join(__dirname, 'fixtures/sample-data.js'); // made-up test data (the app itself starts blank)

@@ -1036,3 +1036,7 @@ html:has(body.reordering), body.reordering { overflow-anchor: none; } /* no scro
 body.reordering { -webkit-user-select: none; user-select: none; touch-action: none; }
 body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[data-tpl]:not(.dragging) { transition: background .12s; }
 #main .dragging { position: relative; z-index: 6; background: var(--surface); box-shadow: 0 10px 28px rgba(0, 0, 0, .18), 0 0 0 2px var(--brand); border-radius: 10px; cursor: grabbing; }
+/* demo banner */
+.demo-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin: 12px 0 16px; border: 1px solid var(--line-2); border-left: 3px solid var(--auto); border-radius: 10px; background: var(--surface); font-size: 13px; color: var(--ink-2); }
+.demo-tag { font-weight: 800; letter-spacing: .08em; font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--auto); color: #fff; }
+.demo-bar .grow { flex: 1 1 200px; }

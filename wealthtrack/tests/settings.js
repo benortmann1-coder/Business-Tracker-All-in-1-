@@ -15,7 +15,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAKUlEQVR
   const browser = await chromium.launch();
   const errors = [];
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: SHOTS ? 2 : 1 });
-  await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) { } });
+  await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) { } });
   await ctx.addInitScript({ path: SAMPLE }); // bills/debts/income so the currency checks cover real amounts
   const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message));
   const go = async r => { await page.evaluate(r => { location.hash = '#/' + r; }, r); await page.waitForTimeout(200); };
@@ -48,7 +48,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAKUlEQVR
   ok(await page.locator('input[name=email]').getAttribute('readonly') === null, 'email is editable when not signed in to Google');
   ok((await page.locator('.avatar').first().textContent()).trim() === 'AR', 'initials avatar');
   await go('dashboard');
-  ok(/^Good (morning|afternoon|evening), Alex$/.test((await page.locator('#main h1').textContent()).trim()), 'Overview greets by first name');
+  ok(/^Good (Morning|Afternoon|Evening), Alex$/.test((await page.locator('#main h1').textContent()).trim()), 'Overview greets by first name');
   await go('settings/personal');
   await page.fill('input[name=first]', '<img src=x onerror=alert(1)>'); await save();
   ok(!(await page.evaluate(() => WT.settings().profile.first)).includes('<') && await page.locator('#main img[src=x]').count() === 0, 'name cannot inject HTML');
@@ -106,7 +106,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAKUlEQVR
   // dark mode screenshot
   if (SHOTS) {
     const dk = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark' });
-    await dk.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) { } });
+    await dk.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) { } });
     const dp = await dk.newPage(); await dp.goto(FILE + '#/settings'); await dp.waitForFunction(() => window.__wtReady); await dp.waitForTimeout(400);
     await dp.screenshot({ path: path.join(SHOTS, 'settings-menu-dark.png') }); await dk.close();
   }
@@ -114,7 +114,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAKUlEQVR
   {
     const ac = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: SHOTS ? 2 : 1 });
     await ac.addInitScript(() => {
-      localStorage.setItem('wt.skipOnboarding', '1');
+      localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1');
       const send = d => setTimeout(() => window.dispatchEvent(new CustomEvent('address', { detail: d })), 20);
       let data = {}; window.__addr = { searches: [] };
       window.AndroidBridge = {

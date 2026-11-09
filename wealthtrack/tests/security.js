@@ -1,7 +1,7 @@
 // Browser security regression test (Playwright/Chromium): stored XSS + malicious backup restore.
 // Run: node wealthtrack/tests/security.js
 const { chromium } = (() => { try { return require('playwright'); } catch (e) { return require('/opt/node22/lib/node_modules/playwright'); } })();
-const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) {} }); return c; };
+const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) {} }); return c; };
 const http = require('http');
 const fs = require('fs');
 const os = require('os');

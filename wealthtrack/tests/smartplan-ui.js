@@ -20,7 +20,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   let wired = null;
   const open = async (opts) => {
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: SHOTS ? 2 : 1 }, opts || {}));
-    await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) { } });
+    await ctx.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) { } });
     await ctx.addInitScript({ path: path.join(__dirname, 'fixtures/sample-data.js') }); // made-up sample data
     const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message));
     await page.goto(FILE); await page.waitForFunction(() => window.__wtReady);

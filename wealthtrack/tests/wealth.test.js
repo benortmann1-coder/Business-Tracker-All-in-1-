@@ -107,9 +107,9 @@ test('demo data is flagged and never counts as real', () => {
   const n = WTWealth.netWorth();
   assert.equal(n.demo, true);
   assert.equal(n.verified, false);
-  assert.equal(n.totalAssets, 150000); // demo savings
+  assert.equal(n.totalAssets, 125000 + 150000); // demo checking + demo savings
   assert.equal(n.totalLiabilities, 380000 + 1240000);
-  assert.equal(n.netWorth, 150000 - 1620000);
+  assert.equal(n.netWorth, 275000 - 1620000);
   assert.ok(/Demo/.test(n.notes[0]));
   assert.ok(WTWealth.history(3).every(p => p.demo));
 });

@@ -11,6 +11,7 @@
     const day = d => mk + '-' + String(d).padStart(2, '0');
     const S = root.WTSeed || (typeof require === 'function' ? require('./seed.js') : null);
     if (S) S.seed(WT, { blank: true, today });
+    WT.save('accounts', Object.assign({}, WT.D.accounts.acc_checking, { openingCents: 125000 })); // fictional checking balance
     WT.save('accounts', { id: 'acc_demo_savings', name: 'Savings', type: 'savings', openingCents: 150000, openingDate: today, inAvailable: false, order: 2 });
     // Pay: $2,300 every two weeks, starting on the most recent Friday.
     const t = new Date(today + 'T12:00:00'); const back = (t.getDay() + 2) % 7; t.setDate(t.getDate() - back);

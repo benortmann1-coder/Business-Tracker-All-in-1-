@@ -1,7 +1,7 @@
 // End-to-end check in a real browser (Playwright/Chromium).
 // Run: node wealthtrack/tests/e2e.js [--shots <dir>]
 const { chromium } = (() => { try { return require('playwright'); } catch (e) { return require('/opt/node22/lib/node_modules/playwright'); } })();
-const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) {} }); return c; };
+const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) {} }); return c; };
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

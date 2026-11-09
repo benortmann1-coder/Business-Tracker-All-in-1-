@@ -1,7 +1,7 @@
 // Functional walkthrough: clicks through every screen, form and action in a real browser.
 // Run: NODE_PATH=$(npm root -g) node wealthtrack/tests/functional.js
 const { chromium } = (() => { try { return require('playwright'); } catch (e) { return require('/opt/node22/lib/node_modules/playwright'); } })();
-const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) {} }); return c; };
+const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) {} }); return c; };
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os');
 // made-up sample data (tests only); a real install starts blank
 const FIXTURE = path.join(__dirname, 'fixtures/sample-data.js');

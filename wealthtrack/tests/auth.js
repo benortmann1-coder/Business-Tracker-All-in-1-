@@ -11,9 +11,11 @@ if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 let pass = 0, fail = 0;
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fail++; };
 
-// Stand-in for the Android bridge. State lives in localStorage so it survives reloads, like the phone.
+// Stand-in for the Android bridge. Its state lives in window.name (JSON) so it survives reloads reliably
+// (file:// localStorage can drop a write on an immediate reload); the real phone keeps it in Android settings.
 const fakeBridge = () => {
-  const ls = (k, v) => { if (v === undefined) return localStorage.getItem('fake.' + k); if (v === null) localStorage.removeItem('fake.' + k); else localStorage.setItem('fake.' + k, v); };
+  const st = () => { try { const o = JSON.parse(window.name || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } };
+  const ls = (k, v) => { const o = st(); o.fake = o.fake || {}; if (v === undefined) return k in o.fake ? o.fake[k] : null; if (v === null) delete o.fake[k]; else o.fake[k] = String(v); window.name = JSON.stringify(o); };
   const send = (n, d) => setTimeout(() => window.dispatchEvent(new CustomEvent(n, { detail: d })), 30);
   let taken = null;
   window.__fake = { ls };
@@ -40,14 +42,15 @@ const fakeBridge = () => {
   const mk = async (opts, android, sample) => {
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 860 } }, opts || {}));
     if (android) await ctx.addInitScript(fakeBridge);
+    await ctx.addInitScript(() => { try { localStorage.setItem('wt.demoDone', '1'); } catch (e) { } }); // sign-in tests: no demo (tests/demo.js covers it)
     if (sample) {
       await ctx.addInitScript({ path: SAMPLE });
-      await ctx.addInitScript(() => { if (window.name === 'wt-test-no-sample') delete window.WTSampleSeed; }); // set by noSample() below
+      await ctx.addInitScript(() => { try { if (JSON.parse(window.name || '{}').noSample) delete window.WTSampleSeed; } catch (e) { } }); // set by noSample() below
     }
     const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message)); page.on('dialog', d => d.accept());
     return { ctx, page };
   };
-  const noSample = p => p.evaluate(() => { window.name = 'wt-test-no-sample'; });
+  const noSample = p => p.evaluate(() => { let o = {}; try { o = JSON.parse(window.name || '{}') || {}; } catch (e) { } o.noSample = true; window.name = JSON.stringify(o); });
   const h1 = p => p.locator('.auth .auth-body h1').last().textContent();
   const typePin = async (p, pin, wait = 400) => { await p.keyboard.type(pin); await p.keyboard.press('Enter'); await p.waitForTimeout(wait); };
   const ready = p => p.waitForFunction(() => window.__wtReady === true);
@@ -209,7 +212,7 @@ const fakeBridge = () => {
   {
     const { ctx, page } = await mk({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, true);
     const backup = JSON.stringify({ app: 'WealthTrack', format: 1, exportedAt: '2026-11-01T00:00:00Z', data: { templates: {}, instances: {}, payments: {}, expenses: {}, debts: {}, accounts: {}, categories: {}, settings: {} } });
-    await ctx.addInitScript(b => { if (!localStorage.getItem('fake.seeded')) { localStorage.setItem('fake.seeded', '1'); localStorage.setItem('fake.drive', b); } }, backup);
+    await ctx.addInitScript(b => { let o = {}; try { o = JSON.parse(window.name || '{}') || {}; } catch (e) { } o.fake = o.fake || {}; if (!o.fake.seeded) { o.fake.seeded = '1'; o.fake.drive = b; window.name = JSON.stringify(o); } }, backup);
     await page.goto(FILE); await ready(page); await page.waitForSelector('.auth [data-auth=to-google]');
     await page.click('.auth [data-auth=to-google]'); await page.waitForSelector('.auth .btn.google');
     await page.click('.auth .btn.google'); await page.waitForSelector('.overlay', { timeout: 5000 });

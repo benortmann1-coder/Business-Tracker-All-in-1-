@@ -3,7 +3,7 @@
 //  - fails on horizontal page overflow on any route or modal at 360px (and other viewports)
 //  - fails on primary tap targets < 40px, inputs < 16px font (iOS zoom), modal footer off-screen
 const { chromium } = (() => { try { return require('playwright'); } catch (e) { return require('/opt/node22/lib/node_modules/playwright'); } })();
-const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); } catch (e) {} }); return c; };
+const __skipOnb = async c => { await c.addInitScript(() => { try { localStorage.setItem('wt.skipOnboarding', '1'); localStorage.setItem('wt.demoDone', '1'); } catch (e) {} }); return c; };
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
