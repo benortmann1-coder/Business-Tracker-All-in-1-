@@ -14,10 +14,11 @@
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.0'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.1'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
+    logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
     user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z', palette: 'M12 3a9 9 0 1 0 0 18c1 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.4-4-8-9-8zM7.5 11.5h.01M10.5 7.5h.01M15.5 7.5h.01', info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01', tag: 'M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8zM7.5 7.5h.01', db: 'M12 8c4.4 0 8-1.3 8-3s-3.6-3-8-3-8 1.3-8 3 3.6 3 8 3zM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
     home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
     bills: 'M6 2h12v20l-3-2-3 2-3-2-3 2zM9 7h6M9 11h6M9 15h4',
@@ -83,6 +84,7 @@
           ${NAV_GROUPS.map(([label, ids]) => `<nav class="nav-group"><span class="eyebrow">${label}</span>${ids.map(item).join('')}</nav>`).join('')}
           <div class="spacer"></div>
           <div class="side-foot"><i class="dot"></i><span id="saveState">Saved on this device</span></div>
+          <button class="side-logout" data-act="logout">${ic('logout')}Log out</button>
         </aside>
         <main class="main" id="main"></main>
       </div>
@@ -106,6 +108,11 @@
     const y = window.scrollY;
     try { main.innerHTML = demoBar() + (VIEWS[ui.route] || VIEWS.dashboard)(); }
     catch (e) { console.error(e); main.innerHTML = `<div class="card"><h3>Something went wrong</h3><p class="muted">${esc(e.message)}</p></div>`; }
+    // quick access to Settings, top right of every page
+    const tb = main.querySelector('.topbar');
+    if (tb && !tb.querySelector('.quick-set')) tb.insertAdjacentHTML('beforeend', `<button class="btn icon quick-set" data-nav-go="settings" aria-label="Settings" title="Settings">${ic('gear')}</button>`);
+    // the lock screen can't read encrypted data, so only the first name is kept for its greeting
+    try { const fn = (profile().first || '').slice(0, 40); if (fn !== render.greet) { render.greet = fn; S.setGreetName(fn); } } catch (e) { /* storage blocked */ }
     if (render.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
     render.keepScroll = false;
     (AFTER[ui.route] || (() => { }))();
@@ -506,7 +513,7 @@
     const days = nxt ? W.diffDays(today(), nxt.date) : null;
     const nm = profile().first; const greet = greeting();
     return `<div class="topbar"><div><h1 class="greet">${esc(greet)}${nm ? ', ' + esc(nm) : ''}</h1><div class="sub">${W.dateLabel(today(), true)}${days != null ? ` · payday ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days'}` : ''}</div></div>
-      <div class="row wrap">${monthSel('month', ui.month)}<button class="btn icon" data-act="customizeDash" aria-label="Customize dashboard" title="Customize dashboard">${ic('gear')}</button></div></div>
+      <div class="row wrap">${monthSel('month', ui.month)}</div></div>
       <div class="fade-in">${homeExt('renderDashboardTop')}${W.settings().guest && GD.supported() && !(W.settings().account && W.settings().account.email) ? `<div class="callout red guest-banner">${ic('alert')}<div><b>Guest mode: your data is not backed up.</b> If you lose or reset this phone, it's gone. <button class="link" data-act="gdSignIn">Sign in with Google</button></div></div>` : ''}${col('top')}<div class="split" style="margin-top:30px"><div>${col('main')}</div><div>${col('side')}</div></div></div>`;
   }
   // ------------------------------------------------------------ BILLS
@@ -2646,7 +2653,8 @@
     sbCats: () => sbCatsModal(),
     sbEss: d => sbSetEss(d.id, d.v === '1'),
     sbEssReset: () => sbSetEss(null, null),
-    moreMenu: (d, el) => menu(el, ROUTES.filter(r => !MOBILE.includes(r[0])).map(r => ({ label: r[1], icon: r[2], run: () => go(r[0]) }))),
+    moreMenu: (d, el) => menu(el, ROUTES.filter(r => !MOBILE.includes(r[0])).map(r => ({ label: r[1], icon: r[2], run: () => go(r[0]) })).concat(['-', { label: 'Log out', icon: 'logout', run: () => logOut() }])),
+    logout: () => logOut(),
     quickAdd: (d, el) => menu(el, [{ label: 'Add expense', icon: 'cash', run: () => expenseModal() }, { label: 'Add bill', icon: 'bills', run: () => addBill() }, { label: 'Bonus / extra income', icon: 'wallet', run: () => extraIncomeModal() }, { label: 'Transfer / savings', icon: 'move', run: () => transferModal() }]),
   };
   const CHANGE = {
@@ -2762,6 +2770,17 @@
     document.addEventListener('contextmenu', e => { if (pend || drag || (ui.route === 'bills' && rowOf(e.target))) e.preventDefault(); });
     document.addEventListener('click', e => { if (Date.now() - eatClick < 400) { e.preventDefault(); e.stopPropagation(); } }, true);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && drag) { const d = drag; drag = null; d.row.classList.remove('dragging'); d.row.style.transform = ''; document.body.classList.remove('reordering'); document.documentElement.style.overflowAnchor = ''; refresh(); } });
+  }
+  // ------------------------------------------------------------ log out = lock the app now
+  async function logOut() {
+    if (!S.key) {
+      if (await confirmBox('Set a PIN first?', 'Logging out locks WealthTrack behind your PIN, and you don\'t have one yet. Create a PIN now? You can log out after that.', 'Create PIN')) A.setPinNow();
+      return;
+    }
+    const bio = AUTH.bio() === 'enabled';
+    if (!(await confirmBox('Log out?', 'WealthTrack will lock now. You\'ll need your PIN' + (bio ? ' or fingerprint' : '') + ' to open it again. Your data stays on this device.', 'Log out'))) return;
+    try { await S.flush(); } catch (e) { /* saved on next open */ }
+    location.reload(); // reloading drops the decrypted data from memory and shows the PIN screen
   }
   // ------------------------------------------------------------ demo banner
   function demoBar() {
@@ -2924,7 +2943,7 @@
       };
       window.addEventListener('biometric', onBio);
       const pad = pinEntry(page, {
-        title: 'Welcome back', sub: bioOn ? 'Use your fingerprint or enter your PIN' : 'Enter your PIN to open WealthTrack', cta: 'Unlock', minLen: 4, bio: bioOn, onBio: tryBio,
+        title: esc(greeting() + (unlockFlow.greetFirst ? ', ' + unlockFlow.greetFirst : '')), sub: bioOn ? 'Use your fingerprint or enter your PIN' : 'Enter your PIN to open WealthTrack', cta: 'Unlock', minLen: 4, bio: bioOn, onBio: tryBio,
         links: '<button type="button" class="link" data-auth="forgot">Forgot PIN?</button>',
         onSubmit: async p => {
           if (await S.unlock(p)) { done(); return true; }
@@ -3119,7 +3138,7 @@
     try {
       await S.open(W.COLLS);
       try { applyThemeValue(localStorage.getItem('wt.theme') || 'system'); } catch (e) { /* storage blocked */ }
-      if (await S.lockInfo()) await unlockFlow();
+      if (await S.lockInfo()) { unlockFlow.greetFirst = await S.greetName(); await unlockFlow(); }
       const empty = await S.isEmpty();
       const data = empty ? null : await S.loadAll();
       W.init(data, S);

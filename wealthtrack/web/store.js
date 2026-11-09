@@ -56,6 +56,9 @@
       });
     },
     async lockInfo() { const rows = await Store._all('sys'); return rows.find(r => r.id === 'lock') || null; },
+    // first name for the lock-screen greeting (kept unencrypted on purpose: only the first name, nothing else)
+    async greetName() { try { const rows = await Store._all('sys'); const r = rows.find(x => x.id === 'greet'); return r && typeof r.first === 'string' ? r.first.slice(0, 40) : ''; } catch (e) { return ''; } },
+    async setGreetName(first) { try { if (first) await Store._putSys({ id: 'greet', first: String(first).slice(0, 40) }); else await Store._delSys('greet'); } catch (e) { /* ignore */ } },
     async isEmpty() { const m = await Store._all('meta'); return m.length === 0; },
     async loadAll() {
       const data = {};

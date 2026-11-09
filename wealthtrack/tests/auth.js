@@ -71,7 +71,7 @@ const fakeBridge = () => {
     await typePin(page, '135792'); await typePin(page, '135792', 3000);
     ok(await page.locator('.auth').count() === 0 && await page.evaluate(() => !!WTStore.key), 'browser: PIN set, data encrypted');
     await page.reload(); await ready(page).catch(() => { }); await page.waitForSelector('.auth .pin-dots');
-    ok(/Welcome back/.test(await h1(page)) && await page.evaluate(() => !window.WT.D), 'browser: locked on reopen, nothing loaded');
+    ok(/^Good (Morning|Afternoon|Evening)/.test(await h1(page)) && await page.evaluate(() => !window.WT.D), 'browser: locked on reopen, nothing loaded');
     ok(await page.locator('.auth [data-k=bio]').count() === 0, 'browser: no fingerprint key');
     await shot(page, 'auth-unlock-desktop');
     await typePin(page, '000000', 2500); ok(/Wrong PIN/.test(await page.locator('.auth .auth-err').textContent()), 'browser: wrong PIN');
@@ -85,11 +85,11 @@ const fakeBridge = () => {
       set('visible'); document.dispatchEvent(new Event('visibilitychange'));
     });
     await page.waitForSelector('.auth .pin-dots', { timeout: 8000 }).catch(() => { });
-    ok(/Welcome back/.test(await h1(page)), 'browser: locks again after 2 minutes away');
+    ok(/^Good (Morning|Afternoon|Evening)/.test(await h1(page)), 'browser: locks again after 2 minutes away');
     // forgot PIN -> erase & start over
     await page.click('.auth [data-auth=forgot]');
     ok(/Forgot/.test(await h1(page)) && await page.locator('[data-auth=reset-restore]').count() === 0, 'browser: forgot PIN page (no Drive option)');
-    await page.click('[data-auth=back]'); await page.waitForSelector('.auth .pin-dots'); ok(/Welcome back/.test(await h1(page)), 'browser: "I remember it" goes back');
+    await page.click('[data-auth=back]'); await page.waitForSelector('.auth .pin-dots'); ok(/^Good (Morning|Afternoon|Evening)/.test(await h1(page)), 'browser: "I remember it" goes back');
     await page.click('.auth [data-auth=forgot]'); await page.click('[data-auth=reset-fresh]');
     await page.waitForTimeout(1500); await ready(page); await page.waitForSelector('.auth .pin-dots');
     ok(/Create a PIN/.test(await h1(page)) && await page.evaluate(async () => !(await WTStore.lockInfo())), 'browser: erase starts setup again');
@@ -245,6 +245,8 @@ const fakeBridge = () => {
     ok(/Guest: your data is not backed up/.test(await page.locator('.set-row', { hasText: 'Google account' }).textContent()), 'guest: settings says not backed up');
     await page.evaluate(() => { location.hash = '#/dashboard'; }); await page.waitForTimeout(200);
     await page.click('.guest-banner [data-act=gdSignIn]'); await page.waitForTimeout(600);
+    // a fresh install first checks Drive for a backup, then backs up: wait for that chain instead of a fixed delay
+    await page.waitForFunction(() => +__fake.ls('backups') >= 1, null, { timeout: 4000 }).catch(() => { }); await page.waitForTimeout(150);
     ok(await page.evaluate(() => !WT.settings().guest && WT.settings().account.email === 'alex@example.com'), 'guest: signing in later ends guest mode');
     ok(+await page.evaluate(() => __fake.ls('backups')) === 1 && await page.locator('.guest-banner').count() === 0, 'guest: backups start after signing in');
     await ctx.close();

@@ -114,6 +114,44 @@ const stored = page => page.evaluate(() => new Promise(res => { const r = indexe
     ok(types.some(t => /Investment/.test(t)) && types.some(t => /Property/.test(t)), 'account types include Investment and Property');
     await ctx.close();
   }
+  // ---------------- quick Settings button, Log out, lock-screen greeting
+  {
+    const { ctx, page } = await mk(true);
+    for (const r of ['dashboard', 'bills', 'paychecks', 'smart', 'debts', 'progress', 'settings']) {
+      await go(page, r);
+      const n = await page.locator('#main .topbar .quick-set').count();
+      const box = n ? await page.locator('#main .topbar .quick-set').boundingBox() : null;
+      ok(n === 1 && box && box.x + box.width > 330, 'Settings button top right on ' + r);
+    }
+    await go(page, 'bills'); await page.click('#main .topbar .quick-set'); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => location.hash) === '#/settings', 'Settings button opens Settings');
+    ok(await page.locator('#main [data-act=customizeDash]').count() === 0, 'no second gear on the dashboard');
+    // Log out with no PIN yet: offers to create one
+    await page.click('[data-act=moreMenu]'); await page.waitForTimeout(150);
+    const items = await page.locator('#menu button').allTextContents();
+    ok(items[items.length - 1].trim() === 'Log out', 'More menu ends with Log out');
+    await page.locator('#menu button', { hasText: 'Log out' }).click(); await page.waitForTimeout(250);
+    ok(/Set a PIN first/.test(await page.locator('.overlay').textContent()), 'no PIN: Log out offers to create one');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+    // with a PIN: confirm, then the lock screen greets by first name
+    await page.evaluate(async () => { WT.saveSettings({ profile: { first: 'Sam', last: 'Rivers' } }); WTApp.refresh(); await WTStore.changeLock('246813', WT.D); });
+    await page.waitForTimeout(300);
+    await page.click('[data-act=moreMenu]'); await page.waitForTimeout(150);
+    await page.locator('#menu button', { hasText: 'Log out' }).click(); await page.waitForTimeout(250);
+    ok(/Log out\?/.test(await page.locator('.overlay').textContent()) && /PIN/.test(await page.locator('.overlay').textContent()), 'Log out asks to confirm');
+    await page.locator('.overlay .btn.primary, .overlay button[type=submit]').last().click();
+    await page.waitForSelector('.auth .pin-dots', { timeout: 8000 });
+    const title = (await page.locator('.auth h1').textContent()).trim();
+    const hour = await page.evaluate(() => new Date().getHours());
+    const want = (hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening') + ', Sam';
+    ok(title === want, 'lock screen greets by name: ' + title);
+    ok(await page.evaluate(() => !window.WT.D || !Object.keys(WT.D.templates || {}).length), 'after logging out nothing is loaded until the PIN is entered');
+    ok(await page.evaluate(() => WTStore.greetName()) === 'Sam' && await page.evaluate(() => new Promise(r => { const q = indexedDB.open('wealthtrack'); q.onsuccess = () => { const g = q.result.transaction('sys').objectStore('sys').get('greet'); g.onsuccess = () => r(Object.keys(g.result || {}).sort().join()); }; })) === 'first,id', 'only the first name is kept (unencrypted) for the greeting');
+    await page.keyboard.type('246813'); await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__wtReady && WT.D && Object.keys(WT.D.templates).length > 0, null, { timeout: 8000 });
+    ok(true, 'PIN opens the app again');
+    await ctx.close();
+  }
   ok(errors.length === 0, 'no page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed`);

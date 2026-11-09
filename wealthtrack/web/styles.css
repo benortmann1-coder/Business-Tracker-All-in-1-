@@ -1156,3 +1156,10 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
 .demo-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin: 12px 0 16px; border: 1px solid var(--line-2); border-left: 3px solid var(--auto); border-radius: 10px; background: var(--surface); font-size: 13px; color: var(--ink-2); }
 .demo-tag { font-weight: 800; letter-spacing: .08em; font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--auto); color: #fff; }
 .demo-bar .grow { flex: 1 1 200px; }
+/* quick Settings button, top right of every page */
+.topbar { position: relative; padding-right: 56px; }
+.topbar .quick-set { position: absolute; top: 0; right: 0; }
+/* log out in the desktop sidebar */
+.side-logout { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px; padding: 8px 10px; border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 13px; cursor: pointer; border-radius: 8px; }
+.side-logout:hover { background: var(--hover); color: var(--ink); }
+.side-logout svg { width: 16px; height: 16px; }

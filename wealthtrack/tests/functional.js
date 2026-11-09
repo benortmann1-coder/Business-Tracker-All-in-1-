@@ -403,7 +403,7 @@ function serve() {
   ok(await page.locator('.auth').count() === 0, 'create PIN page closes');
   ok(await W(() => !!WTStore.key), 'lock on');
   await page.reload(); await page.waitForSelector('.auth .pin-dots');
-  ok(/Welcome back/.test(await authTitle()), 'unlock page on launch');
+  ok(/^Good (Morning|Afternoon|Evening)/.test(await authTitle()), 'unlock page on launch');
   ok(await W(() => !window.WT.D), 'data not loaded before unlock');
   await typePin('0000', 2500);
   ok(/Wrong/.test(await page.locator('.auth .auth-err').textContent()), 'wrong PIN rejected');
