@@ -14,8 +14,8 @@ android {
         applicationId 'com.wealthtrack.app'
         minSdk 24
         targetSdk 34
-        versionCode 26
-        versionName '1.4.3'
+        versionCode 27
+        versionName '1.5.0'
     }
 
     buildFeatures {

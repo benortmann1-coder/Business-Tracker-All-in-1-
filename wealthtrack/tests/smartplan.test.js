@@ -26,7 +26,7 @@ const snap = () => JSON.stringify(WT.D);
 
 test('API shape and ready flag', () => {
   assert.equal(P.ready, true);
-  ['paycheckPlan', 'moveTargets', 'debtPlans'].forEach(f => assert.equal(typeof P[f], 'function'));
+  ['paycheckPlan', 'moveTargets', 'debtPlans', 'simulate', 'debtList'].forEach(f => assert.equal(typeof P[f], 'function'));
 });
 
 test('carry-forward and reserve from earlier paychecks, to the cent', () => {
@@ -321,4 +321,31 @@ test('read-only: nothing in WT.D changes and nothing is persisted', () => {
   P.moveTargets(apt.id); P.debtPlans(); P.debtPlans({ extra: 50000, method: 'custom', order: ['debt_car'] });
   assert.equal(snap(), before);
   assert.equal(writes.n, n);
+});
+
+// ---------------------------------------------------------------- v3: public simulate, timelines, debt types
+test('simulate(): same math as debtPlans for every order, with timelines', () => {
+  debts();
+  const list = P.debtList().debts;
+  assert.deepEqual(list.map(d => [d.id, d.type, d.revolving]).sort(), [['d_a', 'credit_card', true], ['d_b', 'credit_card', true], ['d_c', 'credit_card', true]]);
+  const r = P.debtPlans({ extra: 10000, order: ['d_b'] });
+  for (const [m, how] of [['avalanche', 'avalanche'], ['snowball', 'snowball'], ['custom', ['d_b']], ['minimum', 'minimum']]) {
+    const s = P.simulate(list, m === 'minimum' ? 0 : 10000, how);
+    assert.equal(s.months, r.methods[m].months, m); assert.equal(s.totalInterest, r.methods[m].totalInterest, m);
+    assert.deepEqual(s.timeline, r.methods[m].timeline, m);
+    assert.equal(s.timeline[0], 450000); assert.equal(s.timeline[s.timeline.length - 1], 0);
+  }
+  // snowball: smallest balance first; avalanche: highest APR first
+  const first = (how) => { const s = P.simulate(list, 10000, how); return s.order.slice().sort((a, b) => a.payoffMonth - b.payoffMonth)[0].id; };
+  assert.equal(first('snowball'), 'd_c'); assert.equal(first('avalanche'), 'd_a');
+  assert.deepEqual(P.simulate([], 5000, 'avalanche').timeline, [0]);
+});
+
+test('debt types: installment loans vs revolving cards on the sample data', () => {
+  fresh();
+  const r = P.debtPlans({ extra: 0 });
+  const by = id => r.methods.avalanche.order.find(x => x.id === id);
+  assert.equal(by('debt_visa').revolving, true); assert.equal(by('debt_store').revolving, true);
+  assert.equal(by('debt_car').revolving, false); assert.equal(by('debt_student').revolving, false);
+  assert.equal(by('debt_car').type, 'auto');
 });

@@ -80,7 +80,7 @@ test('every strategy: pct sums to 100 and cents sum exactly to income', () => {
   fresh();
   const A = S.analyze();
   const list = S.strategies(A);
-  assert.deepEqual(list.map(s => s.id), ['recommended', '50-30-20', '60-20-20', 'debt', 'savings', 'zero']);
+  assert.deepEqual(list.map(s => s.id), ['recommended', 'avalanche', 'snowball', '50-30-20', 'zero', 'pay-first', 'aggressive', 'balanced']);
   list.forEach(s => { checkTotals(A, s); assert.ok(s.why.length > 10); assert.ok(s.fitScore >= 0 && s.fitScore <= 100); });
   // odd incomes still sum exactly
   WT.updateIncome('inc_job', { netCents: 123457 });
@@ -88,56 +88,61 @@ test('every strategy: pct sums to 100 and cents sum exactly to income', () => {
   S.strategies(A2).forEach(s => checkTotals(A2, s));
 });
 
-test('presets are infeasible and adjusted when essentials + minimums exceed them', () => {
+test('50/30/20 adapts to the real needs and minimums (counted once) instead of forcing the example', () => {
   fresh();
   const A = S.analyze();
-  const list = S.strategies(A);
-  for (const id of ['50-30-20', '60-20-20']) {
-    const s = list.find(x => x.id === id);
-    assert.equal(s.feasible, false);
-    assert.ok(s.warnings.length > 0);
-    assert.match(s.warnings.join(' '), /isn't realistic|miss payments/);
-    assert.ok(s.adjusted);
-    assert.equal(s.realistic, false);
-    // essentials are 45% and minimums 24% of pay: adjusted funds living costs and minimums, the $535 left goes to savings
-    assert.deepEqual(s.adjusted.amounts, { needs: A.living, debt: A.debtMinimums, savings: A.free, wants: 0 });
-    assert.equal(s.adjusted.realistic, true);
-    assert.ok(s.adjusted.amounts.wants <= s.amounts.wants);
-  }
-  // income can't cover living costs + minimums: adjusted keeps home, bills, food and gas funded first
+  const p = S.strategies(A).find(x => x.id === '50-30-20');
+  checkTotals(A, p);
+  assert.deepEqual(p.example, { needs: 40, debt: 20, savings: 10, wants: 30 });
+  assert.equal(sumC(p.exampleAmounts), A.income);
+  // needs + minimums are 84.6% of pay (not 50%): needs = real living costs, debt = minimums + extra, wants cut to a floor
+  assert.equal(p.amounts.needs, A.living);
+  assert.ok(p.amounts.debt >= A.debtMinimums);
+  assert.equal(p.amounts.wants, A.optionalBills); // the spending floor still covers the subscriptions
+  assert.equal(p.amounts.savings + p.amounts.wants + p.debtSplit.extra, A.free); // minimums are never counted twice
+  assert.equal(p.debtSplit.extra, Math.floor((A.free - p.amounts.wants) / 2)); // the "20%" pot: half extra debt, half savings
+  assert.equal(p.realistic, true); assert.equal(p.feasible, true); assert.equal(p.adjusted, undefined);
+  assert.equal(p.modified, true);
+  assert.match(p.modifications[0], /84\.6% of your pay, more than 50%/);
+  assert.ok(p.modifications.some(m => /minimum payments alone are 23\.8%/.test(m)));
+  // income can't cover living costs + minimums: every plan keeps home, bills, food and gas funded first
   WT.updateIncome('inc_job', { netCents: SHORT_NET });
   const As = S.analyze();
-  for (const s of S.strategies(As).filter(x => x.id === '50-30-20' || x.id === '60-20-20')) {
-    assert.equal(s.feasible, false); assert.equal(s.realistic, false);
-    assert.deepEqual(s.adjusted.amounts, { needs: As.living, debt: As.income - As.living, savings: 0, wants: 0 });
-    assert.equal(s.adjusted.realistic, false);
+  for (const s of S.strategies(As)) {
+    assert.equal(s.realistic, false, s.id);
+    assert.deepEqual(s.amounts, { needs: As.living, debt: As.income - As.living, savings: 0, wants: 0 }, s.id);
+    assert.ok(s.modified || s.id === 'recommended' || s.id === 'zero');
   }
-  // with enough income, adjusted presets cover living costs and minimums
-  WT.updateIncome('inc_job', { netCents: 250000 });
-  const A2 = S.analyze();
-  const p2 = S.strategies(A2).find(x => x.id === '50-30-20');
-  assert.ok(p2.adjusted && p2.adjusted.realistic);
-  assert.ok(p2.adjusted.amounts.needs >= A2.living && p2.adjusted.amounts.debt >= A2.debtMinimums);
-  assert.equal(sumC(p2.adjusted.amounts), A2.income);
-  // a preset that fits is feasible with no adjustment
+  // plenty of income: wants is exactly 30%, needs is NOT padded up to 50%, the rest is savings + extra debt
   WT.updateIncome('inc_job', { netCents: 1000000 });
-  const big = S.strategies(S.analyze()).find(x => x.id === '50-30-20');
-  assert.equal(big.feasible, true); assert.equal(big.realistic, true); assert.equal(big.adjusted, undefined);
+  const Ab = S.analyze();
+  const big = S.strategies(Ab).find(x => x.id === '50-30-20');
+  checkTotals(Ab, big);
+  assert.equal(big.amounts.wants, Math.round(Ab.income * 0.3));
+  assert.equal(big.amounts.needs, Ab.living);
+  assert.equal(big.amounts.savings + big.debtSplit.extra, Ab.income - Ab.required - big.amounts.wants);
+  assert.match(big.modifications[0], /less than 50%/);
+  assert.equal(big.realistic, true);
 });
 
-test('recommended on sample data: everything funded, the rest starts the emergency fund', () => {
+test('recommended on sample data: high-APR debt + low savings -> small reserve + Debt Avalanche', () => {
   fresh();
   const A = S.analyze();
   const list = S.strategies(A);
   const rec = list[0];
   assert.equal(rec.id, 'recommended');
-  // $535 free: less than the $1,000 starter fund, so no extra debt; $64.47 spending covers the optional bills
-  assert.deepEqual(rec.amounts, { needs: 210667, debt: 82500, savings: 47053, wants: 6447 });
-  assert.deepEqual(rec.debtSplit, { minimum: 82500, extra: 0 });
-  assert.equal(rec.amounts.savings + rec.amounts.wants, A.free);
+  assert.equal(rec.basedOn, 'avalanche');
+  // $535 free: $64.47 spending (covers optional bills), half of the rest to the starter fund, extra up to the 30% debt example, rest saved
+  assert.deepEqual(rec.amounts, { needs: 210667, debt: 104000, savings: 25553, wants: 6447 });
+  assert.deepEqual(rec.amounts, list.find(s => s.id === 'avalanche').amounts);
+  assert.deepEqual(rec.debtSplit, { minimum: 82500, extra: 21500 });
+  assert.equal(rec.amounts.savings + rec.amounts.wants + rec.debtSplit.extra, A.free);
+  assert.ok(rec.lines.some(l => l.label === 'Starter emergency fund' && l.amount === 23527));
   assert.equal(rec.feasible, true); assert.equal(rec.realistic, true);
   assert.deepEqual(rec.warnings, []);
-  assert.match(rec.why, /\$3,467/);
+  assert.match(rec.why, /Debt Avalanche/); assert.match(rec.why, /Store Card at 28\.99% APR/); assert.match(rec.why, /\$3,466\.67/);
+  assert.equal(rec.confidence, 'medium'); // two debts have no APR and the checking balance isn't entered
+  assert.equal(rec.showBadge, true);
   assert.equal(S.compare(A, list).bestId, 'recommended');
 });
 
@@ -173,13 +178,16 @@ test('recommended leaves real money for savings and spending when income allows'
   assert.equal(A.free, 248500); // 541667 - 210667 - 82500
   const list = S.strategies(A);
   const rec = list[0];
-  // living costs + minimums, then the $1,000 starter fund, spending money, then extra on the 28.99% card
-  assert.deepEqual(rec.amounts, { needs: 210667, debt: 156690, savings: 124730, wants: 49580 });
+  // high-APR cards + no savings: Avalanche. Snowball costs only ~$76 more here, so it ties and the cheaper order wins
+  assert.equal(rec.basedOn, 'avalanche');
+  assert.equal(rec.recommendation.scores.avalanche, rec.recommendation.scores.snowball);
+  assert.equal(rec.recommendation.confidence, 'medium');
+  assert.ok(rec.recommendation.factors.some(f => f.label === 'Avalanche vs Snowball' && /\$75\.66/.test(f.value)));
+  assert.deepEqual(rec.amounts, { needs: 210667, debt: 203917, savings: 100000, wants: 27083 });
   assert.equal(sumC(rec.amounts), A.income);
-  assert.deepEqual(rec.debtSplit, { minimum: A.debtMinimums, extra: 74190 });
-  assert.match(rec.why, /Store Card \(28\.99% APR\)/);
-  assert.ok(rec.amounts.savings >= A.starter.gap);
-  assert.ok(rec.amounts.wants >= Math.round(A.free * 0.10));
+  assert.deepEqual(rec.debtSplit, { minimum: A.debtMinimums, extra: 121417 });
+  assert.ok(rec.amounts.savings >= A.starter.gap); // the starter fund is fully funded this month
+  assert.equal(rec.amounts.wants, Math.round(A.income * 0.05));
   assert.equal(rec.realistic, true); assert.equal(rec.feasible, true);
   assert.deepEqual(rec.risks, []);
   assert.equal(rec.disposable, rec.amounts.wants - A.optionalBills);
@@ -189,10 +197,11 @@ test('recommended leaves real money for savings and spending when income allows'
   assert.ok(list.every(s => s.id === 'recommended' || s.fitScore <= rec.fitScore));
   const cmp = S.compare(A, list);
   assert.equal(cmp.bestId, 'recommended');
-  // Best fit is always a realistic plan
   assert.ok(cmp.rows.find(r => r.id === cmp.bestId).realistic);
-  // unrealistic presets keep their flag
-  assert.equal(list.find(s => s.id === '50-30-20').realistic, false);
+  // the 50/30/20 card is still realistic here, but modified: needs + minimums are 54.1%
+  const p = list.find(s => s.id === '50-30-20');
+  assert.equal(p.realistic, true); assert.equal(p.modified, true);
+  assert.equal(p.amounts.wants, Math.round(A.income * 0.3) - (A.required - Math.round(A.income * 0.5)));
 });
 
 test('extra debt is never recommended when necessities are unfunded (low income)', () => {
@@ -204,7 +213,7 @@ test('extra debt is never recommended when necessities are unfunded (low income)
   const list = S.strategies(A);
   for (const s of list) {
     const eff = s.adjusted || s;
-    if (['recommended', 'debt', 'savings', 'zero'].includes(s.id)) assert.deepEqual(s.amounts, { needs: 130000, debt: 0, savings: 0, wants: 0 }, s.id);
+    assert.deepEqual(s.amounts, { needs: 130000, debt: 0, savings: 0, wants: 0 }, s.id);
     assert.equal(s.debtSplit.extra, 0, s.id);
     assert.equal(sumC(eff.amounts), A.income);
     assert.equal(s.realistic, false);
@@ -216,22 +225,23 @@ test('extra debt is never recommended when necessities are unfunded (low income)
   assert.equal(hold.affordable, false); assert.match(hold.title, /Hold off/);
   assert.equal(sug[0].kind, 'shortfall');
   assert.equal(sug[0].amount, A.shortfall);
-  // living funded but starter emergency fund not yet built: still no extra debt
+  // living funded but starter emergency fund not yet built: the recommendation keeps a reserve going while it pays the
+  // highest rate, and the suggestions agree with it (one affordability calculation)
   WT.updateIncome('inc_job', { netCents: 160000 }); // the sample's own pay: free $535
   const B2 = S.analyze();
   assert.ok(B2.free > 0 && B2.free < B2.starter.gap);
   const rec = S.strategies(B2)[0];
-  assert.equal(rec.debtSplit.extra, 0);
-  assert.ok(rec.amounts.wants > 0 && rec.amounts.savings > 0);
-  assert.equal(rec.amounts.savings + rec.amounts.wants, B2.free);
+  assert.ok(rec.debtSplit.extra > 0 && rec.amounts.savings > 0 && rec.amounts.wants > 0);
+  assert.ok(rec.lines.find(l => l.label === 'Starter emergency fund').amount > 0);
+  assert.equal(rec.amounts.savings + rec.amounts.wants + rec.debtSplit.extra, B2.free);
   assert.equal(rec.realistic, true);
-  // a chosen plan that pays extra anyway gets a "not yet" note, never a contradicting recommendation
-  const debtPlan = S.strategies(B2).find(s => s.id === 'debt');
-  assert.ok(debtPlan.debtSplit.extra > 0);
-  const sug2 = S.suggestions(B2, debtPlan);
-  assert.ok(!sug2.some(x => x.kind === 'extra-debt' && x.affordable));
-  assert.match(sug2.find(x => x.kind === 'extra-debt').detail, /starter emergency fund/);
-  assert.match(sug2.find(x => x.kind === 'extra-debt').detail, /Your chosen plan puts/);
+  const sug2 = S.suggestions(B2, rec);
+  const ed = sug2.find(x => x.kind === 'extra-debt');
+  assert.equal(ed.affordable, true); assert.match(ed.title, /Store Card/);
+  // a plan with no extra (Pay Yourself First) gets the same "put extra toward Store Card" idea, never a contradiction
+  const pf = S.strategies(B2).find(s => s.id === 'pay-first');
+  assert.equal(pf.debtSplit.extra, 0);
+  assert.ok(S.suggestions(B2, pf).filter(x => x.kind === 'extra-debt').every(x => x.affordable));
 });
 
 test('shortfall: exact amount explained with realistic options', () => {
@@ -255,12 +265,12 @@ test('shortfall: exact amount explained with realistic options', () => {
   assert.equal(S.strategies(S.analyze())[0].options, undefined);
 });
 
-test('debt-focused pays off debt faster than 50/30/20', () => {
+test('aggressive debt payoff pays off debt faster than 50/30/20', () => {
   fresh();
   WT.updateIncome('inc_job', { netCents: 250000 }); // sample pay leaves nothing extra for debt yet (starter fund first)
   const A = S.analyze();
   const list = S.strategies(A);
-  const d = list.find(s => s.id === 'debt'), p = list.find(s => s.id === '50-30-20');
+  const d = list.find(s => s.id === 'aggressive'), p = list.find(s => s.id === '50-30-20');
   assert.ok(d.projection.debtFreeMonths < p.projection.debtFreeMonths);
   assert.ok(d.projection.debtPaid12 > p.projection.debtPaid12);
   assert.ok(d.projection.interestSaved > 0);
@@ -341,8 +351,12 @@ test('blank data does not throw and still returns valid shapes', () => {
   const A = S.analyze();
   assert.equal(A.income, 0); assert.equal(A.essentials, 0); assert.equal(A.debtMinimums, 0);
   const list = S.strategies(A);
-  assert.equal(list.length, 6);
+  assert.equal(list.length, 8);
   list.forEach(s => { assert.equal(sumPct(s.pct), 100); assert.equal(sumC(s.amounts), 0); assert.equal(s.feasible, false); assert.equal(s.realistic, false); });
+  const r = S.recommend(A);
+  assert.equal(r.confidence, 'low'); assert.equal(r.showBadge, false);
+  assert.match(r.reason, /Not enough information/);
+  assert.ok(r.missing.some(m => /job or paycheck/.test(m)));
   assert.equal(S.compare(A, list).bestId, null); // no income: nothing is a realistic "Best fit"
   assert.deepEqual(S.rollover().carryIn, { needs: 0, debt: 0, savings: 0, wants: 0 });
   assert.equal(S.fromDollars(A, { needs: 100 }).unallocated, -100);
@@ -375,8 +389,8 @@ test('no bills / no debts / debts missing minimum or APR', () => {
   assert.equal(A.income, 200000);
   let list = S.strategies(A);
   list.forEach(s => { checkTotals(A, s); assert.equal(s.feasible, true); assert.equal(s.projection.debtFreeMonths, 0); });
-  assert.equal(list.find(s => s.id === 'debt').amounts.debt, 0);
-  assert.match(list.find(s => s.id === 'debt').warnings.join(' '), /no debts/);
+  assert.equal(list.find(s => s.id === 'aggressive').amounts.debt, 0);
+  assert.match(list.find(s => s.id === 'aggressive').warnings.join(' '), /no debts/);
   // a debt with no minimum and no APR
   WT.addDebt({ id: 'debt_x', name: 'Family loan', type: 'personal', startBalanceCents: 50000, aprCenti: 0, minCents: 0 });
   A = S.analyze();
@@ -523,7 +537,7 @@ test('zero-based: every cent assigned, 0 unallocated, at many incomes', () => {
     WT.updateIncome('inc_job', { netCents: net });
     const A = S.analyze();
     const z = S.strategies(A).find(s => s.id === 'zero');
-    assert.equal(z.name, 'Zero-based');
+    assert.equal(z.name, 'Zero-Based');
     assert.equal(sumC(z.amounts), A.income, 'cents sum to income at ' + net);
     assert.equal(z.unallocated, 0);
     B.forEach(b => assert.ok(Number.isInteger(z.amounts[b]) && z.amounts[b] >= 0));
@@ -759,9 +773,11 @@ test('snapshot v2 adds dollars and rollover; strategy shapes complete', () => {
     assert.ok(Number.isInteger(s.debtSplit.minimum) && Number.isInteger(s.debtSplit.extra));
     assert.ok('debtFreeEstimate' in s.projection && 'interest' in s.projection);
   }
-  const p = list.find(s => s.id === '50-30-20');
+  // a percent split that doesn't fit is planned with its adjusted (realistic) amounts
+  const p = Object.assign({ id: 'custom' }, S.allocate(A, { needs: 50, debt: 0, savings: 20, wants: 30 }));
   const snap = S.snapshot('2026-11', p);
   assert.deepEqual(snap.dollars, p.adjusted.amounts); // what's really planned
+  assert.deepEqual(S.snapshot('2026-11', list[1]).dollars, list[1].amounts);
   assert.deepEqual(snap.rollover, { needs: 0, debt: 0, savings: 0, wants: 0 });
   assert.deepEqual(S.snapshot('2026-11', list[0], { rollover: { wants: 500 } }).rollover, { needs: 0, debt: 0, savings: 0, wants: 500 });
 });
@@ -793,7 +809,8 @@ test('cashflow suggestions use WTPlan when it is ready', () => {
   ] }; } };
   try {
     const sug = S.suggestions(A, S.strategies(A)[0]);
-    assert.equal(calls.length, 1); assert.equal(calls[0].count, 4);
+    // suggestions ask once without an analysis; the recommendation's cash-flow check passes its analysis
+    assert.equal(calls.filter(c => !c.analysis).length, 1); assert.ok(calls.every(c => c.count === 4));
     const cf = sug.filter(x => x.kind === 'cashflow');
     assert.ok(cf.some(x => x.amount === 12345 && x.urgency === 'soon' && /Hold back \$123 for the Nov 20 paycheck/.test(x.title)));
     assert.ok(cf.some(x => x.amount === 5000 && x.urgency === 'now'));
@@ -801,4 +818,492 @@ test('cashflow suggestions use WTPlan when it is ready', () => {
     global.WTPlan = { ready: true, paycheckPlan() { throw new Error('boom'); } };
     assert.ok(Array.isArray(S.suggestions(A, S.strategies(A)[0])));
   } finally { delete global.WTPlan; }
+});
+
+// ------------------------------------------------------------------ v3: named strategies, recommendation, breakdown, forecast
+const Demo = require(path.join(__dirname, '../web/demo.js')); // the in-app demo: 6 fictional bills, 2 fictional debts
+const P = require(path.join(__dirname, '../web/smartplan.js'));
+const NAMED = ['avalanche', 'snowball', '50-30-20', 'zero', 'pay-first', 'aggressive', 'balanced'];
+function freshDemo() {
+  const store = {}; const writes = { n: 0 };
+  WT.init(null, { put(c, r) { writes.n++; (store[c] = store[c] || {})[r.id] = 1; }, del() { writes.n++; } });
+  Demo.load(WT, { today: TODAY });
+  return { store, writes };
+}
+// a blank install with one job, rent and a groceries set-aside (no debt)
+function plain(net, extra) {
+  fresh(true);
+  WT.addIncome(Object.assign({ id: 'inc_x', name: 'Job', kind: 'net', netCents: net, schedule: 'biweekly', anchor: '2026-10-30', startDate: '2026-01-02', accountId: 'acc_checking' }, extra || {}));
+  WT.addTemplate({ id: 'b_rent', name: 'Rent', amountCents: 120000, category: 'cat_housing', anchor: '2026-11-01', frequency: 'monthly', accountId: 'acc_checking' });
+  WT.saveSettings({ setAsides: [{ id: 'sa', name: 'Groceries', amountCents: 20000 }] });
+}
+function checkNamed(A, s) {
+  checkTotals(A, s);
+  assert.ok(typeof s.summary === 'string' && s.summary.length > 20, s.id + ' summary');
+  assert.ok(s.benefits.length >= 2 && s.drawbacks.length >= 1, s.id + ' benefits/drawbacks');
+  assert.equal(typeof s.fit, 'string'); assert.ok(s.fit.length > 10, s.id + ' fit');
+  assert.equal(typeof s.modified, 'boolean'); assert.ok(Array.isArray(s.modifications)); assert.equal(s.modified, s.modifications.length > 0);
+  assert.ok(s.debtOrder === null || s.debtOrder === 'avalanche' || s.debtOrder === 'snowball');
+  const ex = s.example; if (ex) { assert.equal(sumPct(ex), 100); assert.equal(sumC(s.exampleAmounts), A.income); }
+  B.forEach(b => assert.ok(s.amounts[b] >= 0, s.id + ' never negative'));
+  assert.ok(Array.isArray(s.risks) && typeof s.realistic === 'boolean');
+  if (A.income > 0 && A.free >= 0) {
+    assert.equal(s.amounts.needs, A.living, s.id + ' needs = real living costs (never padded, never short)');
+    assert.ok(s.amounts.debt >= A.debtMinimums, s.id + ' minimums covered');
+    assert.equal(s.realistic, true, s.id);
+    assert.equal(s.debtSplit.minimum, A.debtMinimums);
+  }
+  if (A.debts.length && A.income > 0) assert.ok(s.payoff && Array.isArray(s.payoff.order), s.id + ' payoff schedule');
+}
+
+test('v3 API shape, strategy ids and old-id aliases', () => {
+  ['named', 'recommend', 'breakdown', 'forecast', 'compareAll', 'fillExactly', 'resolveId', 'findStrategy', 'customFrom', 'previewImpact'].forEach(f => assert.equal(typeof S[f], 'function', f));
+  assert.deepEqual(S.STRATEGY_IDS, ['avalanche', 'snowball', '50-30-20', 'zero', 'pay-first', 'aggressive', 'balanced', 'custom']);
+  assert.deepEqual(S.HORIZONS, [6, 12, 36, 60]);
+  assert.equal(S.resolveId('debt'), 'aggressive'); assert.equal(S.resolveId('savings'), 'pay-first'); assert.equal(S.resolveId('60-20-20'), 'balanced');
+  assert.equal(S.resolveId('avalanche'), 'avalanche'); assert.equal(S.resolveId('recommended'), 'recommended');
+  // the owner's illustrative table
+  assert.deepEqual(S.EXAMPLES.avalanche, { needs: 50, debt: 30, savings: 15, wants: 5 });
+  assert.deepEqual(S.EXAMPLES.snowball, { needs: 50, debt: 30, savings: 15, wants: 5 });
+  assert.deepEqual(S.EXAMPLES['50-30-20'], { needs: 40, debt: 20, savings: 10, wants: 30 });
+  assert.deepEqual(S.EXAMPLES.zero, { needs: 55, debt: 20, savings: 15, wants: 10 });
+  assert.deepEqual(S.EXAMPLES['pay-first'], { needs: 50, debt: 10, savings: 30, wants: 10 });
+  assert.deepEqual(S.EXAMPLES.aggressive, { needs: 50, debt: 35, savings: 10, wants: 5 });
+  assert.deepEqual(S.EXAMPLES.balanced, { needs: 50, debt: 20, savings: 20, wants: 10 });
+  assert.equal(S.EXAMPLES.custom, null);
+  fresh();
+  const list = S.strategies(S.analyze());
+  assert.equal(S.findStrategy(list, 'debt').id, 'aggressive');
+  assert.equal(S.findStrategy(list, 'savings').id, 'pay-first');
+  assert.equal(S.findStrategy(list, '60-20-20').id, 'balanced');
+  assert.equal(S.findStrategy(list, 'nope'), null);
+  assert.deepEqual(list.find(s => s.id === 'aggressive').aliases, ['debt']);
+  assert.equal(list.find(s => s.id === 'zero').noFixedPct, true);
+  assert.equal(list.find(s => s.id === 'avalanche').name, 'Debt Avalanche');
+  assert.equal(list.find(s => s.id === 'balanced').name, 'Balanced Wealth Building');
+});
+
+test('every named strategy is valid on the sample data, the demo and many incomes', () => {
+  for (const net of [160000, 123457, 250000, 400001, 1000003]) {
+    fresh(); WT.updateIncome('inc_job', { netCents: net });
+    const A = S.analyze();
+    const list = S.strategies(A);
+    NAMED.forEach(id => checkNamed(A, list.find(s => s.id === id)));
+    checkNamed(A, list[0]);
+  }
+  freshDemo();
+  const A = S.analyze();
+  assert.equal(A.debts.length, 2); assert.equal(A.essentialList.length, 4);
+  const list = S.strategies(A);
+  NAMED.forEach(id => checkNamed(A, list.find(s => s.id === id)));
+  // named(): all 8 for the cards; Custom starts from the recommendation; one "Recommended for you" badge at most
+  const cards = S.named(A);
+  assert.deepEqual(cards.map(s => s.id), S.STRATEGY_IDS);
+  const cust = cards.find(s => s.id === 'custom');
+  assert.equal(cust.isDefault, true); assert.deepEqual(cust.amounts, list[0].amounts);
+  assert.equal(cards.filter(s => s.recommended).length, 1);
+  assert.equal(cards.find(s => s.recommended).id, list[0].basedOn);
+});
+
+test('demo data: amounts per strategy, Debt Avalanche recommended with high confidence', () => {
+  freshDemo();
+  const A = S.analyze();
+  // $2,300 biweekly = $4,983.33; rent 1150 + electric 110 + internet 60 + insurance 95 = $1,415 + $650 groceries/gas
+  assert.equal(A.income, 498333); assert.equal(A.essentials, 141500); assert.equal(A.living, 206500);
+  assert.equal(A.debtMinimums, 46000); assert.equal(A.free, 245833);
+  assert.equal(A.balances.savings, 150000); assert.equal(A.starter.gap, 0);
+  const list = S.strategies(A);
+  const get = id => list.find(s => s.id === id).amounts;
+  assert.deepEqual(get('avalanche'), { needs: 206500, debt: 192166, savings: 74750, wants: 24917 });
+  assert.deepEqual(get('snowball'), get('avalanche')); // same percentages, different payoff order
+  assert.deepEqual(get('50-30-20'), { needs: 206500, debt: 95833, savings: 49833, wants: 146167 });
+  assert.deepEqual(get('pay-first'), { needs: 206500, debt: 49833, savings: 192167, wants: 49833 });
+  assert.deepEqual(get('aggressive'), { needs: 206500, debt: 217083, savings: 49833, wants: 24917 });
+  assert.deepEqual(get('balanced'), { needs: 206500, debt: 121000, savings: 121000, wants: 49833 });
+  const r = S.recommend(A);
+  assert.equal(r.id, 'avalanche'); assert.equal(r.confidence, 'high'); assert.equal(r.showBadge, true);
+  assert.deepEqual(r.missing, []);
+  assert.equal(r.demo, true); // the UI labels it DEMO
+  assert.match(r.reason, /Demo Credit Card at 21\.99% APR/);
+  assert.ok(A.netWorth.demo);
+  assert.ok(S.forecast(A, 'avalanche', 12).assumptions.some(x => /Demo data/.test(x)));
+});
+
+test('avalanche orders extra money by APR, snowball by balance (WTPlan.debtPlans schedules)', () => {
+  fresh(true);
+  WT.addIncome({ id: 'inc_x', name: 'Job', kind: 'net', netCents: 300000, schedule: 'monthly', anchor: '2026-11-01', startDate: '2026-01-01', accountId: 'acc_checking' });
+  WT.addTemplate({ id: 'b_rent', name: 'Rent', amountCents: 100000, category: 'cat_housing', anchor: '2026-11-01', frequency: 'monthly', accountId: 'acc_checking' });
+  WT.addDebt({ id: 'd_big', name: 'Big Card', type: 'credit_card', startBalanceCents: 600000, aprCenti: 2699, minCents: 18000, dueDay: 5 });
+  WT.addDebt({ id: 'd_mid', name: 'Mid Loan', type: 'personal', startBalanceCents: 300000, aprCenti: 1200, minCents: 9000, dueDay: 12 });
+  WT.addDebt({ id: 'd_small', name: 'Small Loan', type: 'personal', startBalanceCents: 40000, aprCenti: 400, minCents: 4000, dueDay: 20 });
+  const A = S.analyze();
+  const list = S.strategies(A);
+  const av = list.find(s => s.id === 'avalanche'), sn = list.find(s => s.id === 'snowball');
+  assert.deepEqual(av.amounts, sn.amounts); assert.deepEqual(av.pct, sn.pct);
+  assert.equal(av.debtOrder, 'avalanche'); assert.equal(sn.debtOrder, 'snowball');
+  // where the extra goes this month
+  assert.equal(S.breakdown(A, av).debt.items.find(i => i.kind === 'extra').debtId, 'd_big');
+  assert.equal(S.breakdown(A, sn).debt.items.find(i => i.kind === 'extra').debtId, 'd_small');
+  // schedules come from WTPlan.debtPlans with the plan's extra
+  const ref = P.debtPlans({ extra: av.debtSplit.extra, method: 'avalanche' }).methods.avalanche;
+  assert.equal(av.payoff.source, 'WTPlan'); assert.equal(av.payoff.months, ref.months); assert.equal(av.payoff.totalInterest, ref.totalInterest);
+  const m = (st, id) => st.payoff.order.find(x => x.id === id).payoffMonth;
+  assert.ok(m(sn, 'd_small') < m(av, 'd_small'), 'snowball clears the smallest balance sooner');
+  assert.ok(m(av, 'd_big') < m(sn, 'd_big'), 'avalanche clears the highest rate sooner');
+  assert.ok(av.payoff.totalInterest < sn.payoff.totalInterest);
+  assert.equal(sn.interestVsAvalanche, sn.payoff.totalInterest - av.payoff.totalInterest);
+  // the forecast uses the same order and agrees with debtPlans on the debt-free month
+  for (const st of [av, sn]) {
+    const f = S.forecast(A, st, 60);
+    assert.equal(f.debtOrder, st.debtOrder);
+    assert.equal(f.debtFreeMonths, st.payoff.months, st.id);
+    assert.match(f.debtFreeDate, /^\d{4}-\d{2}-\d{2}$/);
+  }
+  assert.ok(S.forecast(A, av, 60).interest < S.forecast(A, sn, 60).interest);
+});
+
+test('credit cards revolve, loans are installment', () => {
+  fresh();
+  const A = S.analyze();
+  const visa = A.debts.find(d => d.id === 'debt_visa'), car = A.debts.find(d => d.id === 'debt_car');
+  assert.equal(visa.type, 'credit_card'); assert.equal(visa.revolving, true);
+  assert.equal(car.type, 'auto'); assert.equal(car.revolving, false);
+  assert.equal(car.billId, 'bill_carloan'); assert.equal(car.dueDay, 10);
+  assert.equal(visa.interestMonthly, WT.monthlyInterest(520000, 2499));
+  // installment: fixed payment; revolving: the minimum falls with the balance, so minimum-only takes longer
+  const fixed = n => P.simulate([{ id: n.id, name: n.name, balance: n.balanceCents, apr: n.aprCenti, minimum: n.minCents }], 0, 'minimum').months;
+  assert.equal(car.termMonths, fixed(car));
+  assert.ok(visa.termMonths > fixed(visa), 'card minimum-only payoff is slower than a fixed payment');
+  assert.equal(A.debts.find(d => d.id === 'debt_gascard').revolving, true);
+});
+
+test('breakdown: items sum to committed, each bill appears once, debt-linked bills under Debt, due dates', () => {
+  fresh();
+  const A = S.analyze();
+  for (const st of S.strategies(A)) {
+    const bd = S.breakdown(A, st);
+    assert.deepEqual(bd.order, B);
+    assert.equal(bd.total, sumC(st.amounts)); assert.equal(bd.unallocated, A.income - bd.total);
+    const ids = [];
+    B.forEach(b => {
+      const x = bd[b];
+      assert.equal(x.planned, st.amounts[b]);
+      assert.equal(x.committed, x.items.reduce((t, i) => t + i.amount, 0), st.id + ' ' + b);
+      assert.equal(x.remaining, x.planned - x.committed);
+      assert.equal(x.recommendedPct, S.strategies(A)[0].pct[b]);
+      x.items.forEach(i => { assert.ok(['bill', 'setaside', 'minimum', 'extra', 'goal', 'emergency', 'spending'].includes(i.kind)); assert.ok(i.amount > 0 || i.kind === 'minimum'); if (i.templateId) ids.push(i.templateId); });
+    });
+    assert.equal(new Set(ids).size, ids.length, 'no bill twice');
+    assert.equal(bd.needs.committed, A.living); assert.equal(bd.needs.remaining, 0);
+    assert.equal(bd.debt.committed, st.amounts.debt); // minimums + extra (to a named debt)
+    if (bd.wants.committed > st.amounts.wants) assert.ok(st.risks.some(r => /subscriptions and optional bills/.test(r)), st.id);
+  }
+  const bd = S.breakdown(A, 'recommended');
+  assert.ok(!bd.needs.items.some(i => /Payment/.test(i.name)), 'debt-linked bills are not in Essentials');
+  const car = bd.debt.items.find(i => i.debtId === 'debt_car' && i.kind === 'minimum');
+  assert.deepEqual([car.amount, car.templateId, car.dueDate], [38000, 'bill_carloan', '2026-11-10']);
+  assert.equal(bd.debt.items.filter(i => i.kind === 'minimum').length, 6);
+  assert.equal(bd.needs.items.find(i => i.name === 'Apartment').dueDate, '2026-11-01');
+  assert.deepEqual(bd.needs.items.map(i => i.dueDate).filter(Boolean), bd.needs.items.map(i => i.dueDate).filter(Boolean).sort()); // by due date
+  assert.equal(bd.needs.items[bd.needs.items.length - 1].kind, 'spending');
+  assert.equal(bd.savings.items.find(i => i.kind === 'emergency').amount, bd.savings.planned); // all of it goes to the starter fund
+  assert.deepEqual(bd.wants.items.map(i => i.name).sort(), ['Cloud Storage', 'Gym', 'Music Stream', 'Video Stream']);
+  // plain dollars (the editor) work too, and a short Debt bucket shows what is missing
+  const d = S.breakdown(A, { needs: A.living, debt: 50000, savings: 0, wants: 0 });
+  assert.equal(d.debt.short, A.debtMinimums - 50000); assert.equal(d.debt.remaining, 50000 - A.debtMinimums);
+  assert.ok(!d.debt.items.some(i => i.kind === 'extra'));
+  assert.equal(S.breakdown(A, 'debt').debt.planned, S.strategies(A).find(s => s.id === 'aggressive').amounts.debt); // old id
+});
+
+test('partially paid and paid bills: shown with what is left, never counted twice', () => {
+  fresh();
+  const A0 = S.analyze();
+  const elec = WT.instancesForMonth('2026-11').find(i => i.templateId === 'bill_electric');
+  const apt = WT.instancesForMonth('2026-11').find(i => i.templateId === 'bill_apartment');
+  const car = WT.instancesForMonth('2026-11').find(i => i.templateId === 'bill_carloan');
+  WT.recordPayment(elec.id, { amountCents: 5000, date: TODAY, sourceId: 'acc_checking' });
+  WT.markPaid(apt.id, TODAY);
+  WT.recordPayment(car.id, { amountCents: 10000, date: TODAY, sourceId: 'acc_checking' });
+  const A = S.analyze();
+  assert.equal(A.essentials, A0.essentials); assert.equal(A.debtMinimums, A0.debtMinimums);
+  assert.deepEqual(S.strategies(A).map(s => s.amounts), S.strategies(A0).map(s => s.amounts));
+  const bd = S.breakdown(A, 'recommended');
+  const e = bd.needs.items.find(i => i.templateId === 'bill_electric');
+  assert.deepEqual([e.amount, e.paid, e.left, e.status], [9500, 5000, 4500, 'partial']);
+  const a = bd.needs.items.find(i => i.templateId === 'bill_apartment');
+  assert.deepEqual([a.paid, a.left, a.status], [120000, 0, 'paid']);
+  const c = bd.debt.items.find(i => i.templateId === 'bill_carloan');
+  assert.deepEqual([c.amount, c.paid, c.left], [38000, 10000, 28000]);
+  assert.equal(bd.needs.committed, A.living);
+});
+
+test('annual and irregular bills get a monthly set-aside', () => {
+  fresh();
+  const A0 = S.analyze();
+  WT.addTemplate({ id: 'bill_reg', name: 'Car registration', amountCents: 60000, category: 'cat_vehicle', anchor: '2027-03-15', frequency: 'yearly', accountId: 'acc_checking' });
+  WT.addTemplate({ id: 'bill_quarter', name: 'Water heater service', amountCents: 9000, category: 'cat_utilities', anchor: '2026-12-05', frequency: 'quarterly', accountId: 'acc_checking' });
+  const A = S.analyze();
+  assert.equal(A.essentials, A0.essentials + 5000 + 3000); // $600/12 and $90/3
+  assert.equal(A.annualSetAside, 8000);
+  const reg = A.essentialList.find(b => b.id === 'bill_reg');
+  assert.deepEqual([reg.irregular, reg.frequency, reg.amountEach, reg.nextDue, reg.dueDate], [true, 'yearly', 60000, '2027-03-15', null]);
+  const bd = S.breakdown(A, 'recommended');
+  const it = bd.needs.items.find(i => i.templateId === 'bill_reg');
+  assert.deepEqual([it.kind, it.amount, it.fullAmount, it.nextDue], ['setaside', 5000, 60000, '2027-03-15']);
+  assert.ok(S.recommend(A).factors.some(f => f.label === 'Bills that are not monthly' && f.value.includes('$80.00')));
+  assert.ok(S.recommend(A).howCalculated.some(x => /\$80\.00 set aside each month/.test(x)));
+  S.strategies(A).forEach(s => assert.equal(s.amounts.needs, A.living));
+});
+
+test('irregular income: plans on what really arrived, flags it, lists it in assumptions', () => {
+  plain(200000);
+  const A0 = S.analyze();
+  assert.equal(A0.incomeDetail.irregular, false); assert.equal(A0.income, 433333);
+  const amts = [200000, 110000, 230000, 90000, 210000, 100000, 180000];
+  WT.paychecksBetween('2026-05-10', TODAY).slice(-7).forEach((p, i) => WT.recordDeposit(p.key, { amountCents: amts[i] }));
+  const A = S.analyze();
+  const v = A.incomeDetail.variability.bySource.inc_x;
+  assert.deepEqual([v.count, v.average, v.low, v.high, v.irregular], [7, 160000, 90000, 230000, true]);
+  assert.equal(A.incomeDetail.irregular, true);
+  assert.equal(A.incomeDetail.sources[0].basis, 'recorded-average');
+  assert.equal(A.income, Math.round(160000 * 26 / 12)); // the lower, recorded average
+  NAMED.forEach(id => checkNamed(A, S.strategies(A).find(s => s.id === id)));
+  const r = S.recommend(A);
+  assert.ok(r.factors.some(f => f.label === 'Income changes month to month'));
+  assert.ok(['pay-first', 'zero'].includes(r.id));
+  assert.ok(r.improve.some(x => /typical low month/.test(x)));
+  assert.ok(r.howCalculated[0].includes('planned on what actually arrived'));
+  assert.ok(S.forecast(A, 'recommended', 12).assumptions.some(x => /income varies/.test(x)));
+  // side income that comes and goes (no job): also irregular, never counted until it arrives
+  plain(200000);
+  WT.addExtraIncome({ amountCents: 80000, date: '2026-08-10', accountId: 'acc_checking' });
+  WT.addExtraIncome({ amountCents: 5000, date: '2026-10-10', accountId: 'acc_checking' });
+  const A2 = S.analyze();
+  assert.equal(A2.incomeDetail.variability.extraMonths, 2); assert.equal(A2.incomeDetail.irregular, true);
+  assert.equal(A2.income, 433333); // extra income isn't part of the plan
+  // expected changes: a job that ends soon
+  WT.updateIncome('inc_x', { endDate: '2027-02-26' });
+  const ch = S.analyze().incomeDetail.changes;
+  assert.deepEqual(ch.map(c => [c.type, c.date]), [['ends', '2027-02-26']]);
+  assert.ok(S.recommend().improve.some(x => /Job ends/.test(x)));
+});
+
+test('expenses more than income: shortfall flagged, no plan called best, nothing invented', () => {
+  fresh();
+  WT.updateIncome('inc_job', { netCents: SHORT_NET });
+  const A = S.analyze();
+  const r = S.recommend(A);
+  assert.equal(r.realistic, false); assert.equal(r.showBadge, false); assert.equal(r.id, 'zero');
+  assert.equal(r.shortfall, 33167);
+  assert.match(r.reason, /\$331\.67 short/); assert.match(r.reason, /No plan can be called best/);
+  assert.ok(r.improve.some(x => /hardship plan/.test(x)));
+  for (const s of S.strategies(A)) {
+    checkTotals(A, s);
+    assert.equal(s.realistic, false);
+    if (s.id !== 'recommended' && s.id !== 'zero') assert.ok(s.modifications.some(m => /\$331\.67 short/.test(m)), s.id);
+    assert.match(s.fit, /Not workable yet/);
+  }
+  for (const m of S.HORIZONS) {
+    const c = S.compareAll(A, m);
+    assert.equal(c.bestId, null);
+    assert.ok(c.rows.every(x => !x.recommended && x.realistic === false));
+    const f = S.forecast(A, 'recommended', m);
+    assert.equal(f.debtFreeEstimate, true); // minimums aren't fully covered
+  }
+  assert.equal(S.named(A).filter(s => s.recommended).length, 0);
+});
+
+test('no debt: savings-first plans, debt strategies say so, forecast has no payoff date', () => {
+  plain(200000);
+  const A = S.analyze();
+  assert.equal(A.debts.length, 0); assert.equal(A.debtMinimums, 0);
+  const list = S.strategies(A);
+  NAMED.forEach(id => checkNamed(A, list.find(s => s.id === id)));
+  for (const id of ['avalanche', 'snowball', 'aggressive']) {
+    const s = list.find(x => x.id === id);
+    assert.equal(s.amounts.debt, 0, id); assert.match(s.warnings.join(' '), /no debts/);
+    assert.ok(s.modifications.some(m => /no debt/.test(m)));
+    assert.equal(s.payoff, null);
+  }
+  const r = S.recommend(A);
+  assert.equal(r.id, 'pay-first'); assert.equal(r.confidence, 'high'); assert.equal(r.showBadge, true);
+  assert.ok(r.factors.some(f => f.label === 'Debt' && f.value === 'No open debts'));
+  const f = S.forecast(A, 'recommended', 12);
+  assert.equal(f.debtFree, true); assert.equal(f.debtFreeDate, null); assert.equal(f.interest, 0); assert.equal(f.debtPaid, 0);
+  assert.equal(f.savingsEnd, f.savingsStart + 12 * f.savingsMonthly); // 0% growth: contributions only
+  assert.equal(S.compareAll(A, 12).bestId, 'pay-first');
+});
+
+test('recommendation rules follow the situation, not a favorite', () => {
+  // high-APR debt + low savings: small reserve + Avalanche (the sample data)
+  fresh();
+  let r = S.recommend();
+  assert.equal(r.id, 'avalanche');
+  assert.ok(r.factors.some(f => f.label === 'Highest interest rate' && /Store Card: 28\.99% APR/.test(f.value)));
+  assert.ok(r.factors.some(f => f.label === 'Emergency savings' && /\$0\.00 saved/.test(f.value)));
+  assert.ok(r.factors.every(f => typeof f.label === 'string' && typeof f.value === 'string' && typeof f.effect === 'string'));
+  assert.ok(r.howCalculated.length >= 4 && r.howCalculated.some(x => x.includes('$535.00')));
+  assert.ok(r.benefits.length >= 2 && r.drawbacks.length >= 1 && r.improve.length >= 1);
+  assert.ok(r.missing.some(m => /Furniture Plan has no interest rate/.test(m)));
+  assert.equal(r.confidence, 'medium');
+  // the same debts with a solid emergency fund: aggressive payoff
+  fresh();
+  WT.updateIncome('inc_job', { netCents: 250000 });
+  WT.save('accounts', Object.assign({}, WT.D.accounts.acc_savings, { openingCents: 1000000 }));
+  r = S.recommend();
+  assert.equal(r.id, 'aggressive');
+  // only low-interest debt: balanced
+  plain(200000);
+  WT.addDebt({ id: 'd_car', name: 'Car', type: 'auto', startBalanceCents: 800000, aprCenti: 450, minCents: 25000, dueDay: 5 });
+  r = S.recommend();
+  assert.equal(r.id, 'balanced');
+  assert.match(r.reason, /Balanced Wealth Building/);
+  // very high fixed costs: stability first
+  plain(84000);
+  r = S.recommend();
+  const A = S.analyze();
+  assert.ok(A.obligationsPct >= 75 && A.free >= 0);
+  assert.equal(r.id, 'zero');
+  assert.ok(r.factors.some(f => /stability first/.test(f.effect)));
+});
+
+test('insufficient information: low confidence, missing inputs listed, no best plan', () => {
+  fresh(true);
+  WT.addIncome({ id: 'inc_x', name: 'Job', kind: 'net', netCents: 200000, schedule: 'monthly', anchor: '2026-10-15', startDate: '2026-10-15', accountId: 'acc_checking' });
+  const A = S.analyze();
+  const r = S.recommend(A);
+  assert.equal(r.confidence, 'low'); assert.equal(r.showBadge, false);
+  assert.match(r.reason, /^Starting point only/);
+  assert.ok(!/best/i.test(r.reason.replace(/no plan is called best/i, '')));
+  assert.deepEqual(r.missingInputs.filter(m => m.critical).map(m => m.key), ['bills']);
+  assert.ok(r.missing.some(m => /rent or mortgage/.test(m)));
+  assert.ok(r.missing.some(m => /Groceries|groceries/.test(m)));
+  assert.equal(S.compare(A).bestId, null);
+  assert.equal(S.compareAll(A, 12).bestId, null);
+  assert.equal(S.named(A).filter(s => s.recommended).length, 0);
+  assert.ok(S.forecast(A, 'recommended', 12).missing.length >= 2);
+});
+
+test('fillExactly: exactly 100% to the cent, locks never touched, never negative', () => {
+  fresh();
+  const A = S.analyze();
+  let r = S.fillExactly(A, { needs: 210667, debt: 82500, savings: 10000, wants: 5000 }, { needs: true, debt: true });
+  assert.equal(r.exact, true); assert.equal(r.total, A.income); assert.equal(r.unallocated, 0);
+  assert.equal(r.dollars.needs, 210667); assert.equal(r.dollars.debt, 82500);
+  assert.equal(r.dollars.savings + r.dollars.wants, A.free);
+  assert.equal(sumPct(r.pct), 100); assert.deepEqual(r.locked, ['needs', 'debt']);
+  // over income: unlocked buckets shrink in proportion, locked stay
+  r = S.fillExactly(A, { needs: 300000, debt: 82500, savings: 50000, wants: 50000 }, { debt: true });
+  assert.equal(r.exact, true); assert.equal(r.dollars.debt, 82500); assert.equal(sumC(r.dollars), A.income);
+  // locked amounts alone are more than income: impossible, say so, change nothing locked
+  r = S.fillExactly(A, { needs: 300000, debt: 100000, savings: 5, wants: 7 }, { needs: true, debt: true });
+  assert.equal(r.exact, false); assert.deepEqual([r.dollars.needs, r.dollars.debt, r.dollars.savings, r.dollars.wants], [300000, 100000, 0, 0]);
+  assert.ok(r.warnings.some(w => /Locked categories/.test(w)));
+  r = S.fillExactly(A, { needs: 1, debt: 2, savings: 3, wants: 4 }, { needs: true, debt: true, savings: true, wants: true });
+  assert.equal(r.exact, false); assert.ok(r.warnings.some(w => /Every category is locked/.test(w)));
+  // all zeros: spread evenly; random property check
+  r = S.fillExactly(A, {}, {}); assert.equal(sumC(r.dollars), A.income);
+  let seedN = 7; const rnd = n => { seedN = (seedN * 1103515245 + 12345) % 2147483648; return seedN % n; };
+  for (let k = 0; k < 300; k++) {
+    const d = {}, lk = {}; B.forEach(b => { d[b] = rnd(250000); lk[b] = rnd(3) === 0; });
+    const out = S.fillExactly(A, d, lk);
+    B.forEach(b => { if (lk[b]) assert.equal(out.dollars[b], d[b]); assert.ok(Number.isInteger(out.dollars[b]) && out.dollars[b] >= 0); });
+    const lockedSum = B.filter(b => lk[b]).reduce((t, b) => t + d[b], 0);
+    const canFit = B.some(b => !lk[b]) && lockedSum <= A.income;
+    assert.equal(out.exact, canFit, JSON.stringify([d, lk]));
+    if (canFit) { assert.equal(sumC(out.dollars), A.income); assert.equal(sumPct(out.pct), 100); }
+  }
+  // distribute + fromDollars still behave as before (no forced 100%)
+  assert.equal(S.fromDollars(A, { needs: 100 }).unallocated, A.income - 100);
+});
+
+test('manual customization: custom plans with locks, saved custom strategies, preview impact', () => {
+  fresh();
+  const A = S.analyze();
+  const rec = S.strategies(A)[0];
+  // the user locks needs + debt and moves money from savings to spending
+  const draft = { needs: rec.amounts.needs, debt: rec.amounts.debt, savings: rec.amounts.savings - 10000, wants: rec.amounts.wants };
+  const filled = S.fillExactly(A, draft, { needs: true, debt: true, savings: true });
+  assert.equal(filled.dollars.wants, rec.amounts.wants + 10000);
+  const c = S.customFrom(A, filled.dollars, { id: 'cs_1', name: 'My plan' });
+  assert.equal(c.id, 'cs_1'); assert.equal(c.name, 'My plan'); assert.deepEqual(c.amounts, filled.dollars);
+  assert.equal(c.realistic, true); assert.ok(c.projection && Array.isArray(c.risks)); assert.equal(c.unallocated, 0);
+  const pv = S.previewImpact(A, c, rec, 12);
+  assert.equal(pv.delta.savingsEnd, pv.next.savingsEnd - pv.current.savingsEnd);
+  assert.equal(pv.delta.savingsEnd, -120000);
+  assert.equal(pv.delta.spending, 120000);
+  assert.match(pv.summary, /\$1,200 less in savings/);
+  // a saved custom plan in settings shows up as Custom with exactly its dollars
+  WT.saveSettings({ smartBudget: { strategyId: 'custom', customDollars: filled.dollars, locks: { needs: true } } });
+  const cust = S.strategies(S.analyze()).find(s => s.id === 'custom');
+  assert.deepEqual(cust.amounts, filled.dollars); assert.equal(cust.modified, false);
+  assert.equal(S.named().find(s => s.id === 'custom').isDefault, undefined);
+});
+
+test('forecast and compareAll for 6, 12, 36 and 60 months', () => {
+  fresh();
+  const A = S.analyze();
+  let prev = null;
+  for (const m of S.HORIZONS) {
+    const f = S.forecast(A, 'recommended', m);
+    assert.equal(f.months, m); assert.equal(f.monthly.length, m);
+    assert.equal(f.estimate, true);
+    assert.equal(f.assumptions[0], 'This is an estimate, not a guarantee.');
+    assert.ok(f.assumptions.some(x => /Savings earn 0%/.test(x)));
+    assert.equal(f.savingsRateCenti, 0);
+    assert.equal(f.netWorthEnd, f.netWorthStart + f.savingsAdded + (f.debtStart - f.debtEnd));
+    assert.equal(f.netWorthChange, f.netWorthEnd - f.netWorthStart);
+    assert.equal(f.netWorthStart, A.netWorth.netWorth);
+    assert.equal(f.debtStart, WT.totalDebt());
+    assert.ok(f.debtPaid >= 0 && f.debtPaid <= f.debtStart);
+    assert.equal(f.spending, f.spendingMonthly * m);
+    f.monthly.forEach(x => B.forEach(() => assert.ok(Number.isInteger(x.debt) && Number.isInteger(x.savings))));
+    if (prev) { assert.ok(f.debtPaid >= prev.debtPaid); assert.ok(f.savingsEnd >= prev.savingsEnd); assert.ok(f.interest >= prev.interest); }
+    prev = f;
+    const c = S.compareAll(A, m);
+    assert.equal(c.rows.length, 8);
+    assert.deepEqual(c.rows.map(x => x.id), ['recommended'].concat(NAMED));
+    assert.equal(c.bestId, 'avalanche'); assert.equal(c.recommendedId, 'avalanche');
+    assert.equal(c.rows.filter(x => x.recommended).length, 1);
+    c.rows.forEach(x => { ['debtPaid', 'interest', 'savingsEnd', 'netWorthEnd', 'spendingMonthly', 'monthlyDebt', 'savingsMonthly'].forEach(k => assert.ok(Number.isInteger(x[k]), x.id + ' ' + k)); assert.equal(x.debtFreeEstimate, true); });
+    assert.ok(c.missing.length > 0 && c.assumptions.length > 0);
+  }
+  // debt-free date: the recommended plan pays everything off in the 60-month window
+  const f60 = S.forecast(A, 'recommended', 60);
+  assert.equal(f60.debtFreeWithin, true); assert.match(f60.debtFreeDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(f60.monthly[f60.monthly.length - 1].debt === 0);
+  // aggressive pays more debt and less interest than 50/30/20 over 3 years
+  const ag = S.forecast(A, 'aggressive', 36), p = S.forecast(A, '50-30-20', 36);
+  assert.ok(ag.interest < p.interest);
+  // a savings rate only when the user enters one
+  WT.saveSettings({ smartBudget: { savingsAprCenti: 400 } });
+  const A2 = S.analyze();
+  const g = S.forecast(A2, 'pay-first', 12), g0 = S.forecast(A, 'pay-first', 12);
+  assert.ok(g.savingsEnd > g0.savingsEnd); assert.ok(g.assumptions.some(x => /4% a year, the rate you entered/.test(x)));
+  // plain dollars and old ids are accepted
+  assert.equal(S.forecast(A, { needs: A.living, debt: A.debtMinimums, savings: A.free, wants: 0 }, 6).savingsMonthly, A.free);
+  assert.equal(S.forecast(A, 'savings', 6).strategyId, 'pay-first');
+});
+
+test('v3 functions are read-only on the sample data and the demo (deep compare of WT.D)', () => {
+  for (const setup of [() => fresh(), () => freshDemo()]) {
+    const ctx = setup();
+    const before = JSON.parse(JSON.stringify(WT.D)); const w0 = ctx.writes.n;
+    const A = S.analyze();
+    S.recommend(A); S.named(A); S.strategies(A);
+    for (const id of S.STRATEGY_IDS.concat(['recommended', 'debt', '60-20-20'])) { S.breakdown(A, id); S.forecast(A, id, 60); }
+    S.HORIZONS.forEach(m => S.compareAll(A, m));
+    S.fillExactly(A, { needs: 1 }, { needs: true }); S.customFrom(A, { needs: 1000 }); S.previewImpact(A, 'aggressive', 'zero', 36);
+    S.suggestions(A); S.compare(A);
+    assert.deepEqual(JSON.parse(JSON.stringify(WT.D)), before);
+    assert.equal(ctx.writes.n, w0);
+  }
+});
+
+test('v3 strategies are deterministic and serializable (no NaN / undefined)', () => {
+  fresh();
+  const a = JSON.stringify([S.strategies(S.analyze()), S.compareAll(S.analyze(), 36), S.breakdown(S.analyze()), S.recommend()]);
+  const b = JSON.stringify([S.strategies(S.analyze()), S.compareAll(S.analyze(), 36), S.breakdown(S.analyze()), S.recommend()]);
+  assert.equal(a, b);
+  assert.ok(!/NaN|undefined|Infinity/.test(a));
 });

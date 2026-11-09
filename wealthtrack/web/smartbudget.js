@@ -14,12 +14,16 @@
  * to exactly the take-home income. The dollar/percent editor helpers (fromDollars,
  * fromPct, distribute) do NOT force 100%: they report unallocated / over instead.
  *
- * Recommendation ("Personalized", id 'recommended') is stability first:
- *   essential bills -> debt minimums -> everyday necessities -> starter emergency fund
- *   -> a spending-money floor -> upcoming one-time bills -> extra debt (high APR tilt) -> savings/goals.
- * Extra debt is never recommended while necessities or the starter emergency fund are unfunded.
- * When income can't cover living costs + minimums, the plan keeps home, bills, food and gas
- * funded first, explains the exact shortfall and lists realistic options.
+ * Named strategies (v3, ids stable): avalanche, snowball, 50-30-20, zero, pay-first, aggressive, balanced,
+ * custom. Old saved ids still resolve: debt -> aggressive, savings -> pay-first, 60-20-20 -> balanced.
+ * Each starts from what is required (living costs + debt minimums, counted once) and applies its own
+ * priorities to the money that is left; the owner's example percentages are only a starting point and
+ * every difference is listed in `modifications`. 'recommended' is a copy of the named plan that
+ * recommend() scores best for this user's numbers (`basedOn`), never a fixed favorite.
+ * When income can't cover living costs + minimums, every plan keeps home, bills, food and gas funded
+ * first, explains the exact shortfall and lists realistic options; no plan is called best.
+ * Forecasts are estimates: savings grow at 0% unless the user entered a rate; missing inputs are listed,
+ * never invented. WTPlan (debt schedules, paycheck timing) and WTWealth (net worth) are optional.
  */
 (function (root, f) {
   if (typeof module === 'object' && module.exports) module.exports = f(require('./core.js'));
@@ -143,6 +147,116 @@
     return { checking, savings: Math.max(acc, ef), available: WT.availableBalance() };
   }
 
+  // ---------------------------------------------------------------- v3 analysis helpers
+  // Optional engines, guarded: WTPlan (paycheck plan, debt schedules) and WTWealth (net worth).
+  function ext(globalName, file, fn) {
+    try {
+      const g = typeof globalThis !== 'undefined' ? globalThis[globalName] : undefined;
+      if (g && typeof g[fn] === 'function' && (globalName !== 'WTPlan' || g.ready)) return g;
+    } catch (e) { /* ignore */ }
+    try {
+      if (typeof module === 'object' && module.exports && typeof require === 'function') { const m = require(file); if (m && typeof m[fn] === 'function') return m; }
+    } catch (e) { /* not available */ }
+    return null;
+  }
+  const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  function cvOf(xs) { const m = mean(xs); if (!(m > 0) || xs.length < 2) return 0; const v = mean(xs.map(x => (x - m) * (x - m))); return Math.sqrt(v) / m; }
+  // How steady income is: recorded deposits per source (last ~6 months) and extra income by month.
+  function incomeVariability(td, mk) {
+    const since = WT.addDays(td, -182);
+    const bySource = {};
+    const deps = Object.values(WT.D.deposits || {}).filter(x => x && !x.voided && x.date >= since && x.date <= td && Number.isInteger(x.amountCents));
+    for (const x of deps) (bySource[x.incomeId] = bySource[x.incomeId] || { amounts: [] }).amounts.push(x.amountCents);
+    let irregular = false;
+    for (const [id, v] of Object.entries(bySource)) {
+      const inc = WT.D.incomes[id]; const expected = inc ? WT.expectedNet(inc) : 0;
+      v.count = v.amounts.length; v.average = Math.round(mean(v.amounts)); v.low = Math.min.apply(null, v.amounts); v.high = Math.max.apply(null, v.amounts);
+      v.cv = Math.round(cvOf(v.amounts) * 100) / 100; v.expected = expected;
+      v.irregular = v.count >= 3 && v.cv > 0.15;
+      if (v.irregular) irregular = true;
+      delete v.amounts;
+    }
+    const months = []; for (let k = 6; k >= 1; k--) months.push(WT.addMonthKey(mk, -k));
+    const extraBy = {}; months.forEach(m => extraBy[m] = 0);
+    for (const x of Object.values(WT.D.extraIncome || {})) if (x && !x.voided && Number.isInteger(x.amountCents) && x.date && Object.prototype.hasOwnProperty.call(extraBy, WT.monthOf(x.date))) extraBy[WT.monthOf(x.date)] += x.amountCents;
+    const ex = months.map(m => extraBy[m]);
+    const extraMonthly = Math.round(mean(ex));
+    const extraMonths = ex.filter(v => v > 0).length;
+    const extraCv = Math.round(cvOf(ex) * 100) / 100;
+    if (extraMonths > 0 && extraCv > 0.5 && extraMonthly > 0) irregular = true;
+    return { irregular, bySource, extraMonthly, extraMonths, extraCv, extraByMonth: extraBy, extraCounted: false };
+  }
+  // income that starts or ends in the next 6 months (expected changes)
+  function incomeChanges(td) {
+    const to = WT.addDays(td, 183); const out = [];
+    for (const inc of Object.values(WT.D.incomes || {})) {
+      if (!inc || inc.deleted) continue;
+      const monthly = Math.round(WT.expectedNet(inc) * paychecksPerMonthFor(inc));
+      if (inc.startDate && inc.startDate > td && inc.startDate <= to) out.push({ id: inc.id, name: inc.name, type: 'starts', date: inc.startDate, monthly });
+      if (inc.endDate && inc.endDate >= td && inc.endDate <= to) out.push({ id: inc.id, name: inc.name, type: 'ends', date: inc.endDate, monthly });
+    }
+    return out.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  }
+  // due dates and cadence of a bill template (for breakdowns and sinking funds)
+  function billInfo(t, mk, td) {
+    const rule = WT.ruleAt(t, WT.monthStart(mk)) || t.versions[0];
+    const irregular = bigCadence(rule);
+    const thisMonth = WT.templateOccurrences(t, WT.monthStart(mk), WT.monthEnd(mk))[0] || null;
+    const next = WT.templateOccurrences(t, td, WT.addDays(td, 400))[0] || null;
+    const ref = thisMonth || next;
+    return { frequency: rule.frequency, irregular, oneTime: rule.frequency === 'once', amountEach: rule.amountCents || 0, dueDay: ref ? +ref.date.slice(8) : null, dueDate: thisMonth ? thisMonth.date : null, nextDue: next ? next.date : null };
+  }
+  const REVOLVING = { credit_card: true, line: true, heloc: true };
+  // per debt: type (revolving cards vs installment loans), due day, linked bill, interest now, payments left at the minimum
+  function debtDetail(d, billIds) {
+    const r = WT.D.debts[d.id] || {};
+    const type = r.type || 'other';
+    const revolving = !!REVOLVING[type];
+    const out = { id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti, minCents: d.minCents, type, revolving, dueDay: r.dueDay || 1, billId: (billIds && billIds[0]) || null, limitCents: r.limitCents || null, interestMonthly: WT.monthlyInterest(d.balanceCents, d.aprCenti) };
+    out.termMonths = termAtMinimum(out);
+    return out;
+  }
+  // months to pay off at the minimum. Installment loans keep a fixed payment; a credit card's minimum
+  // usually falls as the balance falls (here: interest + 1% of the balance, at least $25, never above the set minimum).
+  function termAtMinimum(d) {
+    if (!(d.balanceCents > 0) || !(d.minCents > 0)) return null;
+    let bal = d.balanceCents;
+    for (let m = 1; m <= 600; m++) {
+      const it = WT.monthlyInterest(bal, d.aprCenti);
+      const pay = d.revolving ? Math.min(d.minCents, Math.max(2500, it + Math.ceil(bal / 100))) : d.minCents;
+      if (pay <= it) return null;
+      bal = bal + it - pay;
+      if (bal <= 0) return m;
+    }
+    return null;
+  }
+  function netWorthNow() {
+    const NW = ext('WTWealth', './wealth.js', 'netWorth');
+    if (NW) { try { const n = NW.netWorth(); if (n && Number.isFinite(n.netWorth)) return { assets: n.totalAssets, liabilities: n.totalLiabilities, netWorth: n.netWorth, estimate: !!n.estimate, demo: !!n.demo, source: 'WTWealth' }; } catch (e) { /* fall back */ } }
+    let assets = 0;
+    for (const a of WT.accounts()) assets += WT.accountBalance(a.id);
+    const liabilities = WT.totalDebt();
+    return { assets, liabilities, netWorth: assets - liabilities, estimate: WT.accounts().some(a => a.needsBalance), demo: !!(WT.settings() || {}).demo, source: 'basic' };
+  }
+  // savings growth: 0% unless the user entered a rate (settings.smartBudget.savingsAprCenti, hundredths of a percent)
+  function savingsRate() { const r = sb().savingsAprCenti; return Number.isInteger(r) && r > 0 && r <= 2000 ? r : 0; }
+  // what the engine needs but doesn't have. key/critical drive the recommendation's confidence.
+  function missingInputs(A) {
+    const m = [];
+    if (!(A.income > 0)) m.push({ key: 'income', critical: true, label: 'Take-home pay', detail: 'Add your job or paycheck (amount and how often you are paid).' });
+    if (!(A.essentials > 0)) m.push({ key: 'bills', critical: true, label: 'Essential bills', detail: 'Add your rent or mortgage, utilities, insurance and other required bills.' });
+    if (!(A.everyday > 0)) m.push({ key: 'everyday', critical: false, label: 'Groceries and gas', detail: 'Add a per-paycheck set-aside for groceries and gas, or record a few expenses, so everyday costs are counted.' });
+    for (const d of A.debts) {
+      const f = [];
+      if (!d.aprCenti) f.push('interest rate (APR)');
+      if (!d.minCents) f.push('minimum payment');
+      if (f.length) m.push({ key: 'debt:' + d.id, critical: false, label: d.name + ' details', detail: `${d.name} has no ${f.join(' or ')}.` });
+    }
+    const accs = WT.accounts();
+    if (!accs.length || accs.some(a => a.needsBalance)) m.push({ key: 'balances', critical: false, label: 'Account balances', detail: 'Enter your current account balances so savings and net worth are accurate.' });
+    return m;
+  }
+
   // debts used for payoff math: open, balance > 0; minimum = max(debt minimum, linked monthly bill)
   function debtModel(mk, linkedByDebt) {
     return WT.debtInputs().filter(d => d.balanceCents > 0).map(d => ({
@@ -163,31 +277,40 @@
     const byInc = new Map();
     for (const pc of pcs) { if (!byInc.has(pc.incomeId)) byInc.set(pc.incomeId, []); byInc.get(pc.incomeId).push(pc); }
     let income = 0, ppm = 0;
+    const sources = [];
+    const variability = incomeVariability(td, mk);
     for (const [, list] of byInc) {
       const inc = list[0].income;
-      const avg = WT.divRound(list.reduce((a, p) => a + (p.expectedCents || 0), 0), list.length);
+      let avg = WT.divRound(list.reduce((a, p) => a + (p.expectedCents || 0), 0), list.length);
+      // irregular pay (recorded deposits vary a lot and average less than expected): plan on what really came in
+      const v = variability.bySource[inc.id];
+      let basis = 'expected';
+      if (v && v.irregular && v.average < avg) { avg = v.average; basis = 'recorded-average'; }
       let per = paychecksPerMonthFor(inc);
       if ((inc.endDate && inc.endDate < winTo) || (inc.startDate && inc.startDate > winFrom)) per = Math.min(per, list.length / 3);
-      income += Math.round(avg * per); ppm += per;
+      const monthly = Math.round(avg * per);
+      income += monthly; ppm += per;
+      sources.push({ id: inc.id, name: inc.name || 'Paycheck', schedule: inc.schedule || null, perPaycheck: avg, paychecksPerMonth: Math.round(per * 100) / 100, monthly, basis, startDate: inc.startDate || null, endDate: inc.endDate || null });
     }
-    if (!byInc.size) { const f = WT.incomeForMonth(mk); income = Math.max(0, f.total || 0); }
+    if (!byInc.size) { const f = WT.incomeForMonth(mk); income = Math.max(0, f.total || 0); if (income > 0) sources.push({ id: null, name: 'Recorded income', schedule: null, perPaycheck: 0, paychecksPerMonth: 0, monthly: income, basis: 'recorded', startDate: null, endDate: null }); }
     income = Math.max(0, income);
-    const incomeDetail = { paychecksPerMonth: Math.round(ppm * 100) / 100, perPaycheck: ppm > 0 ? Math.round(income / ppm) : 0 };
+    const incomeDetail = { paychecksPerMonth: Math.round(ppm * 100) / 100, perPaycheck: ppm > 0 ? Math.round(income / ppm) : 0, sources, irregular: variability.irregular, variability, changes: incomeChanges(td) };
 
     // bills
     let essentials = 0, optionalBills = 0;
-    const linkedByDebt = {}; const orphanDebtBills = []; const subscriptions = []; const essentialBills = [];
+    const linkedByDebt = {}; const billsByDebt = {}; const orphanDebtBills = []; const subscriptions = []; const essentialBills = [];
     const openDebtIds = new Set(WT.debtInputs().map(d => d.id));
     for (const t of Object.values(WT.D.templates || {})) {
       const m = templateMonthly(t, mk);
       if (m <= 0) continue;
       if (t.debtId) {
-        if (openDebtIds.has(t.debtId)) linkedByDebt[t.debtId] = (linkedByDebt[t.debtId] || 0) + m;
-        else if (!WT.D.debts[t.debtId] || WT.D.debts[t.debtId].deleted || WT.D.debts[t.debtId].closed) orphanDebtBills.push({ id: t.id, name: t.name, monthly: m });
+        if (openDebtIds.has(t.debtId)) { linkedByDebt[t.debtId] = (linkedByDebt[t.debtId] || 0) + m; (billsByDebt[t.debtId] = billsByDebt[t.debtId] || []).push(t.id); }
+        else if (!WT.D.debts[t.debtId] || WT.D.debts[t.debtId].deleted || WT.D.debts[t.debtId].closed) orphanDebtBills.push(Object.assign({ id: t.id, name: t.name, monthly: m }, billInfo(t, mk, td)));
         continue;
       }
-      if (essentialCategory(t.category, 'bill')) { essentials += m; essentialBills.push({ id: t.id, name: t.name, monthly: m, category: t.category }); }
-      else { optionalBills += m; subscriptions.push({ id: t.id, name: t.name, monthly: m, category: t.category, subscription: !!t.subscription }); }
+      const info = billInfo(t, mk, td);
+      if (essentialCategory(t.category, 'bill')) { essentials += m; essentialBills.push(Object.assign({ id: t.id, name: t.name, monthly: m, category: t.category }, info)); }
+      else { optionalBills += m; subscriptions.push(Object.assign({ id: t.id, name: t.name, monthly: m, category: t.category, subscription: !!t.subscription }, info)); }
     }
     const debts = debtModel(mk, linkedByDebt);
     const debtMinimums = debts.reduce((a, d) => a + d.minCents, 0) + orphanDebtBills.reduce((a, b) => a + b.monthly, 0);
@@ -256,9 +379,10 @@
         const amount = inst ? WT.instStatus(inst, td).remaining : (o.v.amountCents || 0);
         if (amount < UPCOMING_MIN) continue;
         const oneTime = o.v.frequency === 'once';
-        upcoming.push({ name: t.name, date: o.date, amount, templateId: t.id, oneTime, debt: !!t.debtId });
         // one-time bills only count in the month they're due, so save toward later ones a little each month
-        if (oneTime && !t.debtId && WT.monthOf(o.date) > mk) upcomingSetAside += Math.ceil(amount / (WT.monthsBetween(mk, WT.monthOf(o.date)) + 1));
+        const monthlySetAside = (oneTime && !t.debtId && WT.monthOf(o.date) > mk) ? Math.ceil(amount / (WT.monthsBetween(mk, WT.monthOf(o.date)) + 1)) : 0;
+        upcoming.push({ name: t.name, date: o.date, amount, templateId: t.id, oneTime, debt: !!t.debtId, monthlySetAside });
+        upcomingSetAside += monthlySetAside;
       }
     }
     upcoming.sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : y.amount - x.amount);
@@ -281,11 +405,19 @@
       // extras (serializable) used by strategies/suggestions
       savingsBalance: sav, emergencySmall: sav < Math.max(essentials, 1),
       highApr: highAprDebts.length > 0, highAprDebts: highAprDebts.map(d => ({ id: d.id, name: d.name, aprCenti: d.aprCenti, balanceCents: d.balanceCents })),
-      debts: debts.map(d => ({ id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti, minCents: d.minCents })),
+      debts: debts.map(d => debtDetail(d, billsByDebt[d.id])),
+      orphanDebtBills,
       debtDataMissing: debts.some(d => !d.minCents || !d.aprCenti),
       optionalList: subscriptions.sort((x, y) => y.monthly - x.monthly), essentialList: essentialBills.sort((x, y) => y.monthly - x.monthly),
       setAsideNames: saNames, notes,
     };
+    // v3: set-asides for less-than-monthly bills, emergency fund depth, net worth, missing inputs
+    a.annualSetAside = essentialBills.filter(b => b.irregular && !b.oneTime).reduce((t, b) => t + b.monthly, 0);
+    a.emergency = { balance: sav, monthsCovered: living > 0 ? Math.round(sav * 10 / living) / 10 : 0, target3: living * 3, target6: living * 6, starterTarget, starterGap: starter.gap };
+    a.netWorth = netWorthNow();
+    a.savingsAprCenti = savingsRate();
+    a.obligationsPct = income > 0 ? Math.round(required * 1000 / income) / 10 : 0;
+    a.missing = missingInputs(a);
     a.options = shortfallOptions(a);
     Object.defineProperty(a, 'essentialCategory', { value: (catId, kind) => essentialCategory(catId, kind), enumerable: false });
     return a;
@@ -412,6 +544,34 @@
     return d;
   }
 
+  // Fill to exactly 100%: the unlocked buckets absorb the difference (in proportion to their amounts) so the
+  // total is exactly take-home pay to the cent. Locked buckets never change; nothing goes below $0.
+  function fillExactly(A, dollars, locks) {
+    const d = cleanDollars(dollars); locks = locks || {};
+    const income = Math.max(0, (A && A.income) || 0);
+    const open = BUCKETS.filter(b => !locks[b]);
+    const diff = income - sum4(d);
+    if (diff > 0 && open.length) {
+      const w = {}; open.forEach(b => w[b] = d[b]);
+      if (!open.some(b => d[b] > 0)) open.forEach(b => w[b] = 1);
+      const add = splitInt(diff, w); open.forEach(b => d[b] += add[b]);
+    } else if (diff < 0 && open.length) {
+      let over = -diff;
+      for (let g = 0; g < 8 && over > 0; g++) {
+        const live = open.filter(b => d[b] > 0); if (!live.length) break;
+        const w = {}; live.forEach(b => w[b] = d[b]);
+        const cut = splitInt(Math.min(over, live.reduce((t, b) => t + d[b], 0)), w);
+        live.forEach(b => { const c = Math.min(d[b], cut[b]); d[b] -= c; over -= c; });
+      }
+    }
+    const r = editorResult(A || { income: 0 }, d);
+    r.exact = income > 0 && sum4(d) === income;
+    if (r.exact) r.pct = normPct(d);
+    r.locked = BUCKETS.filter(b => !!locks[b]);
+    if (!r.exact && income > 0) r.warnings.push(open.length ? 'Locked categories add up to more than your take-home pay, so the plan can\'t total exactly 100%. Unlock a category or lower a locked amount.' : 'Every category is locked. Unlock one so the remaining money has somewhere to go.');
+    return r;
+  }
+
   // ---------------------------------------------------------------- personalized plans (amount based)
   // A spending-money floor: about 10% of what's free (enough for subscriptions if that's a bit more), never $0.
   function wantsFloor(A, R) {
@@ -442,18 +602,8 @@
     const P = planner(A); const { take } = P;
     const hasDebt = A.debts.some(d => d.balanceCents > 0) || A.debtMinimums > 0;
     const R0 = A.free;
-    if (kind === 'recommended') {
-      take('wants', L.fun, wantsFloor(A, R0));
-      take('savings', L.ef, A.starter.gap);
-      take('savings', L.up, A.upcomingSetAside);
-      const X = P.left();
-      if (X > 0) {
-        const w = A.highApr ? { debt: 60, savings: 20, wants: 20 } : hasDebt ? { debt: 30, savings: 40, wants: 30 } : { debt: 0, savings: 60, wants: 40 };
-        const s = splitInt(X, w);
-        take('debt', L.extra, s.debt); take('savings', L.save, s.savings); take('wants', L.fun, s.wants);
-      }
-    } else if (kind === 'zero') {
-      take('wants', L.fun, Math.max(1, Math.round(R0 * 0.10)));
+    if (kind === 'zero') {
+      take('wants', L.fun, wantsFloor(A, R0)); // optional bills are bills too: they get their dollars
       take('savings', L.ef, A.starter.gap);
       take('savings', L.up, A.upcomingSetAside);
       take('savings', L.goals, A.goalsNeeded);
@@ -461,17 +611,6 @@
       take('savings', L.fullEf, Math.max(0, A.living * 3 - A.balances.savings - A.starter.gap));
       const X = P.left(); const half = Math.round(X / 2);
       take('savings', L.save, half); take('wants', L.fun, X - half);
-    } else if (kind === 'debt') {
-      take('wants', L.fun, Math.round(R0 * 0.10));
-      take('savings', L.ef, Math.min(A.starter.gap, Math.round(R0 * 0.20)));
-      if (hasDebt) take('debt', L.extra, P.left()); else take('savings', L.save, P.left());
-    } else { // savings
-      take('wants', L.fun, Math.round(R0 * 0.15));
-      take('savings', L.ef, A.starter.gap);
-      take('savings', L.up, A.upcomingSetAside);
-      take('savings', L.goals, A.goalsNeeded);
-      if (A.highApr) take('debt', L.extra, Math.round(P.left() * 0.10));
-      take('savings', L.save, P.left());
     }
     const R = P.left(); if (R > 0) take('savings', L.save, R); // every dollar assigned
     return { amounts: P.o, lines: P.lines };
@@ -481,13 +620,18 @@
   function makeSim(A) {
     const inputs = A.debts.map(d => ({ id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti, minCents: d.minCents }));
     const cache = new Map();
-    return extra => { extra = Math.max(0, extra | 0); if (!cache.has(extra)) cache.set(extra, WT.simulatePayoff(inputs, extra, 'avalanche')); return cache.get(extra); };
+    return (extra, method) => {
+      extra = Math.max(0, extra | 0); method = method === 'snowball' ? 'snowball' : 'avalanche';
+      const k = method + ':' + extra;
+      if (!cache.has(k)) cache.set(k, WT.simulatePayoff(inputs, extra, method));
+      return cache.get(k);
+    };
   }
-  function projection(A, eff, sim) {
+  function projection(A, eff, sim, method) {
     const extra = Math.max(0, eff.debt - A.debtMinimums);
     const out = { savings12: eff.savings * 12, debtPaid12: 0, debtFreeMonths: A.debts.length ? null : 0, debtFreeEstimate: false, interest: 0, spendingMonthly: eff.wants, interestSaved: 0, extraDebt: extra };
     if (!A.debts.length) return out;
-    const s = sim(extra), base = sim(0);
+    const s = sim(extra, method), base = sim(0);
     const tl = s.timeline; const at12 = tl[Math.min(12, tl.length - 1)];
     out.debtPaid12 = Math.max(0, tl[0] - at12);
     out.debtFreeMonths = s.stuck ? null : s.months;
@@ -526,130 +670,507 @@
   }
 
   // ---------------------------------------------------------------- explanations
-  function whyRecommended(A, s) {
-    if (A.income <= 0) return 'Add your take-home pay to get a personalized plan. Until then these are starting percentages.';
-    if (A.free < 0) {
-      return `Your take-home pay is ${money(A.income)} a month. Bills, groceries and gas cost ${cents(A.living)} and minimum debt payments are ${cents(A.debtMinimums)}, so you're ${cents(A.shortfall)} short each month. `
-        + `This plan keeps your home, bills, food and gas funded first and puts the remaining ${cents(s.amounts.debt)} toward minimums.`;
-    }
-    const a = s.amounts; const extra = a.debt - A.debtMinimums; const fun = a.wants;
-    const parts = [`Your ${money(A.income)} take-home pay covers essential bills (${money(A.essentials)})${A.everyday ? `, groceries and gas (${money(A.everyday)})` : ''}${A.debtMinimums ? ` and minimum debt payments (${money(A.debtMinimums)})` : ''}, which leaves ${money(A.free)} a month.`];
-    if (A.starter.gap > 0) parts.push(`${money(Math.min(A.starter.gap, a.savings))} goes to a starter emergency fund first.`);
-    if (extra > 0 && A.highApr) parts.push(`${money(extra)} extra goes to ${A.highAprDebts[0].name} (${aprStr(A.highAprDebts[0].aprCenti)} APR).`);
-    else if (extra > 0) parts.push(`${money(extra)} extra goes to debt.`);
-    else if (A.debts.length && A.starter.gap > 0) parts.push('Extra debt payments wait until that fund is built.');
-    parts.push(`${money(a.savings)} goes to savings and ${money(fun)} is spending money.`);
-    return parts.join(' ');
-  }
-  function whyPreset(A, id, s) {
-    const txt = { '50-30-20': 'A classic split: 50% for needs and debt payments, 30% for wants and 20% for savings.', '60-20-20': 'A split for higher costs: 60% for needs and debt payments, 20% for wants and 20% for savings.' }[id];
-    if (A.income <= 0) return txt;
-    if (s.realistic) return txt + ` For you that is ${money(s.amounts.needs + s.amounts.debt)} for needs and debt, ${money(s.amounts.wants)} for wants and ${money(s.amounts.savings)} for savings.`;
-    return txt + ` Your bills, groceries, gas and minimums already take ${pctOf(A.required, A.income)}% of your pay, so the adjusted version keeps them paid and cuts wants and savings.`;
-  }
-  function whyTilt(A, id, s) {
-    if (A.income <= 0) return id === 'debt' ? 'Puts every spare dollar toward debt after bills.' : 'Puts every spare dollar toward savings after bills.';
-    if (A.free < 0) return `There isn't enough income for bills, groceries, gas and minimums (${cents(A.shortfall)} short), so there is nothing extra for ${id === 'debt' ? 'debt' : 'savings'} yet.`;
-    const extra = s.amounts.debt - A.debtMinimums;
-    if (id === 'debt') {
-      if (!A.debts.length) return `You have no debts, so this plan saves ${money(s.amounts.savings)} a month instead.`;
-      const target = A.highAprDebts[0] || A.debts.slice().sort((x, y) => y.aprCenti - x.aprCenti)[0];
-      return `Pays your minimums plus ${money(extra)} extra a month, starting with ${target.name} (${aprStr(target.aprCenti)} APR). You keep ${money(s.amounts.savings)} for savings and ${money(s.amounts.wants)} for wants.`;
-    }
-    return `Saves ${money(s.amounts.savings)} a month (${s.pct.savings}% of your pay) after bills${A.debtMinimums ? ' and minimum payments' : ''}. That's ${money(s.amounts.savings * 12)} in a year.`;
-  }
   function whyZero(A, s) {
     if (A.income <= 0) return 'Gives every dollar of your pay a job. Add your income to see it.';
     if (A.free < 0) return `Every dollar is already needed: you're ${cents(A.shortfall)} short of bills, groceries, gas and minimums.`;
     return `Every dollar of your ${money(A.income)} has a job: ${s.lines.map(l => `${l.label.toLowerCase()} ${money(l.amount)}`).join(', ')}. Nothing is left unassigned.`;
   }
-
-  // ---------------------------------------------------------------- strategies
-  function base(A) { return { month: A.month, income: A.income, essentials: A.essentials, debtMinimums: A.debtMinimums, committed: A.committed, living: A.living, required: A.required }; }
-  function presetPct(A, needsDebt, wants, savings) {
-    // the preset's "needs" share covers living costs and debt minimums; split it in their proportion
-    const nd = needsDebt * 10; let debt10 = 0;
-    const req = A.living + A.debtMinimums;
-    if (A.debtMinimums > 0 && req > 0) debt10 = Math.round(nd * A.debtMinimums / req);
-    return { needs: (nd - debt10) / 10, debt: debt10 / 10, savings, wants };
+  function whyNamed(A, st) {
+    if (st.id === 'zero') return whyZero(A, st);
+    if (A.income <= 0) return st.summary + ' Add your take-home pay to see it in dollars.';
+    if (A.free < 0) return `${st.summary} Right now your pay is ${cents(A.shortfall)} short of bills, groceries, gas and minimums, so every plan funds those first and nothing is left for extra debt, savings or spending.`;
+    const a = st.amounts; const extra = Math.max(0, a.debt - A.debtMinimums);
+    return `${st.summary} For you: ${money(a.needs)} essentials, ${money(a.debt)} debt (${money(Math.min(a.debt, A.debtMinimums))} minimums${extra ? ` + ${money(extra)} extra` : ''}), ${money(a.savings)} savings and ${money(a.wants)} spending money.`;
   }
-  function personalized(A, id) {
-    const pa = planAmounts(A, id);
-    const fb = { recommended: { needs: 50, debt: 0, savings: 20, wants: 30 }, zero: { needs: 50, debt: 0, savings: 30, wants: 20 }, debt: { needs: 50, debt: 30, savings: 10, wants: 10 }, savings: { needs: 50, debt: 5, savings: 35, wants: 10 } }[id];
-    const st = { id, name: NAMES[id], kind: KINDS[id], amounts: pa.amounts, pct: pctFromCents(pa.amounts, A.income, fb), lines: pa.lines, feasible: feasibleOf(A, pa.amounts), warnings: [] };
+
+  // ---------------------------------------------------------------- named strategies (v3)
+  // Ids are stable. Old saved ids keep working: debt -> aggressive, savings -> pay-first, 60-20-20 -> balanced.
+  const STRATEGY_IDS = ['avalanche', 'snowball', '50-30-20', 'zero', 'pay-first', 'aggressive', 'balanced', 'custom'];
+  const NAMED = STRATEGY_IDS.filter(x => x !== 'custom');
+  const ALIASES = { debt: 'aggressive', savings: 'pay-first', '60-20-20': 'balanced' };
+  const HORIZONS = [6, 12, 36, 60];
+  function resolveId(id) { const k = String(id == null ? '' : id); return Object.prototype.hasOwnProperty.call(ALIASES, k) ? ALIASES[k] : k; }
+  // Example percentages are the owner's illustrative table: never mandatory, always personalized below.
+  const DEFS = {
+    avalanche: {
+      example: { needs: 50, debt: 30, savings: 15, wants: 5 }, debtOrder: 'avalanche', ef: 0.5, priority: ['debt', 'savings', 'wants'], leftover: 'debt',
+      summary: 'Pay every minimum, then put extra debt money on the highest interest rate first.',
+      benefits: ['Usually the lowest total interest of any payoff order.', 'Every extra dollar goes where it is charged the most.', 'Keeps building a small emergency reserve while you pay down debt.'],
+      drawbacks: ['The first payoff can take a while when the highest-rate debt is large.', 'Less money for savings and spending while debts remain.'],
+    },
+    snowball: {
+      example: { needs: 50, debt: 30, savings: 15, wants: 5 }, debtOrder: 'snowball', ef: 0.5, priority: ['debt', 'savings', 'wants'], leftover: 'debt',
+      summary: 'Pay every minimum, then put extra debt money on the smallest balance first.',
+      benefits: ['Quick wins: small balances disappear first, which keeps many people motivated.', 'Each paid-off debt frees its payment for the next one.', 'Keeps building a small emergency reserve while you pay down debt.'],
+      drawbacks: ['Often costs more interest than Avalanche when a large balance has a high rate.', 'Less money for savings and spending while debts remain.'],
+    },
+    '50-30-20': {
+      example: { needs: 40, debt: 20, savings: 10, wants: 30 }, debtOrder: null,
+      summary: 'Half of your pay for needs and minimum payments, 30% for wants, and 20% for savings and extra debt payments.',
+      benefits: ['Simple and well known.', 'Leaves real spending money, which makes it easier to stick to.', 'Builds savings and pays down debt at the same time.'],
+      drawbacks: ['Hard to follow when needs and minimums take more than half of your pay.', 'Pays off debt more slowly than a debt-focused plan.'],
+    },
+    zero: {
+      example: { needs: 55, debt: 20, savings: 15, wants: 10 }, debtOrder: null, noFixedPct: true,
+      summary: 'Give every dollar of your pay a job until nothing is left unassigned. There are no fixed percentages.',
+      benefits: ['Nothing is left unplanned, so it is easy to see where money goes.', 'Follows your real bills, goals and upcoming expenses each month.', 'Works well with irregular income: plan the money you actually have.'],
+      drawbacks: ['Takes more time to plan each month.', 'A surprise expense means moving money between categories.'],
+    },
+    'pay-first': {
+      example: { needs: 50, debt: 10, savings: 30, wants: 10 }, debtOrder: null, ef: 1, priority: ['savings', 'wants', 'debt'], leftover: 'savings',
+      summary: 'Move money to savings as soon as you are paid, then budget the rest.',
+      benefits: ['Savings grow first, before spending can eat into them.', 'Builds an emergency fund quickly.', 'A good fit when income is steady and debt is low.'],
+      drawbacks: ['High-interest debt can cost more than savings earn.', 'Less flexible spending money.'],
+    },
+    aggressive: {
+      example: { needs: 50, debt: 35, savings: 10, wants: 5 }, debtOrder: null, ef: 0.2, priority: ['debt', 'savings', 'wants'], leftover: 'debt',
+      summary: 'Put as much as possible toward debt after essentials, keeping only a thin cushion for savings and spending.',
+      benefits: ['The fastest way to become debt-free.', 'Saves the most interest.', 'Frees up your minimum payments sooner.'],
+      drawbacks: ['Very little spending money, which can be hard to keep up.', 'A thin emergency cushion: a surprise bill may end up on a card.'],
+    },
+    balanced: {
+      example: { needs: 50, debt: 20, savings: 20, wants: 10 }, debtOrder: null, ef: 0.5, proportional: true, leftover: 'even',
+      summary: 'Split what is left after essentials between paying down debt and building savings, with some spending money.',
+      benefits: ['Progress on debt and savings at the same time.', 'Builds a cushion while interest costs go down.', 'A steady plan that is easy to keep.'],
+      drawbacks: ['Pays off debt more slowly than Avalanche or Aggressive.', 'Savings grow more slowly than Pay Yourself First.'],
+    },
+    custom: {
+      example: null, debtOrder: null,
+      summary: 'Your own amounts for each category. Start from any plan and change the dollars or percentages.',
+      benefits: ['Fits exactly how you want to spend and save.', 'You can lock categories you don\'t want changed.'],
+      drawbacks: ['Nothing balances it for you: keep essentials and minimum payments covered.'],
+    },
+  };
+  const EXAMPLES = {}; STRATEGY_IDS.forEach(id => EXAMPLES[id] = DEFS[id].example ? clone(DEFS[id].example) : null);
+  Object.assign(NAMES, { avalanche: 'Debt Avalanche', snowball: 'Debt Snowball', '50-30-20': '50/30/20', zero: 'Zero-Based', 'pay-first': 'Pay Yourself First', aggressive: 'Aggressive Debt Payoff', balanced: 'Balanced Wealth Building' });
+  Object.assign(KINDS, { avalanche: 'Highest interest first', snowball: 'Smallest balance first', 'pay-first': 'Savings first', aggressive: 'Debt payoff', balanced: 'Debt and savings' });
+
+  // per-analysis cache (A objects are fresh for each analyze() call)
+  const CACHE = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function cacheOf(A) { if (!CACHE || !A || typeof A !== 'object') return {}; let c = CACHE.get(A); if (!c) { c = {}; CACHE.set(A, c); } return c; }
+
+  // Strategy with example percentages: required costs first, then the strategy's priorities on the free money.
+  // Needs never gets more than real living costs (no padding); a missing debt sends its share to savings.
+  function examplePlan(A, def) {
+    const P = planner(A); const { take } = P; const I = A.income; const R0 = A.free;
+    const hasDebt = A.debts.length > 0;
+    const tgt = b => Math.round(I * def.example[b] / 100);
+    take('wants', L.fun, wantsFloor(A, R0));
+    take('savings', L.up, A.upcomingSetAside);
+    take('savings', L.ef, hasDebt ? Math.min(A.starter.gap, Math.round(P.left() * def.ef)) : A.starter.gap);
+    const into = b => (b === 'debt' && !hasDebt) ? 'savings' : b;
+    const give = (b, c) => {
+      b = into(b);
+      if (b === 'savings') { const g = Math.max(0, Math.min(c, A.goalsNeeded - (P.lines.find(l => l.label === L.goals) || { amount: 0 }).amount)); take('savings', L.goals, g); take('savings', L.save, c - g); }
+      else take(b, b === 'debt' ? L.extra : L.fun, c);
+    };
+    const wantOf = b => Math.max(0, tgt(b) - P.o[b]);
+    if (def.proportional) {
+      const w = {}; ['debt', 'savings', 'wants'].forEach(b => w[b] = wantOf(b));
+      const tot = w.debt + w.savings + w.wants;
+      const sp = splitInt(Math.min(P.left(), tot), w);
+      ['debt', 'savings', 'wants'].forEach(b => give(b, sp[b]));
+    } else for (const b of def.priority) give(b, wantOf(b));
+    const X = P.left();
+    if (X > 0) {
+      if (def.leftover === 'even') { if (hasDebt) { const h = Math.round(X / 2); take('debt', L.extra, h); take('savings', L.save, X - h); } else take('savings', L.save, X); }
+      else give(def.leftover, X);
+    }
+    return { amounts: P.o, lines: P.lines };
+  }
+  // 50/30/20 on real numbers: needs + minimums are "the 50%" (counted once), wants up to 30%, the rest
+  // (the 20% plus anything the 50% didn't need) is split between savings and extra debt.
+  function plan503020(A) {
+    const P = planner(A); const { take } = P; const I = A.income; const F = A.free;
+    const hasDebt = A.debts.length > 0;
+    const half = Math.round(I * 0.5), wantsT = Math.round(I * 0.3);
+    const slack = half - A.required;
+    let wants = Math.min(wantsT, F);
+    if (slack < 0) wants = Math.min(F, Math.max(wantsFloor(A, F), wantsT + slack));
+    take('wants', L.fun, Math.max(0, wants));
+    const pot = P.left();
+    const debtShare = hasDebt ? Math.floor(pot / 2) : 0;
+    take('debt', L.extra, debtShare);
+    take('savings', L.up, A.upcomingSetAside);
+    take('savings', L.ef, A.starter.gap);
+    take('savings', L.goals, A.goalsNeeded);
+    take('savings', L.save, P.left());
+    return { amounts: P.o, lines: P.lines };
+  }
+
+  function leftoverWord(id, A) {
+    const hasDebt = A.debts.length > 0;
+    const def = DEFS[id];
+    if (!def || !def.leftover) return 'savings';
+    if (def.leftover === 'even') return hasDebt ? 'savings and extra debt payments' : 'savings';
+    return def.leftover === 'debt' && hasDebt ? 'extra debt payments' : 'savings';
+  }
+  // what changed vs the example percentages, and why (only real differences of 1 point or more)
+  function modificationsOf(A, id, def, a) {
+    const m = []; const I = A.income;
+    if (!(I > 0) || !def.example) return m;
+    const pc = c => Math.round(c * 1000 / I) / 10;
+    if (A.free < 0) { m.push(`Your take-home pay is ${cents(A.shortfall)} short of essentials and minimum payments, so every dollar goes to them first and nothing is left for the rest of this plan.`); return m; }
+    const ex = def.example;
+    if (!A.debts.length && ex.debt > 0 && id !== 'zero') m.push(`You have no debt, so the example's ${ex.debt}% for debt goes to savings.`);
+    if (def.noFixedPct) return m;
+    if (id === '50-30-20') {
+      const req = pc(A.required);
+      if (req > 50.5) m.push(`Your needs and minimum payments take ${req}% of your pay, more than 50%, so wants and savings are smaller than 30% and 20%.`);
+      else if (req < 49.5) m.push(`Your needs and minimum payments take ${req}%, less than 50%. The other ${round1(50 - req)}% goes to savings${A.debts.length ? ' and extra debt payments' : ''} instead of padding Essentials.`);
+      if (A.debts.length && pc(A.debtMinimums) > 10.5) m.push(`Your required minimum payments alone are ${pc(A.debtMinimums)}% of your pay (the example assumes 10%).`);
+    } else {
+      const liv = pc(A.living);
+      if (liv > ex.needs + 0.5) m.push(`Your essentials and everyday costs take ${liv}% of your pay, more than the example's ${ex.needs}%, so other categories get less.`);
+      else if (liv < ex.needs - 0.5) m.push(`Your essentials and everyday costs take ${liv}%, less than the example's ${ex.needs}%. The difference goes to ${leftoverWord(id, A)} instead of padding Essentials.`);
+      if (A.debts.length && pc(A.debtMinimums) > ex.debt + 0.5) m.push(`Your required minimum payments alone are ${pc(A.debtMinimums)}% of your pay, more than the example's ${ex.debt}% for debt.`);
+    }
+    if (pc(a.wants) < ex.wants - 1) m.push(`Spending money is ${pc(a.wants)}% instead of ${ex.wants}% so your required costs fit.`);
+    if (pc(a.savings) < ex.savings - 1) m.push(`Savings is ${pc(a.savings)}% instead of ${ex.savings}%.`);
+    return m;
+  }
+
+  function topApr(A) { return A.debts.slice().sort((x, y) => y.aprCenti - x.aprCenti || x.balanceCents - y.balanceCents)[0] || null; }
+  function smallest(A) { return A.debts.slice().sort((x, y) => x.balanceCents - y.balanceCents || y.aprCenti - x.aprCenti)[0] || null; }
+  // why this plan may or may not work for THIS user
+  function fitOf(A, st) {
+    if (A.income <= 0) return 'Add your take-home pay to see how this plan fits you.';
+    if (A.free < 0) return `Not workable yet: your pay is ${cents(A.shortfall)} short of essentials and minimum payments. Every plan has to cover those first.`;
+    const a = st.amounts; const extra = Math.max(0, a.debt - A.debtMinimums); const hasDebt = A.debts.length > 0;
+    const sav = A.balances.savings; const months = A.emergency.monthsCovered;
+    const top = topApr(A), small = smallest(A);
+    switch (st.id) {
+      case 'avalanche': {
+        if (!hasDebt) return 'You have no debts, so there is nothing to put in order. This works like a savings plan.';
+        let s = top.aprCenti ? `Your highest rate is ${top.name} at ${aprStr(top.aprCenti)} APR, so extra payments there save the most interest.` : 'None of your debts has an interest rate entered, so the order can\'t be based on interest yet.';
+        if (A.debtDataMissing) s += ' Some debts are missing details, so the order is partly a guess.';
+        if (A.starter.gap > 0) s += ` It keeps building your starter emergency fund (${money(A.starter.gap)} to go) at the same time.`;
+        return s;
+      }
+      case 'snowball': {
+        if (!hasDebt) return 'You have no debts, so there is nothing to put in order. This works like a savings plan.';
+        const pay = extra + (small.minCents || 0);
+        const n = pay > 0 ? Math.ceil(small.balanceCents / pay) : null;
+        return `Your smallest balance is ${small.name} (${cents(small.balanceCents)}).` + (extra > 0 && n ? ` With ${money(extra)} extra a month it could be gone in about ${plural(n, 'month')}.` : ' With no extra money it is paid at the minimum only.');
+      }
+      case '50-30-20': {
+        const req = A.obligationsPct;
+        return `Your needs and minimum payments are ${req}% of your pay` + (req > 50 ? ', above the 50% this rule expects, so it only works in a reduced form.' : ', within the 50% this rule expects.');
+      }
+      case 'zero': return `Every dollar of your ${money(A.income)} gets a job.` + (A.incomeDetail.irregular ? ' That helps because your income changes from month to month.' : '') + (A.obligationsPct >= 75 ? ` With ${A.obligationsPct}% of your pay already committed, planning every dollar keeps bills covered first.` : '');
+      case 'pay-first': {
+        let s = `Saves ${money(a.savings)} a month first. You have ${cents(sav)} saved, about ${months} months of essentials.`;
+        if (A.highApr) s += ` Your ${A.highAprDebts[0].name} charges ${aprStr(A.highAprDebts[0].aprCenti)} APR, likely more than savings earn.`;
+        return s;
+      }
+      case 'aggressive': {
+        if (!hasDebt) return 'You have no debt, so this works like Pay Yourself First.';
+        let s = `Puts ${money(extra)} extra a month toward debt on top of your minimums.`;
+        if (months < 1) s += ` Your emergency savings are ${cents(sav)}, so a surprise bill could set you back.`;
+        return s;
+      }
+      case 'balanced':
+        return hasDebt ? `Puts ${money(extra)} toward extra debt payments and ${money(a.savings)} toward savings each month.` : `Saves ${money(a.savings)} a month and keeps ${money(a.wants)} for spending.`;
+      default: return '';
+    }
+  }
+
+  // payoff order and schedule from WTPlan.debtPlans (avalanche/snowball differ only here)
+  function payoffOf(A, extra, method) {
+    if (!A.debts.length) return null;
+    const C = cacheOf(A); C.payoff = C.payoff || {};
+    method = method === 'snowball' ? 'snowball' : 'avalanche';
+    const k = method + ':' + extra;
+    if (C.payoff[k] !== undefined) return C.payoff[k];
+    let out = null;
+    const PL = ext('WTPlan', './smartplan.js', 'debtPlans');
+    if (PL) {
+      try {
+        const r = PL.debtPlans({ extra: Math.max(0, extra | 0), method });
+        const m = r && r.methods && r.methods[method];
+        if (m) out = { method, source: 'WTPlan', months: m.months, payoffDate: m.payoffDate, totalInterest: m.totalInterest, interestSaved: m.interestSaved, neverPaysOff: !!m.neverPaysOff, estimate: !!m.estimate, order: m.order.map(x => ({ id: x.id, name: x.name, balance: x.balance, apr: x.apr, payoffMonth: x.payoffMonth, payoffDate: x.payoffDate })) };
+      } catch (e) { out = null; }
+    }
+    if (!out) {
+      const s = WT.simulatePayoff(A.debts.map(d => ({ id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti, minCents: d.minCents })), extra, method);
+      out = { method, source: 'core', months: s.months, payoffDate: null, totalInterest: s.totalInterest, interestSaved: null, neverPaysOff: !!s.stuck, estimate: true, order: s.debts.slice().sort((x, y) => (x.paidOffMonth || 1e9) - (y.paidOffMonth || 1e9)).map(x => ({ id: x.id, name: x.name, balance: null, apr: x.apr, payoffMonth: x.paidOffMonth, payoffDate: null })) };
+    }
+    C.payoff[k] = out;
+    return out;
+  }
+
+  // shared fields for every strategy (old v2 fields + v3)
+  function finish(A, st, sim) {
+    const eff = st.adjusted ? st.adjusted : st;
+    st.realistic = realisticOf(A, st.amounts);
+    st.feasible = feasibleOf(A, st.amounts);
+    st.projection = projection(A, eff.amounts, sim, st.debtOrder);
+    st.debtSplit = { minimum: Math.min(eff.amounts.debt, A.debtMinimums), extra: Math.max(0, eff.amounts.debt - A.debtMinimums) };
+    st.disposable = Math.max(0, eff.amounts.wants - A.optionalBills);
+    st.annualSavings = eff.amounts.savings * 12;
+    st.risks = risksOf(A, st.amounts, st.projection);
+    if (st.adjusted) st.adjusted.risks = risksOf(A, st.adjusted.amounts, st.projection);
+    if (st.unallocated == null) st.unallocated = A.income - sum4(st.amounts);
+    st.payoff = A.debts.length ? payoffOf(A, st.debtSplit.extra, st.debtOrder) : null;
+    st.base = base(A);
+    return st;
+  }
+  function namedStrategy(A, id) {
+    const def = DEFS[id];
+    const pa = (A.income <= 0 || A.free < 0 || id === 'zero') ? planAmounts(A, 'zero') : id === '50-30-20' ? plan503020(A) : examplePlan(A, def);
+    const amounts = pa.amounts;
+    const st = {
+      id, name: NAMES[id], kind: KINDS[id], summary: def.summary, example: clone(def.example), exampleAmounts: centsFromPct(A.income, def.example),
+      noFixedPct: !!def.noFixedPct, amounts, pct: pctFromCents(amounts, A.income, def.example), lines: pa.lines, debtOrder: def.debtOrder || null,
+      aliases: Object.keys(ALIASES).filter(k => ALIASES[k] === id), warnings: [],
+    };
     if (A.income > 0 && A.shortfall > 0) { st.warnings.push(shortfallWarning(A)); st.options = A.options.slice(); }
+    if (A.income > 0 && !A.debts.length && (id === 'avalanche' || id === 'snowball' || id === 'aggressive')) st.warnings.push(`You have no debts to pay off, so this plan works like ${id === 'aggressive' ? 'Pay Yourself First' : 'a savings plan'}.`);
+    if (id === 'zero') st.unallocated = A.income - sum4(amounts);
+    st.modifications = modificationsOf(A, id, def, amounts);
+    st.modified = st.modifications.length > 0;
+    st.benefits = def.benefits.slice(); st.drawbacks = def.drawbacks.slice();
+    st.why = whyNamed(A, st);
+    st.fit = fitOf(A, st);
+    return st;
+  }
+  function namedCore(A) {
+    const C = cacheOf(A); if (C.named) return C.named;
+    const sim = makeSim(A);
+    const list = NAMED.map(id => finish(A, namedStrategy(A, id), sim));
+    const av = list.find(s => s.id === 'avalanche'), sn = list.find(s => s.id === 'snowball');
+    if (av.payoff && sn.payoff && !av.payoff.neverPaysOff && !sn.payoff.neverPaysOff && A.free >= 0) {
+      const diff = sn.payoff.totalInterest - av.payoff.totalInterest;
+      sn.interestVsAvalanche = diff;
+      if (diff > 0) sn.fit += ` For you it costs about ${money(diff)} more interest than Avalanche.`;
+      else if (A.debts.length > 1) sn.fit += ' For you it costs no more interest than Avalanche.';
+      av.interestVsSnowball = -diff;
+    }
+    C.named = list;
+    return list;
+  }
+
+  // ---------------------------------------------------------------- recommendation engine
+  // tie-break: lower interest / more stability first
+  const PICK_ORDER = ['avalanche', 'balanced', 'pay-first', 'zero', 'snowball', 'aggressive', '50-30-20'];
+  function cashTiming(A, st) {
+    const PL = ext('WTPlan', './smartplan.js', 'paycheckPlan');
+    if (!PL || !st || A.income <= 0) return [];
+    try {
+      const p = PL.paycheckPlan({ count: 4, strategy: st, analysis: A });
+      return ((p && p.paychecks) || []).filter(x => x && (x.shortfall > 0 || x.reserveIn > 0)).map(x => ({ date: x.date, shortfall: x.shortfall || 0, reserveIn: x.reserveIn || 0 }));
+    } catch (e) { return []; }
+  }
+  function recommend(A) {
+    A = A || analyze();
+    const C = cacheOf(A); if (C.rec) return clone(C.rec);
+    const named = namedCore(A);
+    const by = id => named.find(s => s.id === id);
+    const I = A.income; const hasDebt = A.debts.length > 0;
+    const score = {}; NAMED.forEach(id => score[id] = 50);
+    const factors = [];
+    const add = (label, value, effect, deltas) => { factors.push({ label, value, effect }); Object.keys(deltas || {}).forEach(k => score[k] += deltas[k]); };
+    const sav = A.balances.savings, months = A.emergency.monthsCovered;
+
+    // A. income
+    if (I > 0) {
+      const src = A.incomeDetail.sources;
+      add('Take-home pay', `${cents(I)} a month`, src.length > 1 ? `From ${src.length} income sources, converted to a monthly amount.` : 'Converted to a monthly amount from your pay schedule.');
+      if (A.incomeDetail.irregular) add('Income changes month to month', A.incomeDetail.variability.extraMonthly > 0 ? `about ${money(A.incomeDetail.variability.extraMonthly)} a month of extra income on average` : 'recorded paychecks vary', 'Favors Zero-Based and Pay Yourself First: plan the money you actually have and keep a buffer. Extra income is not counted until it arrives.', { zero: 10, 'pay-first': 10, aggressive: -10 });
+      A.incomeDetail.changes.forEach(c => factors.push({ label: c.type === 'ends' ? 'Income ending' : 'New income', value: `${c.name} ${c.type} ${WT.shortDate(c.date)} (${money(c.monthly)} a month)`, effect: c.type === 'ends' ? 'Plan for less income after that date.' : 'Not counted until it starts.' }));
+    } else add('Take-home pay', 'not added yet', 'Without income no plan can be checked or recommended.');
+    // B. essentials and obligations
+    if (I > 0) {
+      const obl = A.obligationsPct;
+      if (A.free < 0) add('Expenses are more than income', `${cents(A.shortfall)} short each month`, 'Stability first: essentials and minimums are funded before anything else. Zero-Based assigns every dollar.', { zero: 30 });
+      else if (obl >= 75) add('Essentials and minimum payments', `${obl}% of your pay`, 'High fixed costs: stability first. Favors Zero-Based, which plans every dollar; less room for aggressive goals.', { zero: 20, 'pay-first': -10, aggressive: -10, '50-30-20': -5 });
+      else factors.push({ label: 'Essentials and minimum payments', value: `${obl}% of your pay`, effect: obl <= 50 ? 'Leaves plenty of room for savings, debt and goals.' : 'Leaves a moderate amount for savings, debt and spending.' });
+    }
+    if (A.annualSetAside > 0) factors.push({ label: 'Bills that are not monthly', value: `${cents(A.annualSetAside)} a month set aside`, effect: 'Counted in Essentials as a monthly set-aside so the full bill is ready when it is due.' });
+    // C. debt
+    if (!hasDebt) add('Debt', 'No open debts', 'Favors saving and wealth building: Pay Yourself First and Balanced.', { avalanche: -60, snowball: -60, aggressive: -60, 'pay-first': 20 + (A.incomeDetail.irregular ? 0 : 5), balanced: 15, '50-30-20': 5 });
+    else {
+      const top = topApr(A);
+      const total = A.debts.reduce((t, d) => t + d.balanceCents, 0);
+      factors.push({ label: 'Debt balances', value: `${cents(total)} across ${plural(A.debts.length, 'debt')}`, effect: `Minimum payments are ${cents(A.debtMinimums)} a month.` });
+      if (A.highApr) add('Highest interest rate', `${top.name}: ${aprStr(top.aprCenti)} APR`, 'High-interest debt usually costs more than savings earn. Favors Debt Avalanche (highest rate first).', { avalanche: 30, aggressive: 15, snowball: 10, 'pay-first': -10, '50-30-20': -5 });
+      else add('Interest rates', top && top.aprCenti ? `highest ${aprStr(top.aprCenti)} APR` : 'no rates entered', 'No high-interest debt: a mix of saving and paying down debt works well.', { balanced: 20, '50-30-20': 10, avalanche: 10, 'pay-first': 5 });
+      const av = by('avalanche').payoff, sn = by('snowball').payoff;
+      if (A.debts.length >= 3 && av && sn && !av.neverPaysOff && !sn.neverPaysOff && A.free >= 0) {
+        const diff = sn.totalInterest - av.totalInterest;
+        if (diff <= Math.max(10000, Math.round(av.totalInterest * 0.02))) add('Avalanche vs Snowball', `Snowball costs ${cents(Math.max(0, diff))} more interest`, 'The difference is small, so Snowball\'s quick wins may be worth it.', { snowball: 20 });
+        else factors.push({ label: 'Avalanche vs Snowball', value: `Snowball would cost ${cents(diff)} more interest`, effect: 'Avalanche saves noticeably more, so it ranks higher.' });
+      }
+      const revolving = A.debts.filter(d => d.revolving).length;
+      if (revolving) factors.push({ label: 'Credit cards', value: plural(revolving, 'card'), effect: 'Card balances revolve: the minimum falls as the balance falls, so paying only the minimum takes much longer. Loans keep a fixed payment.' });
+      if (A.debtDataMissing) factors.push({ label: 'Missing debt details', value: plural(A.debts.filter(d => !d.aprCenti || !d.minCents).length, 'debt'), effect: 'Payoff dates and interest are estimates until the APR and minimum are added.' });
+    }
+    // D. savings
+    if (A.starter.gap > 0) add('Emergency savings', `${cents(sav)} saved (${months} months of essentials)`, hasDebt ? 'Low savings: keep building a small reserve while paying debt. Aggressive Payoff leaves too thin a cushion.' : 'Low savings: build the emergency fund first.', hasDebt ? { aggressive: -15, avalanche: 5, snowball: 5, 'pay-first': A.highApr ? 0 : 15 } : { 'pay-first': 15 });
+    else if (months >= 3 && hasDebt && A.highApr) add('Emergency savings', `${cents(sav)} saved (${months} months of essentials)`, 'A solid emergency fund means extra money can go to high-interest debt.', { aggressive: 20 });
+    else factors.push({ label: 'Emergency savings', value: `${cents(sav)} saved (${months} months of essentials)`, effect: months >= 3 ? 'A healthy cushion.' : 'The starter fund is covered; building toward 3 months of essentials is a good next step.' });
+    const upc = A.upcoming.filter(u => !u.debt);
+    if (upc.length) add('Upcoming large bills', `${plural(upc.length, 'bill')} in the next ${UPCOMING_DAYS} days (${cents(upc.reduce((t, u) => t + u.amount, 0))})`, 'Money is set aside for them first.', { zero: 5, 'pay-first': 5 });
+    if (A.goals.some(g => g.type !== 'emergency' && g.left > 0)) factors.push({ label: 'Savings goals', value: `${cents(A.goalsNeeded)} a month needed to finish on time`, effect: 'Included in savings where the plan has room.' });
+    // E. net worth
+    if (A.netWorth) factors.push({ label: 'Net worth', value: `${cents(A.netWorth.netWorth)}${A.netWorth.estimate ? ' (estimate)' : ''}${A.netWorth.demo ? ' (demo)' : ''}`, effect: 'Savings added and debt paid down both raise it.' });
+    // plans that had to change a lot from their example rank lower
+    named.forEach(s => { if (s.modified && !s.noFixedPct) score[s.id] -= Math.min(12, 4 * s.modifications.length); });
+
+    const ranking = named.map(s => ({ id: s.id, score: score[s.id], realistic: !!s.realistic })).sort((a, b) => (b.realistic - a.realistic) || b.score - a.score || PICK_ORDER.indexOf(a.id) - PICK_ORDER.indexOf(b.id));
+    const candidates = ranking.filter(r => r.realistic);
+    const pick = by(candidates.length ? candidates[0].id : 'zero');
+
+    // F. cash-flow timing for the picked plan
+    const timing = cashTiming(A, pick);
+    timing.filter(t => t.shortfall > 0).forEach(t => factors.push({ label: 'Paycheck timing', value: `${WT.shortDate(t.date)} paycheck ${cents(t.shortfall)} short`, effect: 'Bills due on that paycheck are more than it brings in. Hold money back from an earlier paycheck.' }));
+
+    const missing = A.missing.slice();
+    let confidence = missing.some(m => m.critical) ? 'low' : missing.length ? 'medium' : 'high';
+    if (confidence === 'high' && candidates.length > 1 && candidates[0].score - candidates[1].score < 5) confidence = 'medium';
+    const showBadge = confidence !== 'low' && !!pick.realistic;
+
+    const rec = {
+      id: pick.id, name: pick.name, reason: reasonFor(A, pick, confidence, by), factors, howCalculated: howCalc(A, pick),
+      benefits: benefitsFor(A, pick), drawbacks: pick.drawbacks.concat(pick.risks.slice(0, 2)), improve: improveFor(A, pick, timing),
+      confidence, missing: missing.map(m => m.detail), missingInputs: missing, showBadge, realistic: !!pick.realistic,
+      scores: score, ranking, cashflow: timing, shortfall: A.shortfall, demo: !!(A.netWorth && A.netWorth.demo),
+    };
+    C.rec = rec;
+    return clone(rec);
+  }
+  function reasonFor(A, s, confidence, by) {
+    const I = A.income;
+    if (I <= 0) return 'Not enough information yet: add your take-home pay to get a recommendation. Until then no plan is called best.';
+    if (A.free < 0) return `Your take-home pay (${cents(I)} a month) is ${cents(A.shortfall)} short of your essentials (${cents(A.living)}) and minimum payments (${cents(A.debtMinimums)}). ${s.name} is suggested because every dollar has to be planned: fund your home, bills, food and gas first, then as much of the minimums as possible. No plan can be called best until the gap is closed.`;
+    const a = s.amounts; const extra = Math.max(0, a.debt - A.debtMinimums);
+    const top = topApr(A), small = smallest(A);
+    const total = A.debts.reduce((t, d) => t + d.balanceCents, 0);
+    let r;
+    switch (s.id) {
+      case 'avalanche': r = `Recommended Strategy: Debt Avalanche. Based on your recorded debt balances (${cents(total)}), interest rates (highest: ${top.name} at ${aprStr(top.aprCenti)} APR), income (${cents(I)} a month) and essential expenses (${cents(A.living)}), this method may help reduce interest costs while keeping every required monthly payment.` + (A.starter.gap > 0 && a.savings > 0 ? ` It also keeps ${money(a.savings)} a month going to savings while your emergency fund is small.` : ''); break;
+      case 'snowball': { const d = by('snowball').interestVsAvalanche; r = `Recommended Strategy: Debt Snowball. You have ${plural(A.debts.length, 'debt')} and paying the smallest first (${small.name}, ${cents(small.balanceCents)}) costs only about ${cents(Math.max(0, d || 0))} more interest than Avalanche, while giving you quicker wins.`; break; }
+      case 'pay-first': r = `Recommended Strategy: Pay Yourself First. With ${A.debts.length ? 'no high-interest debt' : 'no debt'} and ${cents(A.balances.savings)} in savings (${A.emergency.monthsCovered} months of essentials), saving ${money(a.savings)} a month first builds your safety net.`; break;
+      case 'balanced': r = `Recommended Strategy: Balanced Wealth Building. ${A.debts.length ? `Your debts have moderate interest rates (highest ${aprStr(top.aprCenti)} APR), so splitting the ${money(A.free)} left after essentials between extra payments (${money(extra)}) and savings (${money(a.savings)}) makes progress on both.` : `With no debt, the ${money(A.free)} left after essentials goes to savings (${money(a.savings)}) with ${money(a.wants)} for spending.`}`; break;
+      case 'zero': r = `Recommended Strategy: Zero-Based. ${A.incomeDetail.irregular ? 'Your income changes from month to month, so planning every dollar you actually receive keeps bills covered.' : `Your essentials and minimum payments take ${A.obligationsPct}% of your ${cents(I)} take-home pay, so planning every dollar keeps bills covered first.`}`; break;
+      case 'aggressive': r = `Recommended Strategy: Aggressive Debt Payoff. You already have ${A.emergency.monthsCovered} months of essentials saved, so ${money(extra)} extra a month can go to debt, starting with ${top.name} (${aprStr(top.aprCenti)} APR).`; break;
+      case '50-30-20': r = `Recommended Strategy: 50/30/20. Your needs and minimum payments take ${A.obligationsPct}% of your pay, so the classic split fits with ${money(a.wants)} for wants and ${money(a.savings + extra)} for savings and extra debt payments.`; break;
+      default: r = `Recommended Strategy: ${s.name}.`;
+    }
+    if (confidence === 'low') r = 'Starting point only, because key information is missing. ' + r;
+    else if (confidence === 'medium' && A.missing.length) r += ' Some details are missing, so treat the numbers as estimates.';
+    return r;
+  }
+  function howCalc(A, s) {
+    const I = A.income; const pc = c => (I > 0 ? round1(c * 100 / I) : 0) + '%';
+    if (I <= 0) return ['Add your take-home pay. Percentages are each category\'s dollars divided by your take-home pay.'];
+    const out = [];
+    const src = A.incomeDetail.sources;
+    out.push(`Take-home pay: ${cents(I)} a month${src.length > 1 ? ` from ${src.length} sources` : ''}${src.some(x => x.basis === 'recorded-average') ? ' (planned on what actually arrived, because it varies)' : ''}. Extra income isn't counted until it arrives.`);
+    out.push(`Essentials: ${cents(A.essentials)} in bills${A.annualSetAside ? ` (including ${cents(A.annualSetAside)} set aside each month for bills that aren't monthly)` : ''}${A.everyday ? ` plus ${cents(A.everyday)} for groceries and gas` : ''} = ${cents(A.living)} (${pc(A.living)}).`);
+    if (A.debtMinimums) out.push(`Minimum debt payments: ${cents(A.debtMinimums)} (${pc(A.debtMinimums)}). Bills that pay a debt are counted here once, not in Essentials.`);
+    out.push(A.free >= 0 ? `Left after required costs: ${cents(A.free)} (${pc(A.free)}).` : `Short after required costs: ${cents(A.shortfall)}.`);
+    const opt = s.lines.filter(l => !l.required);
+    if (opt.length) out.push(`${s.name} assigns it: ${opt.map(l => `${l.label.toLowerCase()} ${cents(l.amount)}`).join(', ')}.`);
+    out.push('Each percentage is that category\'s dollars divided by your take-home pay, rounded to 0.1% so they add up to 100%.');
+    return out;
+  }
+  function benefitsFor(A, s) {
+    const b = s.benefits.slice();
+    const p = s.projection;
+    if (p && p.interestSaved > 0) b.unshift(`About ${money(p.interestSaved)} less interest than paying minimums only (estimate).`);
+    if (s.amounts.savings > 0 && A.free >= 0) b.push(`About ${money(s.amounts.savings * 12)} saved over a year at ${money(s.amounts.savings)} a month (0% growth assumed).`);
+    return b;
+  }
+  function improveFor(A, s, timing) {
+    const o = [];
+    A.missing.forEach(m => o.push(m.detail));
+    if (A.shortfall > 0) A.options.forEach(x => o.push(x));
+    if (A.highApr) { const t = A.highAprDebts[0]; o.push(`Ask about a lower rate on ${t.name}. At ${aprStr(t.aprCenti)} APR it costs about ${money(WT.monthlyInterest(t.balanceCents, t.aprCenti))} a month in interest.`); }
+    if (A.starter.gap > 0 && A.shortfall === 0) o.push(`Finish your starter emergency fund: ${money(A.starter.gap)} to go.`);
+    else if (A.emergency.monthsCovered < 3 && A.shortfall === 0 && A.living > 0) o.push(`Build toward 3 months of essentials (${money(A.emergency.target3)}). You have ${A.emergency.monthsCovered} months now.`);
+    if (A.optionalBills > 0 && A.shortfall === 0) o.push(`Optional bills and subscriptions cost ${money(A.optionalBills)} a month. Trimming any you rarely use frees money for your goals.`);
+    if (A.incomeDetail.irregular) o.push(`Plan on a typical low month and send extra income${A.incomeDetail.variability.extraMonthly ? ` (about ${money(A.incomeDetail.variability.extraMonthly)} a month on average)` : ''} to ${leftoverWord(s.id, A)} when it arrives.`);
+    (timing || []).filter(t => t.shortfall > 0).forEach(t => o.push(`The ${WT.shortDate(t.date)} paycheck is ${money(t.shortfall)} short: hold money back from the paycheck before it or move a bill.`));
+    A.incomeDetail.changes.filter(c => c.type === 'ends').forEach(c => o.push(`${c.name} ends ${WT.shortDate(c.date)}: plan for about ${money(c.monthly)} less a month after that.`));
+    return o.filter((x, i) => o.indexOf(x) === i);
+  }
+
+  // ---------------------------------------------------------------- strategies list
+  function base(A) { return { month: A.month, income: A.income, essentials: A.essentials, debtMinimums: A.debtMinimums, committed: A.committed, living: A.living, required: A.required }; }
+  function decorateCustom(A, st) {
+    const def = DEFS.custom;
+    const order = sb().debt && sb().debt.method === 'snowball' ? 'snowball' : null;
+    Object.assign(st, { summary: def.summary, example: null, exampleAmounts: null, noFixedPct: false, debtOrder: st.debtOrder || order, aliases: [], modified: false, modifications: [], benefits: def.benefits.slice(), drawbacks: def.drawbacks.slice() });
+    if (!st.fit) st.fit = A.income <= 0 ? 'Add your take-home pay to check this plan.' : realisticOf(A, st.amounts) ? 'Covers your essentials and minimum payments.' : 'Doesn\'t cover your essentials and minimum payments yet. See the warnings.';
     return st;
   }
   function customStrategy(A) {
     const cfg = sb();
     const cd = cfg.customDollars;
+    let st = null;
     if (cd && typeof cd === 'object' && BUCKETS.some(b => toCents(cd[b]) > 0)) {
       const r = fromDollars(A, cd);
-      const st = { id: 'custom', name: NAMES.custom, kind: KINDS.custom, source: 'dollars', pct: r.pct, amounts: r.dollars, unallocated: r.unallocated, over: r.over, feasible: r.feasible, warnings: r.warnings.slice() };
+      st = { id: 'custom', name: NAMES.custom, kind: KINDS.custom, source: 'dollars', pct: r.pct, amounts: r.dollars, unallocated: r.unallocated, over: r.over, feasible: r.feasible, warnings: r.warnings.slice() };
       st.why = A.income > 0 ? `Your own plan: ${money(r.dollars.needs)} needs, ${money(r.dollars.debt)} debt, ${money(r.dollars.savings)} savings and ${money(r.dollars.wants)} wants${r.unallocated > 0 ? `, with ${money(r.unallocated)} not assigned yet` : r.over > 0 ? `, ${money(r.over)} over your pay` : ''}.` : 'Your own plan. Add your income to check it.';
-      return st;
+    } else {
+      const cust = cfg.custom;
+      if (cust && typeof cust === 'object' && BUCKETS.some(b => num(cust[b]) > 0)) {
+        const al = allocate(A, cust);
+        st = { id: 'custom', name: NAMES.custom, kind: KINDS.custom, source: 'percent', pct: al.pct, amounts: al.amounts, feasible: al.feasible, warnings: al.warnings.slice() };
+        if (al.adjusted) st.adjusted = al.adjusted;
+        st.why = A.income > 0 ? `Your own split: ${money(al.amounts.needs)} needs, ${money(al.amounts.debt)} debt, ${money(al.amounts.savings)} savings and ${money(al.amounts.wants)} wants.` : 'Your own split. Add your income to see dollar amounts.';
+      }
     }
-    const cust = cfg.custom;
-    if (cust && typeof cust === 'object' && BUCKETS.some(b => num(cust[b]) > 0)) {
-      const al = allocate(A, cust);
-      const st = { id: 'custom', name: NAMES.custom, kind: KINDS.custom, source: 'percent', pct: al.pct, amounts: al.amounts, feasible: al.feasible, warnings: al.warnings.slice() };
-      if (al.adjusted) st.adjusted = al.adjusted;
-      st.why = A.income > 0 ? `Your own split: ${money(al.amounts.needs)} needs, ${money(al.amounts.debt)} debt, ${money(al.amounts.savings)} savings and ${money(al.amounts.wants)} wants.` : 'Your own split. Add your income to see dollar amounts.';
-      return st;
-    }
-    return null;
+    return st ? decorateCustom(A, st) : null;
   }
-
+  // a strategy-shaped plan for any dollar amounts (saved custom strategies, previews)
+  function customFrom(A, dollars, opts) {
+    A = A || analyze(); opts = opts || {};
+    const r = fromDollars(A, dollars);
+    const st = { id: opts.id || 'custom', name: opts.name || NAMES.custom, kind: KINDS.custom, source: 'dollars', pct: r.pct, amounts: r.dollars, unallocated: r.unallocated, over: r.over, feasible: r.feasible, warnings: r.warnings.slice(), debtOrder: opts.debtOrder === 'snowball' || opts.debtOrder === 'avalanche' ? opts.debtOrder : null };
+    st.why = A.income > 0 ? `${st.name}: ${money(r.dollars.needs)} needs, ${money(r.dollars.debt)} debt, ${money(r.dollars.savings)} savings and ${money(r.dollars.wants)} wants.` : 'Add your income to check this plan.';
+    decorateCustom(A, st);
+    return finish(A, st, makeSim(A));
+  }
+  function recommendedEntry(A, named, rec) {
+    const src = named.find(s => s.id === rec.id) || named[0];
+    const st = clone(src);
+    Object.assign(st, { id: 'recommended', name: NAMES.recommended, kind: KINDS.recommended, basedOn: src.id, basedOnName: src.name, aliases: [], why: rec.reason, recommendation: rec, confidence: rec.confidence, showBadge: rec.showBadge });
+    return st;
+  }
+  // [recommended (points at a named plan via basedOn), the 7 named plans, custom when saved]
   function strategies(A) {
     A = A || analyze();
-    const sim = makeSim(A);
-    const list = [];
-
-    const rec = personalized(A, 'recommended');
-    if (A.free >= 0 && A.optionalBills > 0 && rec.amounts.wants < A.optionalBills) rec.warnings.push(`Your optional bills and subscriptions cost ${money(A.optionalBills)} a month but this plan has ${money(rec.amounts.wants)} for wants.`);
-    rec.why = whyRecommended(A, rec);
-    list.push(rec);
-
-    [['50-30-20', 50, 30, 20], ['60-20-20', 60, 20, 20]].forEach(([id, nd, w, s]) => {
-      const al = allocate(A, presetPct(A, nd, w, s));
-      const st = { id, name: NAMES[id], kind: KINDS[id], pct: al.pct, amounts: al.amounts, feasible: al.feasible, warnings: al.warnings.slice() };
-      if (al.adjusted) st.adjusted = al.adjusted;
-      st.realistic = al.realistic;
-      st.why = whyPreset(A, id, st);
-      list.push(st);
-    });
-
-    ['debt', 'savings'].forEach(id => {
-      const st = personalized(A, id);
-      if (id === 'debt' && !A.debts.length && A.income > 0) st.warnings.push('You have no debts to pay off, so this plan works like Savings-focused.');
-      st.why = whyTilt(A, id, st);
-      list.push(st);
-    });
-
-    const z = personalized(A, 'zero');
-    z.unallocated = A.income - sum4(z.amounts);
-    z.why = whyZero(A, z);
-    list.push(z);
-
+    const named = clone(namedCore(A));
+    const rec = recommend(A);
+    const list = [recommendedEntry(A, named, rec)].concat(named);
     const cust = customStrategy(A);
-    if (cust) list.push(cust);
-
-    const ideal = rec.pct;
-    for (const st of list) {
-      const eff = st.adjusted ? st.adjusted : st;
-      st.realistic = realisticOf(A, st.amounts);
-      st.projection = projection(A, eff.amounts, sim);
-      st.debtSplit = { minimum: Math.min(eff.amounts.debt, A.debtMinimums), extra: Math.max(0, eff.amounts.debt - A.debtMinimums) };
-      st.disposable = Math.max(0, eff.amounts.wants - A.optionalBills);
-      st.annualSavings = eff.amounts.savings * 12;
-      st.risks = risksOf(A, st.amounts, st.projection);
-      if (st.adjusted) st.adjusted.risks = risksOf(A, st.adjusted.amounts, st.projection);
-      if (st.unallocated == null) st.unallocated = A.income - sum4(st.amounts);
-      st.fitScore = st.id === 'recommended' ? fitScore(A, ideal, ideal, st.realistic) : fitScore(A, eff.pct, ideal, st.realistic);
-      st.base = base(A);
-    }
+    if (cust) list.push(finish(A, cust, makeSim(A)));
+    const ideal = list[0].pct;
+    for (const st of list) st.fitScore = st.id === 'recommended' ? fitScore(A, ideal, ideal, st.realistic) : fitScore(A, effective(st).pct, ideal, st.realistic);
     return list;
   }
+  // all 8 named strategies for the cards; Custom starts from the recommended plan until one is saved
+  function named(A) {
+    A = A || analyze();
+    const list = strategies(A);
+    const out = list.filter(s => NAMED.includes(s.id));
+    let cust = list.find(s => s.id === 'custom');
+    if (!cust) {
+      cust = clone(list[0]);
+      Object.assign(cust, { id: 'custom', name: NAMES.custom, kind: KINDS.custom, isDefault: true, source: 'recommended', recommendation: undefined, showBadge: false, confidence: undefined });
+      delete cust.recommendation; delete cust.showBadge; delete cust.confidence; delete cust.basedOnName;
+      decorateCustom(A, cust);
+      cust.fit = 'Starts from your recommended plan. Change any amount; locked categories stay as you set them.';
+      cust.why = 'Your own plan. It starts from the recommended amounts until you change and save it.';
+    }
+    out.push(cust);
+    const rec = list[0].recommendation;
+    out.forEach(s => { s.recommended = s.id === rec.id && rec.showBadge; });
+    return out;
+  }
+  function findStrategy(list, id) { const k = resolveId(id); return (list || []).find(s => s && s.id === k) || null; }
 
   // ---------------------------------------------------------------- compare
   function compare(A, list) {
@@ -660,7 +1181,9 @@
       spendingMonthly: s.projection.spendingMonthly, disposable: s.disposable, debtSplit: s.debtSplit, risks: s.risks || [],
       feasible: s.feasible, realistic: !!s.realistic, fitScore: s.fitScore,
     }));
-    // "Best fit" only ever goes to a plan that funds living costs and minimums
+    // "Best fit" only ever goes to a plan that funds living costs and minimums, and never when key info is missing
+    const rec = list.find(s => s.id === 'recommended');
+    if (rec && rec.recommendation && rec.recommendation.confidence === 'low') return { bestId: null, rows };
     let best = null;
     for (const s of list) if (s.realistic && (!best || s.fitScore > best.fitScore)) best = s;
     return { bestId: best ? best.id : null, rows };
@@ -673,6 +1196,178 @@
     if (x.amounts && typeof x.amounts === 'object') return cleanDollars(effective(x).amounts);
     if (x.dollars && typeof x.dollars === 'object') return cleanDollars(x.dollars);
     return cleanDollars(x);
+  }
+  function resolveStrategy(A, x) {
+    if (x == null) x = 'recommended';
+    if (typeof x === 'string') return findStrategy(strategies(A), x);
+    if (x && typeof x === 'object') {
+      if (x.amounts || x.dollars) return x;
+      if (BUCKETS.some(b => b in x)) return { id: 'custom', amounts: cleanDollars(x), debtOrder: null };
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------- breakdown (expandable plan cards)
+  // Per bucket: planned, pct, recommendedPct, items (each bill once; debt-linked bills under Debt), committed, remaining.
+  function breakdown(A, x) {
+    A = A || analyze();
+    const s = resolveStrategy(A, x);
+    const planned = plannedOf(s);
+    const I = A.income;
+    const recPct = (findStrategy(strategies(A), 'recommended') || {}).pct || normPct();
+    const td = today();
+    const inst = {};
+    for (const i of WT.instancesForMonth(A.month)) if (i && !i.skipped && i.templateId && !inst[i.templateId]) inst[i.templateId] = i;
+    const billItem = (b, kind, extra) => {
+      const i = inst[b.id]; const st = i ? WT.instStatus(i, td) : null;
+      const it = Object.assign({ kind, name: b.name, amount: b.monthly, templateId: b.id, dueDay: b.dueDay, dueDate: i ? i.dueDate : b.dueDate }, extra || {});
+      if (kind === 'setaside') { it.frequency = b.frequency; it.fullAmount = b.amountEach; it.nextDue = b.nextDue; }
+      if (i) { it.thisMonth = i.amountCents || 0; it.paid = Math.min(st.paid, i.amountCents || 0); it.left = st.remaining; it.status = st.status; }
+      return it;
+    };
+    const items = { needs: [], debt: [], savings: [], wants: [] };
+    A.essentialList.forEach(b => items.needs.push(billItem(b, b.irregular ? 'setaside' : 'bill')));
+    if (A.everyday > 0) items.needs.push({ kind: 'spending', name: A.setAsideNames.length ? A.setAsideNames.join(', ') : 'Everyday needs (groceries, gas)', amount: A.everyday });
+    A.debts.forEach(d => {
+      const it = { kind: 'minimum', name: d.name, amount: d.minCents, debtId: d.id, dueDay: d.dueDay, dueDate: WT.dateInMonthClamped(A.month, d.dueDay), balance: d.balanceCents, aprCenti: d.aprCenti, revolving: d.revolving };
+      if (d.billId) { it.templateId = d.billId; const i = inst[d.billId]; if (i) { const st = WT.instStatus(i, td); it.dueDate = i.dueDate; it.paid = Math.min(st.paid, i.amountCents || 0); it.left = st.remaining; it.status = st.status; } }
+      items.debt.push(it);
+    });
+    (A.orphanDebtBills || []).forEach(b => items.debt.push(billItem(b, 'bill')));
+    const extra = Math.max(0, planned.debt - A.debtMinimums);
+    if (extra > 0 && A.debts.length) {
+      const order = s && s.debtOrder === 'snowball' ? smallest(A) : topApr(A);
+      items.debt.push({ kind: 'extra', name: `Extra payment: ${order.name}`, amount: extra, debtId: order.id });
+    }
+    let sLeft = planned.savings;
+    const takeS = (it) => { const c = Math.min(sLeft, it.amount); if (c > 0) { items.savings.push(Object.assign(it, { amount: c })); sLeft -= c; } };
+    A.upcoming.filter(u => u.monthlySetAside > 0).forEach(u => takeS({ kind: 'setaside', name: `${u.name} (one-time)`, amount: u.monthlySetAside, templateId: u.templateId, dueDate: u.date, fullAmount: u.amount }));
+    if (A.starter.gap > 0) takeS({ kind: 'emergency', name: 'Starter emergency fund', amount: A.starter.gap, target: A.starter.target });
+    A.goals.filter(g => g.type !== 'emergency' && g.neededPerMonth > 0).forEach(g => takeS({ kind: 'goal', name: g.name, amount: g.neededPerMonth, goalId: g.id, dueDate: g.targetDate }));
+    A.optionalList.forEach(b => items.wants.push(billItem(b, b.irregular ? 'setaside' : 'bill', { subscription: !!b.subscription })));
+    const byDue = (x, y) => {
+      const last = it => (it.kind === 'spending' || it.kind === 'extra') ? 1 : 0;
+      const dx = x.dueDate || '9999', dy = y.dueDate || '9999';
+      return last(x) - last(y) || (dx < dy ? -1 : dx > dy ? 1 : 0) || x.name.localeCompare(y.name);
+    };
+    ['needs', 'debt', 'wants'].forEach(b => items[b].sort(byDue));
+    const out = { month: A.month, income: I, order: BUCKETS.slice(), total: sum4(planned), unallocated: I - sum4(planned) };
+    BUCKETS.forEach(b => {
+      const committed = items[b].reduce((t, it) => t + it.amount, 0);
+      out[b] = { planned: planned[b], pct: I > 0 ? round1(planned[b] * 100 / I) : 0, recommendedPct: recPct[b], items: items[b], committed, remaining: planned[b] - committed, short: Math.max(0, committed - planned[b]) };
+    });
+    return out;
+  }
+
+  // ---------------------------------------------------------------- forecast (estimates, never guarantees)
+  const AV_ORDER = (a, b) => b.apr - a.apr || a.balance - b.balance || a.name.localeCompare(b.name);
+  const SN_ORDER = (a, b) => a.balance - b.balance || b.apr - a.apr || a.name.localeCompare(b.name);
+  function payoffDateFor(dueDay, months) {
+    const td = today(); const mk = WT.monthOf(td);
+    const off = WT.dateInMonthClamped(mk, dueDay) >= td ? 0 : 1;
+    return WT.dateInMonthClamped(WT.addMonthKey(mk, months - 1 + off), dueDay);
+  }
+  function forecastAssumptions(A, method, reserved, months) {
+    const r = A.savingsAprCenti || 0;
+    const a = ['This is an estimate, not a guarantee.'];
+    a.push(`Your take-home pay (${cents(A.income)} a month), bills and plan amounts stay the same for ${plural(months, 'month')}. Extra income isn't counted.`);
+    a.push(r ? `Savings earn ${aprStr(r)} a year, the rate you entered. Rates can change.` : 'Savings earn 0% because no savings interest rate was entered. Any interest you earn would be extra.');
+    a.push('Debt interest is charged monthly at each debt\'s APR, and no new charges are added to cards.');
+    a.push(`Extra debt money goes to the ${method === 'snowball' ? 'smallest balance' : 'highest interest rate'} first. When a debt is paid off its payment moves to the next one; once all are paid off, that money is added to savings.`);
+    a.push('Spending money is assumed to be spent.');
+    if (reserved > 0) a.push(`${cents(reserved)} a month set aside for upcoming one-time bills is spent when they're due, so it isn't counted as savings.`);
+    if (A.incomeDetail.irregular) a.push('Your income varies, so real results may differ more than usual.');
+    if (A.netWorth) a.push(`Net worth starts at ${cents(A.netWorth.netWorth)}${A.netWorth.estimate ? ' (an estimate)' : ''} and changes only by money saved and debt paid down.${A.netWorth.demo ? ' Demo data, not your real net worth.' : ''}`);
+    if (A.debtDataMissing) a.push('Some debts are missing an interest rate or minimum payment, so payoff dates are estimates.');
+    return a;
+  }
+  function forecast(A, strategy, months) {
+    A = A || analyze();
+    months = Math.max(1, Math.min(600, parseInt(months, 10) || 12));
+    const s = resolveStrategy(A, strategy) || { id: null, amounts: zero(), debtOrder: null };
+    const eff = plannedOf(s);
+    const method = s.debtOrder === 'snowball' ? 'snowball' : 'avalanche';
+    const ds = A.debts.map(d => ({ id: d.id, name: d.name, balance: d.balanceCents, apr: d.aprCenti || 0, min: d.minCents || 0, dueDay: d.dueDay || 1, bal: d.balanceCents, month: null }));
+    const prio = ds.slice().sort(method === 'snowball' ? SN_ORDER : AV_ORDER);
+    const budget = eff.debt;
+    const rate = A.savingsAprCenti || 0;
+    const sav0 = A.balances.savings; let sav = sav0;
+    const debt0 = ds.reduce((t, x) => t + x.bal, 0);
+    const nw0 = A.netWorth ? A.netWorth.netWorth : 0;
+    const ups = A.upcoming.filter(u => u.oneTime && !u.debt && u.monthlySetAside > 0);
+    const upMonths = ups.reduce((m, u) => Math.max(m, WT.monthsBetween(A.month, WT.monthOf(u.date))), 0);
+    const reserved = Math.min(eff.savings, A.upcomingSetAside);
+    let interest = 0, payments = 0, debtFreeMonth = ds.length ? null : 0, stuck = false, debtEnd = debt0;
+    const tl = [debt0]; const monthly = [];
+    for (let m = 1; m <= 600; m++) {
+      let freed = 0;
+      if (ds.some(x => x.bal > 0)) {
+        for (const x of ds) if (x.bal > 0) { const it = WT.monthlyInterest(x.bal, x.apr); x.bal += it; if (m <= months) interest += it; }
+        let pool = budget;
+        for (const x of ds) if (x.bal > 0) { const p = Math.min(x.min, x.bal, pool); x.bal -= p; pool -= p; }
+        for (const x of prio) { if (pool <= 0) break; if (x.bal > 0) { const p = Math.min(pool, x.bal); x.bal -= p; pool -= p; } }
+        for (const x of ds) if (x.bal <= 0 && x.month == null) x.month = m;
+        if (m <= months) payments += budget - pool;
+        if (!ds.some(x => x.bal > 0)) { debtFreeMonth = m; freed = pool; }
+      } else freed = budget;
+      const debt = ds.reduce((t, x) => t + Math.max(0, x.bal), 0);
+      tl.push(debt);
+      if (debt > 0 && m > 24 && tl[m] >= tl[m - 12]) stuck = true;
+      if (m <= months) {
+        const contrib = eff.savings - (m <= upMonths ? reserved : 0) + freed;
+        sav = sav + WT.monthlyInterest(Math.max(0, sav), rate) + contrib;
+        debtEnd = debt;
+        monthly.push({ m, month: WT.addMonthKey(A.month, m - 1), debt, savings: sav, netWorth: nw0 + (sav - sav0) - (debt - debt0) });
+      }
+      if (m >= months && (debtFreeMonth != null || stuck)) break;
+    }
+    if (debtFreeMonth == null) stuck = ds.length > 0;
+    const debtFreeDate = ds.length && !stuck && debtFreeMonth != null ? ds.reduce((d, x) => { const pd = payoffDateFor(x.dueDay, x.month); return pd > d ? pd : d; }, '') : null;
+    const last = monthly[monthly.length - 1];
+    return {
+      months, strategyId: s.id || null, debtOrder: method, monthlyDebt: eff.debt, debtSplit: { minimum: Math.min(eff.debt, A.debtMinimums), extra: Math.max(0, eff.debt - A.debtMinimums) },
+      debtStart: debt0, debtEnd, debtPaid: Math.max(0, debt0 - debtEnd), payments, interest,
+      debtFree: !ds.length || (debtFreeMonth != null && debtFreeMonth <= months), debtFreeMonths: stuck ? null : debtFreeMonth, debtFreeDate, debtFreeWithin: debtFreeMonth != null && debtFreeMonth <= months,
+      debtFreeEstimate: !!A.debtDataMissing || eff.debt < A.debtMinimums, neverPaysOff: stuck,
+      savingsStart: sav0, savingsEnd: last.savings, savingsAdded: last.savings - sav0, savingsMonthly: eff.savings, savingsRateCenti: rate, savingsGrowth: rate ? 'entered' : 'none',
+      spendingMonthly: eff.wants, spending: eff.wants * months,
+      netWorthStart: nw0, netWorthEnd: last.netWorth, netWorthChange: last.netWorth - nw0, netWorthEstimate: true, demo: !!(A.netWorth && A.netWorth.demo),
+      monthly, estimate: true, assumptions: forecastAssumptions(A, method, reserved, months), missing: A.missing.map(x => x.detail),
+    };
+  }
+  function compareAll(A, months) {
+    A = A || analyze();
+    months = Math.max(1, Math.min(600, parseInt(months, 10) || 12));
+    const list = strategies(A);
+    const rec = list[0].recommendation;
+    const rows = list.map(s => {
+      const f = forecast(A, s, months);
+      return {
+        id: s.id, name: s.name, basedOn: s.basedOn || null, pct: effective(s).pct, amounts: plannedOf(s), example: s.example || null,
+        monthlyDebt: f.monthlyDebt, debtSplit: f.debtSplit, debtPaid: f.debtPaid, payments: f.payments, interest: f.interest,
+        debtFreeMonths: f.debtFreeMonths, debtFreeDate: f.debtFreeDate, debtFreeWithin: f.debtFreeWithin, debtFreeEstimate: f.debtFreeEstimate, neverPaysOff: f.neverPaysOff,
+        savingsMonthly: f.savingsMonthly, savingsEnd: f.savingsEnd, savingsAdded: f.savingsAdded,
+        netWorthStart: f.netWorthStart, netWorthEnd: f.netWorthEnd, netWorthChange: f.netWorthChange,
+        spendingMonthly: f.spendingMonthly, spending: f.spending, realistic: !!s.realistic, modified: !!s.modified, risks: s.risks || [],
+        benefits: s.benefits || [], drawbacks: s.drawbacks || [], recommended: s.id === rec.id && rec.showBadge,
+      };
+    });
+    const bestId = rec.showBadge && rows.some(r => r.id === rec.id && r.realistic) ? rec.id : null;
+    return { months, horizons: HORIZONS.slice(), rows, bestId, recommendedId: rec.id, confidence: rec.confidence, assumptions: forecastAssumptions(A, 'avalanche', 0, months).filter(x => !/Extra debt money goes/.test(x)), missing: A.missing.map(x => x.detail) };
+  }
+  // forecast of a draft vs the current plan, before saving
+  function previewImpact(A, next, current, months) {
+    A = A || analyze(); months = months || 12;
+    const fNext = forecast(A, next, months), fCur = forecast(A, current == null ? 'recommended' : current, months);
+    const delta = {};
+    ['debtPaid', 'interest', 'savingsEnd', 'netWorthEnd', 'spending'].forEach(k => delta[k] = fNext[k] - fCur[k]);
+    delta.debtFreeMonths = fNext.debtFreeMonths != null && fCur.debtFreeMonths != null ? fNext.debtFreeMonths - fCur.debtFreeMonths : null;
+    const parts = [];
+    if (delta.savingsEnd) parts.push(`${delta.savingsEnd > 0 ? 'about ' + money(delta.savingsEnd) + ' more' : 'about ' + money(-delta.savingsEnd) + ' less'} in savings`);
+    if (delta.debtPaid) parts.push(`${delta.debtPaid > 0 ? money(delta.debtPaid) + ' more' : money(-delta.debtPaid) + ' less'} debt paid down`);
+    if (delta.interest) parts.push(`${delta.interest > 0 ? money(delta.interest) + ' more' : money(-delta.interest) + ' less'} interest`);
+    const summary = parts.length ? `Over ${plural(months, 'month')}: ${parts.join(', ')} (estimate).` : `Over ${plural(months, 'month')} this change makes no difference to savings or debt (estimate).`;
+    return { months, current: fCur, next: fNext, delta, summary };
   }
 
   // ---------------------------------------------------------------- planned vs actual
@@ -777,7 +1472,8 @@
     const add = (x) => { if (!out.some(y => y.kind === x.kind && y.title === x.title)) out.push(Object.assign({ impact: 0 }, x)); };
     const eff = plannedOf(chosen);
     const I = A.income;
-    const rec = planAmounts(A, 'recommended').amounts;
+    const recId = recommend(A).id;
+    const rec = (namedCore(A).find(s => s.id === recId) || { amounts: zero() }).amounts;
     const recExtra = Math.max(0, rec.debt - A.debtMinimums);
     const chosenExtra = Math.max(0, eff.debt - A.debtMinimums);
 
@@ -933,5 +1629,8 @@
     BUCKETS, NAMES, KINDS, ROLLOVER_RULES,
     analyze, strategies, allocate, compare, suggestions, paycheckPlan, vsActual, snapshot, essentialCategory, normPct,
     fromDollars, fromPct, distribute, rollover,
+    // v3
+    STRATEGY_IDS, ALIASES, EXAMPLES, HORIZONS, resolveId, findStrategy, named, recommend, breakdown, forecast, compareAll,
+    fillExactly, customFrom, previewImpact,
   };
 });

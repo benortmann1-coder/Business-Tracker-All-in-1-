@@ -329,7 +329,10 @@
       if (typeof m.seeded === 'string') keep.seeded = m.seeded.slice(0, 40);
       if (m.smartBudget && typeof m.smartBudget === 'object' && !Array.isArray(m.smartBudget)) {
         const sb = m.smartBudget, out = {};
-        const SB_IDS = ['recommended', '50-30-20', '60-20-20', 'debt', 'savings', 'zero', 'custom'];
+        // the 8 named strategies + the personalized recommendation; older ids are accepted and renamed
+        const SB_IDS = ['recommended', 'avalanche', 'snowball', '50-30-20', 'zero', 'pay-first', 'aggressive', 'balanced', 'custom'];
+        const SB_OLD = { debt: 'aggressive', savings: 'pay-first', '60-20-20': 'balanced' };
+        const sbId = v => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SB_OLD, v) ? SB_OLD[v] : v;
         const BK = ['needs', 'debt', 'savings', 'wants'];
         const ROLL = ['carry', 'savings', 'debt', 'reset'];
         const plain = o => o && typeof o === 'object' && !Array.isArray(o);
@@ -339,10 +342,11 @@
         const cents = v => Number.isInteger(v) && v >= 0 && v <= 1e11;            // money amounts the user typed
         const dollarsOk = a => plain(a) && BK.every(k => cents(a[k]));
         const pick = (a, keys) => { const o = {}; keys.forEach(k => { o[k] = a[k]; }); return o; };
-        if (SB_IDS.includes(sb.strategyId)) out.strategyId = sb.strategyId;
+        if (SB_IDS.includes(sbId(sb.strategyId))) out.strategyId = sbId(sb.strategyId);
         if (pctOk(sb.custom)) out.custom = pctOf(sb.custom);
         if (dollarsOk(sb.customDollars)) out.customDollars = pick(sb.customDollars, BK);
         if (sb.mode === 'dollars' || sb.mode === 'percent') out.mode = sb.mode;
+        if (Number.isInteger(sb.savingsAprCenti) && sb.savingsAprCenti >= 0 && sb.savingsAprCenti <= 2000) out.savingsAprCenti = sb.savingsAprCenti; // optional savings rate, 0..20%
         if (plain(sb.locks)) { out.locks = {}; BK.forEach(k => { out.locks[k] = sb.locks[k] === true; }); }
         if (plain(sb.rollover)) { out.rollover = {}; BK.forEach(k => { out.rollover[k] = ROLL.includes(sb.rollover[k]) ? sb.rollover[k] : 'reset'; }); }
         if (plain(sb.essentialOverrides)) {
@@ -375,14 +379,27 @@
         if (Array.isArray(sb.history)) {
           const seen = {};
           sb.history.forEach(h => {
-            if (!plain(h) || typeof h.month !== 'string' || !MONTH.test(h.month) || !SB_IDS.includes(h.strategyId) || !pctOk(h.pct) || !centsOk(h.amounts)) return;
+            if (!plain(h) || typeof h.month !== 'string' || !MONTH.test(h.month) || !SB_IDS.includes(sbId(h.strategyId)) || !pctOk(h.pct) || !centsOk(h.amounts)) return;
             if (!Number.isInteger(h.income) || Math.abs(h.income) > 1e13) return;
-            const snap = { month: h.month, strategyId: h.strategyId, pct: pctOf(h.pct), amounts: pick(h.amounts, BK), income: h.income, savedAt: typeof h.savedAt === 'string' && DATE.test(h.savedAt) ? h.savedAt : h.month + '-01' };
+            const snap = { month: h.month, strategyId: sbId(h.strategyId), pct: pctOf(h.pct), amounts: pick(h.amounts, BK), income: h.income, savedAt: typeof h.savedAt === 'string' && DATE.test(h.savedAt) ? h.savedAt : h.month + '-01' };
             if (dollarsOk(h.dollars)) snap.dollars = pick(h.dollars, BK);
             if (dollarsOk(h.rollover)) snap.rollover = pick(h.rollover, BK);
             seen[h.month] = snap;
           });
           out.history = Object.keys(seen).sort().slice(-36).map(k => seen[k]);
+        }
+        // named custom strategies (max 20): { id, name, dollars, locks, savedOn }
+        if (Array.isArray(sb.saved)) {
+          const ids = new Set(); out.saved = [];
+          for (const x of sb.saved) {
+            if (out.saved.length >= 20) break;
+            if (!plain(x) || !isRef(x.id) || ids.has(x.id) || !dollarsOk(x.dollars) || typeof x.name !== 'string') continue;
+            const name = x.name.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 40); if (!name) continue;
+            const v = { id: x.id, name, dollars: pick(x.dollars, BK), locks: {} };
+            BK.forEach(k => { v.locks[k] = !!(plain(x.locks) && x.locks[k] === true); });
+            if (typeof x.savedOn === 'string' && DATE.test(x.savedOn)) v.savedOn = x.savedOn;
+            ids.add(x.id); out.saved.push(v);
+          }
         }
         keep.smartBudget = out;
       }

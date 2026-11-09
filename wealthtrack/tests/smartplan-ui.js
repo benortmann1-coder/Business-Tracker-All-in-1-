@@ -144,7 +144,8 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   }
 
   // ---------------------------------------------------------------- debt payoff
-  const dp = await page.evaluate(() => WTPlan.debtPlans({}));
+  // the debt section starts from the chosen strategy's extra payment (shown in the Extra field) and its repayment order
+  const dp = await page.evaluate(() => { const f = document.querySelector('#spDebt input[data-k=extra]'); const ch = WTPlanUI._draft.ctx && WTPlanUI._draft.ctx.chosen || {}; const r = WTPlan.debtPlans({ extra: f ? WT.parseMoney(f.value) || 0 : 0 }); r.method = (WT.settings().smartBudget.debt || {}).method || (ch.debtOrder === 'snowball' ? 'snowball' : 'avalanche'); return r; });
   const tabOn = () => page.$eval('#spDebt .sp-tabs button.on', b => b.dataset.m);
   const orderUI = () => page.$$eval('#spDebt .sp-debt', ds => ds.map(d => d.dataset.debt));
   ok(await page.locator('#spDebt .sp-tabs button').count() === 3, 'three method tabs (Avalanche / Snowball / Custom)');
@@ -229,6 +230,18 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
     ok(lum < 60 && inkLum > 150, 'dark mode renders (card ' + bg + ', text ' + ink + ')');
     await shot(page, 'plan-dark-paychecks', '#spPaychecks .sp-card[data-key]  >> nth=0');
     await shot(page, 'plan-dark-debt', '#spDebt');
+    await ctx.close();
+  }
+  // ---------------------------------------------------------------- strategy repayment order + palette
+  {
+    const { ctx, page } = await open();
+    await go(page, 'smart');
+    const on = () => page.$eval('#spDebt .sp-tabs button.on', b => b.dataset.m);
+    ok(await page.evaluate(() => !(WT.settings().smartBudget || {}).debt) && await on() === 'avalanche', 'no saved debt plan: Avalanche order by default');
+    await page.locator('.sb-card[data-strategy=snowball] [data-act=sbUse]').click(); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => WT.settings().smartBudget.strategyId) === 'snowball' && await on() === 'snowball', 'using Debt Snowball opens the debt planner on the Snowball order');
+    const col = await page.evaluate(() => { const b = document.querySelector('#spDebt .sp-tabs button.on'); const t = document.createElement('i'); t.style.color = 'var(--sb-accent)'; document.body.appendChild(t); const c = getComputedStyle(t).color; t.remove(); return [getComputedStyle(b).backgroundColor, c]; });
+    ok(col[0] === col[1], 'selected method tab uses the navy accent token (' + col[0] + ')');
     await ctx.close();
   }
   // ---------------------------------------------------------------- engine missing: friendly fallback

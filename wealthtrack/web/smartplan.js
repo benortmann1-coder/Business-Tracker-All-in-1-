@@ -278,7 +278,8 @@
       if (!(min > 0)) fields.push('minimum');
       if (fields.length) missing.push({ id: d.id, name: d.name, fields });
       if (noBalance) continue;
-      out.push({ id: d.id, name: d.name, balance: bal, apr: aprSet ? d.aprCenti : 0, minimum: min, dueDay: d.dueDay || 1, aprMissing: !aprSet, minMissing: !(min > 0), billMinimum: linked[d.id] || 0 });
+      const type = d.type || 'other';
+      out.push({ id: d.id, name: d.name, balance: bal, apr: aprSet ? d.aprCenti : 0, minimum: min, dueDay: d.dueDay || 1, aprMissing: !aprSet, minMissing: !(min > 0), billMinimum: linked[d.id] || 0, type, revolving: !!REVOLVING[type] });
     }
     return { debts: out, missing };
   }
@@ -302,6 +303,7 @@
     if (ds.some(x => x.bal > 0)) stuck = true;
     return { months: stuck ? null : month, totalInterest: interest, stuck, budget, per: ds, timeline: tl };
   }
+  const REVOLVING = { credit_card: true, line: true, heloc: true }; // cards revolve; loans are installment (fixed payment)
   const AVALANCHE = (a, b) => b.apr - a.apr || a.balance - b.balance || a.name.localeCompare(b.name);
   const SNOWBALL = (a, b) => a.balance - b.balance || b.apr - a.apr || a.name.localeCompare(b.name);
   function customPrio(order) {
@@ -338,7 +340,7 @@
       if (prio) per.sort((a, b) => (a.month == null ? Infinity : a.month) - (b.month == null ? Infinity : b.month) || prio(a.d, b.d));
       const orderOut = per.map(x => {
         const exact = !estimate && x.month != null;
-        return { id: x.d.id, name: x.d.name, balance: x.d.balance, apr: x.d.apr, minimum: x.d.minimum, aprMissing: x.d.aprMissing, minimumMissing: x.d.minMissing, interest: x.interest, payoffMonth: x.month, payoffDate: exact ? payoffDateFor(x.d.dueDay, x.month) : null };
+        return { id: x.d.id, name: x.d.name, type: x.d.type, revolving: x.d.revolving, balance: x.d.balance, apr: x.d.apr, minimum: x.d.minimum, aprMissing: x.d.aprMissing, minimumMissing: x.d.minMissing, interest: x.interest, payoffMonth: x.month, payoffDate: exact ? payoffDateFor(x.d.dueDay, x.month) : null };
       });
       const notes = [];
       const months = sim.months;
@@ -361,7 +363,7 @@
         else { interestSaved = Math.max(0, minimum.totalInterest - sim.totalInterest); interestSavedAtLeast = minimum.stuck; }
         if (interestSavedAtLeast) notes.push(`Paying only the minimums would never pay these debts off. This plan saves at least ${fmt(interestSaved)} in interest.`);
       }
-      return { id, order: orderOut, monthly: sim.budget, months, payoffDate: lastDate, totalInterest: sim.totalInterest, interestSaved, interestSavedAtLeast, neverPaysOff: debts.length > 0 && sim.stuck, estimate, notes };
+      return { id, order: orderOut, monthly: sim.budget, months, payoffDate: lastDate, totalInterest: sim.totalInterest, interestSaved, interestSavedAtLeast, neverPaysOff: debts.length > 0 && sim.stuck, estimate, notes, timeline: sim.timeline.slice() };
     };
     const methods = { avalanche: build('avalanche', AVALANCHE), snowball: build('snowball', SNOWBALL), custom: build('custom', customPrio(order)), minimum: build('minimum', null) };
     let best = null;
@@ -373,5 +375,14 @@
     return { minimums, extra, method, order: order.slice(), totalBalance, count: debts.length, methods, selected: methods[method], best, estimate, missing };
   }
 
-  return { ready: true, ALLOC, ALLOC_NAMES, paycheckPlan, moveTargets, debtPlans, _simulate: simulate };
+  // Public payoff simulation over debtPlans-shaped debts ({id, name, balance, apr, minimum}).
+  // method: 'avalanche' | 'snowball' | 'minimum' | an array of debt ids (custom order).
+  function simulatePlan(debts, extra, method) {
+    const prio = Array.isArray(method) ? customPrio(method) : method === 'snowball' ? SNOWBALL : method === 'minimum' ? null : AVALANCHE;
+    const ds = (debts || []).filter(d => d && d.balance > 0).map(d => ({ id: d.id, name: d.name || '', balance: d.balance, apr: d.apr || 0, minimum: d.minimum || 0 }));
+    const r = simulate(ds, isCents(extra) ? extra : 0, prio);
+    return { months: r.months, totalInterest: r.totalInterest, stuck: r.stuck, budget: r.budget, timeline: r.timeline, order: r.per.map(x => ({ id: x.d.id, name: x.d.name, interest: x.interest, payoffMonth: x.month })) };
+  }
+
+  return { ready: true, ALLOC, ALLOC_NAMES, paycheckPlan, moveTargets, debtPlans, simulate: simulatePlan, debtList: () => debtList(), _simulate: simulate };
 });

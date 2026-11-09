@@ -14,7 +14,7 @@
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.4.3'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.0'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -1180,23 +1180,42 @@
 
   // ------------------------------------------------------------ SMART BUDGET
   // UI over window.WTSmart (smartbudget.js). Read-only on money data: it only writes settings.smartBudget,
-  // and only when the user taps Save / Use this. Editing happens in an in-memory draft (sbDraft).
-  const SB_BUCKETS = [['needs', 'Needs', 'var(--s1)', 'Essential bills, groceries, gas'], ['debt', 'Debt', 'var(--s2)', 'Minimums plus any extra'], ['savings', 'Savings', 'var(--s3)', 'Emergency fund and goals'], ['wants', 'Wants', 'var(--auto)', 'Subscriptions, eating out, fun']];
+  // and only when the user taps Save / Use this / Save as / Delete. Editing happens in an in-memory draft (sbDraft).
+  // Bucket colors are the restrained --sb-* tokens in styles.css (navy, slate, muted green, gray), never bright hues.
+  const SB_BUCKETS = [['needs', 'Essentials', 'var(--sb-needs)', 'Essential bills, groceries, gas'], ['debt', 'Debt', 'var(--sb-debt)', 'Minimums plus any extra'], ['savings', 'Savings', 'var(--sb-savings)', 'Emergency fund and goals'], ['wants', 'Wants', 'var(--sb-wants)', 'Subscriptions, eating out, fun']];
   const SB_KEYS = SB_BUCKETS.map(b => b[0]);
-  // what kind of plan each strategy is (shown as a label on the strategy cards)
-  const SB_KINDS = {
-    recommended: ['Personalized', 'Built from your actual paychecks, bills and debts.'],
-    '50-30-20': ['Balanced', '50% needs and minimum payments, 30% wants, 20% savings.'],
-    '60-20-20': ['High cost of living', '60% needs and minimum payments, 20% wants, 20% savings.'],
-    debt: ['Debt payoff', 'Covers bills, then puts extra toward your highest-interest debt.'],
-    savings: ['Savings builder', 'Covers bills, then builds your emergency fund and goals.'],
-    zero: ['Zero-based', 'Every dollar gets a job: bills and minimums first, then the rest.'],
-    custom: ['Your own split', 'The amounts you set yourself.'],
+  // the 8 named strategies, in the order they're shown. Older saved ids keep working as aliases.
+  const SB_NAMED = ['avalanche', 'snowball', '50-30-20', 'zero', 'pay-first', 'aggressive', 'balanced', 'custom'];
+  const SB_ALIAS = { debt: 'aggressive', savings: 'pay-first', '60-20-20': 'balanced' };
+  const sbId = id => SB_ALIAS[id] || id;
+  // Plain-English text used when the engine doesn't send its own. Example splits are illustrative only
+  // (essentials / debt / savings / wants); the personalized numbers always come from the engine.
+  const sbEx = (needs, debt, savings, wants) => ({ needs, debt, savings, wants });
+  const SB_INFO = {
+    recommended: { name: 'Personalized', tag: 'Personalized', summary: 'Built from your actual paychecks, bills and debts.' },
+    avalanche: { name: 'Debt Avalanche', tag: 'Repayment order', summary: 'Pay every minimum, then put extra money on the debt with the highest interest rate first.', example: sbEx(50, 30, 15, 5),
+      benefits: ['Usually the least interest paid overall', 'Often the fastest way to become debt-free'], drawbacks: ['The first debt can take a while to pay off if it is large', 'Needs steady extra money each month'] },
+    snowball: { name: 'Debt Snowball', tag: 'Repayment order', summary: 'Pay every minimum, then put extra money on the smallest balance first.', example: sbEx(50, 30, 15, 5),
+      benefits: ['Quick wins: a debt disappears sooner', 'Fewer bills to keep track of'], drawbacks: ['Can cost more interest than the Avalanche order'] },
+    '50-30-20': { name: '50/30/20', tag: 'Rule of thumb', summary: 'About 50% for needs (including minimum payments), 30% for wants and 20% for savings and extra debt.', example: sbEx(40, 20, 10, 30),
+      benefits: ['Simple and easy to remember', 'Leaves room to enjoy life'], drawbacks: ['Hard to follow when needs take more than half your pay', 'Slower debt payoff'] },
+    zero: { name: 'Zero-Based', tag: 'Every dollar', summary: 'Give every dollar a job until nothing is left unassigned. There is no fixed split.', example: sbEx(55, 20, 15, 10),
+      benefits: ['Full control: nothing leaks away unnoticed'], drawbacks: ['Takes a few minutes of planning every month'] },
+    'pay-first': { name: 'Pay Yourself First', tag: 'Savings first', summary: 'Move money to savings as soon as you are paid, then live on the rest.', example: sbEx(50, 10, 30, 10),
+      benefits: ['Builds savings and an emergency fund quickly'], drawbacks: ['Debt takes longer and may cost more interest'] },
+    aggressive: { name: 'Aggressive Debt Payoff', tag: 'Debt first', summary: 'Keep spending lean and send as much as you can to debt.', example: sbEx(50, 35, 10, 5),
+      benefits: ['Debt-free sooner', 'Less interest paid'], drawbacks: ['Little spending money', 'A small savings cushion while you pay down debt'] },
+    balanced: { name: 'Balanced Wealth Building', tag: 'Balanced', summary: 'Split the money left after bills between debt, savings and spending.', example: sbEx(50, 20, 20, 10),
+      benefits: ['Progress on debt and savings at the same time'], drawbacks: ['Neither debt nor savings moves as fast as a focused plan'] },
+    custom: { name: 'Custom', tag: 'Your own', summary: 'Your own split. Set it in Customize, then save it with a name.', example: null, benefits: ['Fits your situation exactly'], drawbacks: ['You decide the trade-offs yourself'] },
   };
-  const sbKind = (id, withDesc) => { const k = SB_KINDS[id]; return k ? `<div class="sb-kind"><span class="sb-kind-tag k-${esc(id)}">${k[0]}</span>${withDesc ? `<span>${k[1]}</span>` : ''}</div>` : ''; };
-  const SB_NAMES = { recommended: 'Recommended for you', '50-30-20': '50/30/20', '60-20-20': '60/20/20', debt: 'Debt-focused', savings: 'Savings-focused', zero: 'Zero-based', custom: 'Custom' };
+  const SB_NAMES = Object.assign({}, ...Object.keys(SB_INFO).map(k => ({ [k]: SB_INFO[k].name })), { debt: SB_INFO.aggressive.name, savings: SB_INFO['pay-first'].name, '60-20-20': SB_INFO.balanced.name });
+  const sbKind = (id, withDesc) => { const k = SB_INFO[sbId(id)]; return k ? `<div class="sb-kind"><span class="sb-kind-tag k-${esc(sbId(id))}">${esc(k.tag)}</span>${withDesc ? `<span>${esc(k.summary)}</span>` : ''}</div>` : ''; };
   const SB_ROLL = [['reset', 'Reset to $0'], ['carry', 'Carry into next month'], ['savings', 'Move to savings'], ['debt', 'Extra debt payment']];
+  const SB_HZ = [[6, '6 mo', '6 months'], [12, '12 mo', '12 months'], [36, '3 yr', '3 years'], [60, '5 yr', '5 years']];
+  const SB_ITEM = { bill: 'Bill', setaside: 'Set-aside', minimum: 'Minimum payment', extra: 'Extra payment', goal: 'Savings goal', emergency: 'Emergency fund', spending: 'Spending' };
   if (!P.unlock) P.unlock = 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 7.6-1.8';
+  if (!P.chevD) P.chevD = 'M6 9l6 6 6-6';
   const sbPct = p => { const v = Math.round((+p || 0) * 10) / 10; return (Number.isInteger(v) ? String(v) : v.toFixed(1)) + '%'; };
   const sbCfg = () => { const s = W.settings().smartBudget; return s && typeof s === 'object' ? s : {}; };
   const sbEngine = () => { const E = window.WTSmart; return E && typeof E.analyze === 'function' && typeof E.strategies === 'function' ? E : null; };
@@ -1204,7 +1223,9 @@
   const sbValid = s => s && s.pct && s.amounts && SB_KEYS.every(k => isFinite(+s.pct[k]) && Number.isFinite(+s.amounts[k]));
   const sbCentsOk = o => o && typeof o === 'object' && SB_KEYS.every(k => Number.isInteger(o[k]) && o[k] >= 0);
   const sbSum = o => SB_KEYS.reduce((t, k) => t + (Math.round(+o[k]) || 0), 0);
-  const sbName = s => (s && (s.name || SB_NAMES[s.id])) || 'Budget';
+  const sbName = s => (s && (SB_NAMES[s.id] || s.name)) || 'Budget';
+  const sbStrs = v => (Array.isArray(v) ? v : typeof v === 'string' && v ? [v] : []).map(x => typeof x === 'string' ? x : x && typeof x === 'object' ? x.label || x.text || x.name || x.field || '' : '').filter(x => typeof x === 'string' && x.trim());
+  const sbNum = v => v != null && v !== '' && Number.isFinite(+v) ? +v : null;
   const sbMoneyIn = c => W.fmt(Math.max(0, Math.round(+c || 0))).replace(/^\$/, ''); // "1,234.56" for the $ field
   const sbPctIn = p => { const v = Math.round((+p || 0) * 10) / 10; return String(v); };
   // living costs = essential bills + everyday necessities (groceries, gas, transport)
@@ -1243,8 +1264,8 @@
     const pct = {}; SB_KEYS.forEach(k => { pct[k] = r && r.pct && isFinite(+r.pct[k]) ? +r.pct[k] : I > 0 ? Math.round(d[k] * 1000 / I) / 10 : 0; });
     const total = sbSum(d), un = I - total, living = sbLiving(a), min = +a.debtMinimums || 0;
     const warnings = [];
-    if (un < 0) warnings.push(`Your plan is ${fmt(-un)} more than your take-home pay (${fmt(I)}). Lower a bucket, or tap “Spread over unlocked”.`);
-    if (d.needs < living) warnings.push(`Needs is ${fmt(living - d.needs)} below your living costs (${fmt(living)} for essential bills and everyday needs).`);
+    if (un < 0) warnings.push(`Your plan is ${fmt(-un)} more than your take-home pay (${fmt(I)}). Lower a category, or tap “Fill to 100%”.`);
+    if (d.needs < living) warnings.push(`Essentials is ${fmt(living - d.needs)} below your living costs (${fmt(living)} for essential bills and everyday needs).`);
     if (d.debt < min) warnings.push(`Debt is ${fmt(min - d.debt)} below your minimum payments (${fmt(min)}). Missing a minimum can mean late fees.`);
     return { dollars: d, pct, total, unallocated: un, over: Math.max(0, -un), warnings };
   }
@@ -1274,30 +1295,125 @@
     const o = {}; SB_KEYS.forEach(k => { o[k] = locks[k] ? dollars[k] : Math.max(0, Math.round(+out[k])); }); // locked buckets never change
     return o;
   }
+  // Fill to 100%: unlocked buckets absorb the difference so the plan totals take-home pay exactly, to the cent.
+  // Uses the engine's fillExactly() when present; locked buckets are never touched; null when it can't be done.
+  function sbFillExact(a, dollars, locks) {
+    const I = +a.income || 0, E = sbEngine();
+    const good = o => o && SB_KEYS.every(k => Number.isInteger(o[k]) && o[k] >= 0 && (!locks[k] || o[k] === dollars[k])) && sbSum(o) === I;
+    let out = E && typeof E.fillExactly === 'function' ? sbTry(() => E.fillExactly(a, Object.assign({}, dollars), Object.assign({}, locks)), null) : null;
+    if (out && !SB_KEYS.every(k => k in out)) out = out.dollars || out.amounts || out.allocations || null;
+    if (good(out)) return SB_KEYS.reduce((o, k) => (o[k] = out[k], o), {});
+    out = sbSpreadLocal(dollars, locks, I);
+    SB_KEYS.forEach(k => { if (locks[k]) out[k] = dollars[k]; });
+    let u = I - sbSum(out);
+    if (u !== 0) { const k = SB_KEYS.filter(x => !locks[x] && out[x] + u >= 0).sort((x, y) => out[y] - out[x])[0]; if (k) out[k] += u; }
+    return good(out) ? out : null;
+  }
 
-  function sbState() {
-    const E = sbEngine(); if (!E) return null;
-    const a = E.analyze(curMonth());
-    const cfg = sbCfg();
-    const list = (E.strategies(a) || []).filter(sbValid);
+  // the engine's list, with old ids mapped to the new names; Avalanche/Snowball are added from the debt plan if
+  // an older engine doesn't list them yet (same split, different payoff order)
+  function sbList(E, a, cfg) {
+    const raw = (E.strategies(a) || []).filter(sbValid);
+    const has = id => raw.some(s => s.id === id);
+    const list = raw.filter(s => !(SB_ALIAS[s.id] && has(SB_ALIAS[s.id]))).map(s => SB_ALIAS[s.id] ? Object.assign({}, s, { id: SB_ALIAS[s.id], engineId: s.id }) : s);
+    const ag = list.find(s => s.id === 'aggressive');
+    ['avalanche', 'snowball'].forEach(id => { if (ag && !list.some(s => s.id === id)) list.push(Object.assign({}, ag, { id, name: SB_NAMES[id], engineId: ag.engineId || ag.id, debtOrder: id, synthetic: true, why: '', fit: '' })); });
     const cd = sbCentsOk(cfg.customDollars) ? cfg.customDollars : null;
     let cust = list.find(s => s.id === 'custom');
     if (cd) { // the saved dollars are the source of truth for the custom plan
       const c = sbCalc(a, cd);
       const fix = { amounts: c.dollars, pct: c.pct, feasible: c.dollars.needs >= (+a.essentials || 0) && c.dollars.debt >= (+a.debtMinimums || 0) };
       if (!cust) { cust = Object.assign({ id: 'custom', name: 'Custom', why: 'Your own amounts.', warnings: c.warnings }, fix); list.push(cust); }
-      else if (!SB_KEYS.every(k => cust.amounts[k] === cd[k])) { Object.assign(cust, fix); delete cust.adjusted; }
+      else if (!SB_KEYS.every(k => cust.amounts[k] === cd[k])) { cust = Object.assign({}, cust, fix); delete cust.adjusted; delete cust.realistic; list[list.findIndex(s => s.id === 'custom')] = cust; }
     } else if (!cust && cfg.custom && typeof E.allocate === 'function') {
       const al = sbTry(() => E.allocate(a, cfg.custom), null);
       if (sbValid(al)) list.push(Object.assign({ id: 'custom', name: 'Custom', why: 'Your own split.', warnings: [] }, al));
     }
-    const rec = list.find(s => s.id === 'recommended') || list[0] || null;
-    const chosen = list.find(s => s.id === cfg.strategyId) || rec;
-    const cmp = typeof E.compare === 'function' ? sbTry(() => E.compare(a, list), null) : null;
-    return { E, a, cfg, list, rec, chosen, eff: sbEff(chosen), cmp: cmp && typeof cmp === 'object' ? cmp : { bestId: rec && rec.id, rows: [] } };
+    return list;
   }
+  function sbState() {
+    const E = sbEngine(); if (!E) return null;
+    const a = E.analyze(curMonth());
+    const cfg = sbCfg();
+    const list = sbList(E, a, cfg);
+    const rec = list.find(s => s.id === 'recommended') || list[0] || null;
+    const chosen = list.find(s => s.id === sbId(cfg.strategyId)) || rec;
+    const cmp = typeof E.compare === 'function' ? sbTry(() => E.compare(a, list), null) : null;
+    const st = { E, a, cfg, list, rec, chosen, eff: sbEff(chosen), cmp: cmp && typeof cmp === 'object' ? cmp : { bestId: rec && rec.id, rows: [] } };
+    if (!Array.isArray(st.cmp.rows)) st.cmp.rows = [];
+    st.R = rec ? sbTry(() => sbRecommend(st), null) : null;
+    return st;
+  }
+  // The recommendation, with its reasons. Uses the engine's recommend() (confidence + missing info) when it exists;
+  // an older engine's realistic best fit is explained with the analysis numbers instead.
+  function sbRecommend(st) {
+    const E = st.E, a = st.a;
+    const r = typeof E.recommend === 'function' ? sbTry(() => E.recommend(a), null) : null;
+    if (r && typeof r === 'object' && typeof r.id === 'string') {
+      const id = sbId(r.id === 'recommended' && st.rec && typeof st.rec.basedOn === 'string' ? st.rec.basedOn : r.id);
+      return { engine: true, id, reason: typeof r.reason === 'string' ? r.reason : '', factors: (Array.isArray(r.factors) ? r.factors : []).filter(f => f && f.label), how: r.howCalculated, benefits: sbStrs(r.benefits), drawbacks: sbStrs(r.drawbacks), improve: sbStrs(r.improve), confidence: ['high', 'medium', 'low'].includes(r.confidence) ? r.confidence : 'low', missing: sbStrs(r.missing), showBadge: typeof r.showBadge === 'boolean' ? r.showBadge : null };
+    }
+    const best = st.cmp.bestId ? sbId(st.cmp.bestId) : null;
+    const s = best && st.list.find(x => x.id === best);
+    const living = sbLiving(a), bal = a.balances && sbNum(a.balances.savings);
+    const factors = [{ label: 'Take-home pay', value: a.income, effect: 'What the plan splits each month.' }, { label: 'Living costs', value: living, effect: 'Covered first: essential bills and everyday needs.' }, { label: 'Required minimum payments', value: +a.debtMinimums || 0, effect: 'Always paid in full.' }];
+    if (+a.debtTotal > 0) factors.push({ label: 'Debt owed', value: +a.debtTotal, effect: 'Extra payments go here once the basics are covered.' });
+    if (bal != null) factors.push({ label: 'Savings now', value: bal, effect: 'Decides how much goes to an emergency fund first.' });
+    factors.push({ label: 'Left after the basics', value: sbNum(a.free) != null ? +a.free : a.income - living - (+a.debtMinimums || 0), effect: 'The money a strategy can move between debt, savings and wants.' });
+    return { engine: false, id: s ? s.id : st.rec.id, reason: (s && s.why) || st.rec.why || '', factors, how: 'Starts with your living costs and minimum payments, then splits what is left by the strategy’s priorities.', benefits: sbStrs(s && s.benefits), drawbacks: sbStrs(s && s.drawbacks), improve: [], confidence: s ? 'medium' : 'low', missing: [] };
+  }
+  // the strategy that gets the "Recommended for you" badge: only when the engine is confident and the plan is realistic
+  function sbBadgeId(st) {
+    const R = st.R; if (!R || R.confidence === 'low' || !R.id || R.showBadge === false) return null;
+    const s = st.list.find(x => x.id === R.id); return s && sbRealistic(s, st.a) ? s.id : null;
+  }
+  // E.breakdown(): per bucket { planned, pct, recommendedPct, items, committed, remaining }
+  function sbBreak(st, s) {
+    const E = st.E; if (typeof E.breakdown !== 'function') return null;
+    const r = sbTry(() => E.breakdown(st.a, s), null); const b = r && (r.buckets && typeof r.buckets === 'object' ? r.buckets : r);
+    return b && SB_KEYS.every(k => b[k] && typeof b[k] === 'object') ? b : null;
+  }
+  // ---- forecasts (E.forecast / E.compareAll), with a plain local estimate when the engine doesn't have them
+  let sbHz = 12;
+  const sbSpendOf = (st, s, f) => { const v = f && sbNum(f.spendingMonthly != null ? f.spendingMonthly : f.spending); if (v != null) return v; const w = +(sbEff(s).amounts || {}).wants || 0; return Math.max(0, w - (+st.a.optionalBills || 0)); };
+  function sbFNorm(st, s, f, m) {
+    f = f && typeof f === 'object' ? f : {};
+    const dfd = typeof f.debtFreeDate === 'string' ? f.debtFreeDate : null;
+    return { months: m, debtPaid: sbNum(f.debtPaid), interest: sbNum(f.interest), debtFreeDate: dfd, debtFreeEstimate: !!(f.debtFreeEstimate || (f.local && f.estimate)), neverPaysOff: f.neverPaysOff === true, savingsEnd: sbNum(f.savingsEnd), netWorthStart: sbNum(f.netWorthStart), netWorthEnd: sbNum(f.netWorthEnd), spending: sbSpendOf(st, s, f), assumptions: sbStrs(f.assumptions), missing: sbStrs(f.missing), local: !!f.local };
+  }
+  function sbLocalForecast(st, s, m) {
+    const a = st.a, am = sbEff(s).amounts || {}, debt = +a.debtTotal || 0, p = s.projection || {};
+    const sav0 = a.balances && sbNum(a.balances.savings) != null ? +a.balances.savings : 0;
+    const dm = sbNum(p.debtFreeMonths);
+    return { debtPaid: Math.min(debt, Math.max(0, +am.debt || 0) * m), interest: null, debtFreeDate: debt > 0 && dm != null && dm <= m ? W.addMonthKey(curMonth(), Math.round(dm)) + '-01' : null, debtFreeEstimate: true, savingsEnd: sav0 + Math.max(0, +am.savings || 0) * m, netWorthStart: null, netWorthEnd: null, local: true,
+      assumptions: ['Your income, bills and minimum payments stay the same.', 'Savings earn 0%: no interest or investment returns are assumed.', 'Debt paid here ignores interest, so it is a rough estimate.'], missing: ['A net worth projection isn’t available right now.'] };
+  }
+  function sbForecastOf(st, s, m) {
+    const E = st.E; const f = typeof E.forecast === 'function' ? sbTry(() => E.forecast(st.a, s, m), null) : null;
+    return sbFNorm(st, s, f && typeof f === 'object' ? f : sbLocalForecast(st, s, m), m);
+  }
+  function sbCompareAll(st, m) {
+    const E = st.E; const r = typeof E.compareAll === 'function' ? sbTry(() => E.compareAll(st.a, m), null) : null;
+    const rows = r && (Array.isArray(r) ? r : Array.isArray(r.rows) ? r.rows : null);
+    const by = {}; (rows || []).forEach(x => { if (x && typeof x.id === 'string') { const id = sbId(x.id); if (!by[id] || x.id === id) by[id] = x; } });
+    const ids = ['recommended'].concat(SB_NAMED).filter(id => st.list.some(s => s.id === id));
+    const out = ids.map(id => { const s = st.list.find(x => x.id === id); return { s, f: by[id] ? sbFNorm(st, s, by[id].forecast || by[id], m) : sbForecastOf(st, s, m) }; });
+    const uniq = l => Array.from(new Set(l));
+    const assumptions = uniq(sbStrs(r && r.assumptions).concat(...out.map(x => x.f.assumptions)));
+    const missing = uniq(sbStrs(r && r.missing).concat(...out.map(x => x.f.missing)));
+    return { rows: out, assumptions, missing };
+  }
+  const sbMonthTxt = d => { const mk = String(d || '').slice(0, 7); return /^\d{4}-\d{2}$/.test(mk) ? W.monthLabel(mk, true) : ''; };
+  function sbFreeTxt(st, f, m) {
+    if (!(+st.a.debtTotal > 0)) return 'No debt';
+    if (f.neverPaysOff) return 'Not at this payment';
+    if (f.debtFreeDate) return (f.debtFreeEstimate ? 'About ' : '') + sbMonthTxt(f.debtFreeDate) + (f.debtFreeEstimate ? ' (estimate)' : '');
+    return 'Not within ' + SB_HZ.find(h => h[0] === m)[2];
+  }
+
   // ---- draft (unsaved editor state). Lives in memory until Save or Cancel.
   let sbDraft = null, sbLive = null, sbModeUi = null;
+  const sbOpen = {}; // which "Personalized Plans for You" categories are expanded (kept across re-renders)
   function sbSaved(st) {
     const cfg = st.cfg, src = st.chosen.id === 'custom' && sbCentsOk(cfg.customDollars) ? cfg.customDollars : sbEff(st.chosen).amounts;
     const dollars = {}, locks = {}, rollover = {};
@@ -1313,13 +1429,16 @@
     if (sbModeUi) sbDraft.mode = sbModeUi;
     return sbDraft;
   }
+  // named custom strategies: settings.smartBudget.saved = [{ id, name, dollars, locks, savedOn }] (max 20)
+  const SB_SAVED_MAX = 20;
+  const sbSavedList = () => (Array.isArray(sbCfg().saved) ? sbCfg().saved : []).filter(x => x && typeof x.id === 'string' && typeof x.name === 'string' && sbCentsOk(x.dollars));
 
   const sbStack = pct => `<div class="sb-stack" aria-hidden="true">${SB_BUCKETS.map(([k, , c]) => `<i style="width:${Math.max(0, +pct[k] || 0)}%;background:${c}"></i>`).join('')}</div>`;
   function sbDonut(s, income, sub) {
     let off = 25, g = '';
-    SB_BUCKETS.forEach(([k, , c]) => { const p = Math.max(0, Math.min(100, +s.pct[k] || 0)); if (p > 0) g += `<circle cx="21" cy="21" r="15.9155" fill="none" stroke="${c}" stroke-width="5.5" stroke-dasharray="${p} ${100 - p}" stroke-dashoffset="${off}"/>`; off -= p; });
+    SB_BUCKETS.forEach(([k, , c]) => { const p = Math.max(0, Math.min(100, +s.pct[k] || 0)); if (p > 0) g += `<circle cx="21" cy="21" r="15.9155" fill="none" stroke="${c}" stroke-width="5" stroke-dasharray="${p} ${100 - p}" stroke-dashoffset="${off}"/>`; off -= p; });
     const label = 'Budget split: ' + SB_BUCKETS.map(([k, n]) => n + ' ' + sbPct(s.pct[k]) + ' (' + fmt(s.amounts[k]) + ')').join(', ');
-    return `<div class="sb-donut"><svg viewBox="0 0 42 42" role="img" aria-label="${esc(label)}"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--sunken)" stroke-width="5.5"/>${g}</svg><div class="sb-donut-c"><b class="num">${fmt0(income)}</b><span class="tiny faint">${sub || 'a month'}</span></div></div>`;
+    return `<div class="sb-donut"><svg viewBox="0 0 42 42" role="img" aria-label="${esc(label)}"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--sunken)" stroke-width="5"/>${g}</svg><div class="sb-donut-c"><b class="num">${fmt0(income)}</b><span class="tiny faint">${sub || 'a month'}</span></div></div>`;
   }
   // the editor's donut: slices are shares of take-home pay (or of the total when over), the gap is unallocated money
   function sbDonutLive(c, income) {
@@ -1327,11 +1446,11 @@
     SB_KEYS.forEach(k => pct[k] = c.dollars[k] * 100 / base);
     return sbDonut({ pct, amounts: c.dollars }, c.total, c.over > 0 ? 'planned · over' : 'planned');
   }
-  const sbRows = s => `<div class="sb-rows">${SB_BUCKETS.map(([k, n, c, h]) => `<div class="sb-row" data-bucket="${k}" data-pct="${+s.pct[k] || 0}" data-amt="${+s.amounts[k] || 0}"><i class="dot" style="background:${c}"></i><div class="grow"><b>${n}</b><div class="tiny faint">${h}</div></div><span class="num sb-p">${sbPct(s.pct[k])}</span><b class="num sb-a">${fmt(s.amounts[k])}</b></div>`).join('')}</div>`;
   const sbWarnings = list => (list || []).filter(w => typeof w === 'string' && w).map(w => `<div class="callout small">${ic('alert')}<div>${esc(w)}</div></div>`).join('');
   const sbHead = sub => `<div class="topbar"><div><h1>Smart Budget</h1><div class="sub">${sub}</div></div><div class="row wrap"><button class="btn" data-act="sbCats">${ic('tag')}Categories used</button></div></div>`;
   const sbDebtSplit = (st, s) => { const d = s.debtSplit; const min = Math.min(+s.amounts.debt || 0, +st.a.debtMinimums || 0); return d && isFinite(+d.minimum) && isFinite(+d.extra) ? { minimum: +d.minimum, extra: +d.extra } : { minimum: min, extra: Math.max(0, (+s.amounts.debt || 0) - (+st.a.debtMinimums || 0)) }; };
-
+  const sbList2 = (items, cls) => items.length ? `<ul class="${cls || 'sb-ul'}">${items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  const sbOrd = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
   // home-ui.js (WTHomeUI) renders the daily tip, net worth card and the Progress page; never let it break the app
   function homeExt(fn) { const H = window.WTHomeUI; if (!H || !H.ready || typeof H[fn] !== 'function') return ''; try { return H[fn]() || ''; } catch (e) { console.error(e); return ''; } }
   function viewProgress() {
@@ -1346,7 +1465,7 @@
     try { st = sbState(); } catch (e) { console.error(e); st = null; }
     if (!st || !st.a) return sbHead(intro) + `<div class="callout red">${ic('alert')}<div><b>Smart Budget couldn't work out a plan.</b> Your bills, paychecks and payments are not affected. Check your income and bills, then try again.</div></div>`;
     const a = st.a;
-    if (!(a.income > 0) || !st.rec) return sbHead(intro) + `<div class="empty">${ic('sliders')}<b>Add your income to get a Smart Budget</b>It splits your take-home pay into needs, debt, savings and wants, using your bills and debts.<div class="row wrap" style="justify-content:center;margin-top:12px"><button class="btn primary" data-act="addIncome">${ic('plus')}Add income</button><a class="btn" href="#/bills">Bills</a></div></div>`;
+    if (!(a.income > 0) || !st.rec) return sbHead(intro) + `<div class="empty">${ic('sliders')}<b>Add your income to get a Smart Budget</b>It splits your take-home pay into essentials, debt, savings and wants, using your bills and debts.<div class="row wrap" style="justify-content:center;margin-top:12px"><button class="btn primary" data-act="addIncome">${ic('plus')}Add income</button><a class="btn" href="#/bills">Bills</a></div></div>`;
     sbLive = st;
     const sec = (fn, title) => { try { return fn(); } catch (e) { console.error(e); return `<section class="section">${sectionH(title, '')}<p class="small muted" style="margin:10px 0 0">This part couldn't be worked out right now.</p></section>`; } };
     const PU = window.WTPlanUI, planUi = PU && PU.ready && typeof PU.renderPaychecks === 'function';
@@ -1355,72 +1474,171 @@
       ? sec(() => PU.renderPaychecks(ctx) || '', 'Paycheck by paycheck') + (typeof PU.renderDebt === 'function' ? sec(() => PU.renderDebt(ctx) || '', 'Debt payoff') : '')
       : sec(() => sbPaychecks(st), 'Paycheck by paycheck');
     return sbHead(st.chosen && st.chosen.id !== st.rec.id ? `Using <b>${esc(sbName(st.chosen))}</b>. ${intro}` : intro) + `<div class="fade-in sb">
-      ${sec(() => sbHero(st), 'Recommended for you')}
-      ${sec(() => sbCompare(st), 'Compare strategies')}
+      ${sec(() => sbHero(st), 'Personalized Plans for You')}
+      ${sec(() => sbWhy(st), 'Why this recommendation')}
+      ${sec(() => sbCompare(st), 'Budget strategies')}
+      ${sec(() => sbForecast(st), 'Compare over time')}
       ${sec(() => sbCustom(st), 'Customize')}
       <div class="split" style="margin-top:30px"><div>${sec(() => sbVsActual(st), 'Planned vs actual')}</div><div>${sec(() => sbSuggest(st), 'Suggestions')}</div></div>
       <div class="sb-plan">${plan}</div>
       ${sec(() => sbHistory(st), 'History')}
     </div>`;
   }
+
+  // ---- Personalized Plans for You: the plan in use, each category expandable to its bills and set-asides
   function sbHero(st) {
-    const a = st.a, rec = st.rec, r = sbEff(rec);
-    const inUse = st.chosen && st.chosen.id === rec.id;
+    const a = st.a, rec = st.rec, s = st.eff;
+    const inRec = st.chosen && st.chosen.id === rec.id;
     const pp = a.incomeDetail && a.incomeDetail.perPaycheck > 0 ? ` · about ${fmt(a.incomeDetail.perPaycheck)} a paycheck` : '';
-    const ds = sbDebtSplit(st, r), living = sbLiving(a);
+    const ds = sbDebtSplit(st, s), living = sbLiving(a);
     const short = Math.max(0, isFinite(+a.shortfall) && a.shortfall != null ? +a.shortfall : living + (+a.debtMinimums || 0) - a.income);
     const notFeasible = rec.feasible === false || short > 0;
     const opts = (Array.isArray(rec.options) ? rec.options : Array.isArray(a.options) ? a.options : []).filter(x => typeof x === 'string' && x);
     const free = isFinite(+a.free) && a.free != null ? +a.free : a.income - living - (+a.debtMinimums || 0);
-    return `<section class="section"><div class="card sb-hero" data-strategy="${esc(rec.id)}">
-      <div class="row between wrap" style="gap:8px"><div><span class="eyebrow">Recommended for you</span>${sbKind('recommended', false)}<div class="small muted">Take-home pay <b class="num">${fmt(a.income)}</b> a month${pp}</div></div>
-        <div class="row wrap" style="gap:6px">${inUse ? '<span class="pill paid">In use</span>' : `<button class="btn sm" data-act="sbUse" data-id="${esc(rec.id)}">Use this</button>`}<button class="btn sm ghost" data-act="sbCustomize" data-id="${esc(rec.id)}">Customize this</button></div></div>
-      <div class="sb-hero-b">${sbDonut(r, a.income)}${sbRows(r)}</div>
-      ${rec.why ? `<p class="small muted sb-why">${esc(rec.why)}</p>` : ''}
-      ${r.isAdjusted ? `<p class="tiny faint" style="margin:6px 0 0">Adjusted so your essential bills and minimum debt payments are covered.</p>` : ''}
+    const recPct = sbEff(rec).pct, bd = sbBreak(st, s);
+    const based = inRec && typeof rec.basedOn === 'string' && SB_NAMES[sbId(rec.basedOn)] ? ` · based on ${esc(SB_NAMES[sbId(rec.basedOn)])}` : '';
+    const rows = SB_BUCKETS.map(([k, n, c, h]) => {
+      const b = bd && bd[k], open = !!sbOpen[k], planned = Math.round(+s.amounts[k] || 0);
+      const rp = b && sbNum(b.recommendedPct) != null ? +b.recommendedPct : +recPct[k] || 0;
+      return `<div class="sb-row sb-x${open ? ' open' : ''}" data-bucket="${k}" data-pct="${+s.pct[k] || 0}" data-amt="${planned}">
+        <button type="button" class="sb-x-b" data-act="sbToggle" data-k="${k}" aria-expanded="${open}" aria-controls="sbx-${k}"><i class="dot" style="background:${c}"></i><span class="grow"><b>${n}</b><span class="tiny faint">${h}</span></span><span class="num sb-p">${sbPct(s.pct[k])}</span><b class="num sb-a">${fmt(planned)}</b><span class="sb-chev" aria-hidden="true">${ic('chevD')}</span><span class="sr-only">${open ? 'Hide' : 'Show'} details</span></button>
+        <div class="sb-x-p" id="sbx-${k}" role="region" aria-label="${n} details"${open ? '' : ' hidden'}>${sbBucketDetail(k, b, planned, rp)}</div></div>`;
+    }).join('');
+    return `<section class="section" id="sbPlans"><div class="card sb-hero" data-strategy="${esc(s.id)}">
+      <div class="row between wrap sb-hero-top" style="gap:8px"><div class="grow"><span class="eyebrow">Personalized Plans for You</span><h2 class="sb-hero-t">${esc(inRec ? 'Recommended for you' : sbName(st.chosen))}</h2>${sbKind(inRec ? 'recommended' : st.chosen.id, false)}<div class="small muted">Take-home pay <b class="num">${fmt(a.income)}</b> a month${pp}${based}</div></div>
+        <div class="row wrap" style="gap:6px">${inRec ? '<span class="pill paid">In use</span>' : `<button class="btn sm" data-act="sbUse" data-id="${esc(rec.id)}">Use recommended</button>`}<button class="btn sm ghost" data-act="sbCustomize" data-id="${esc(st.chosen.id)}">Customize this</button></div></div>
+      <div class="sb-hero-b">${sbDonut(s, a.income)}<div class="sb-rows">${rows}<p class="tiny faint sb-x-hint">Tap a category to see what it pays for.</p></div></div>
+      ${s.isAdjusted ? `<p class="tiny faint" style="margin:6px 0 0">Adjusted so your essential bills and minimum debt payments are covered.</p>` : ''}
       ${notFeasible ? `<div class="callout red sb-short" style="margin-top:12px">${ic('alert')}<div><b>Your take-home pay is ${fmt(short)} short</b> of your living costs and minimum payments this month.${opts.length ? `<div class="small" style="margin-top:6px">Some options to think about:</div><ul class="sb-opts">${opts.map(o => `<li>${esc(o)}</li>`).join('')}</ul>` : ' Pay essential bills first, then call your lenders about lower payments.'}</div></div>` : ''}
-      ${(() => { const w = (rec.warnings || []).filter(x => !(notFeasible && typeof x === 'string' && x.indexOf(fmt(short)) >= 0)); return w.length ? `<div class="gap-s" style="margin-top:12px">${sbWarnings(w)}</div>` : ''; })()}
+      ${(() => { const w = (rec.warnings || []).filter(x => !(notFeasible && typeof x === 'string' && x.indexOf(fmt(short)) >= 0)); return w.length && inRec ? `<div class="gap-s" style="margin-top:12px">${sbWarnings(w)}</div>` : ''; })()}
       <div class="figures sb-figs" style="--n:4;margin-top:16px">
         ${fig('Living costs', fmt(living), 'bills + everyday needs')}
         ${fig('Required minimums', fmt(+a.debtMinimums || 0), a.debtTotal ? fmt0(a.debtTotal) + ' owed' : 'no debt')}
         ${fig('Optional extra debt', fmt(ds.extra), ds.extra > 0 ? 'on top of minimums' : 'not planned now')}
         ${fig('Free after these', fmt(free), 'a month', free < 0 ? 'neg' : '')}
       </div>
-      <div style="margin-top:10px"><button class="link" data-act="sbCats">How needs and wants are counted</button></div>
+      <div style="margin-top:10px"><button class="link" data-act="sbCats">How essentials and wants are counted</button></div>
     </div></section>`;
   }
+  function sbBucketDetail(k, b, planned, rp) {
+    if (!b) return `<p class="small muted" style="margin:4px 0 8px">Details for this category aren’t available right now.</p>`;
+    const items = (Array.isArray(b.items) ? b.items : []).filter(x => x && x.name != null);
+    const committed = sbNum(b.committed) != null ? +b.committed : items.reduce((t, x) => t + (Math.round(+x.amount) || 0), 0);
+    const remaining = sbNum(b.remaining) != null ? +b.remaining : planned - committed;
+    const due = x => x.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(x.dueDate) ? 'Due ' + W.shortDate(x.dueDate) : Number.isInteger(+x.dueDay) && +x.dueDay >= 1 && +x.dueDay <= 31 ? 'Due on the ' + sbOrd(+x.dueDay) : '';
+    const paid = x => x.status === 'paid' ? 'Paid' : x.status === 'partial' && sbNum(x.left) != null ? fmt(+x.left) + ' left to pay' : '';
+    const meta = x => [SB_ITEM[x.kind] || '', due(x), paid(x)].filter(Boolean).join(' · ');
+    const kv = (l, v, cls) => `<div class="sb-x-f"><span class="tiny faint">${l}</span><b class="num ${cls || ''}">${v}</b></div>`;
+    return `<div class="sb-x-figs">${kv('Allocated', fmt(planned))}${kv('Recommended', sbPct(rp))}${kv('Committed', fmt(committed))}${kv(remaining < 0 ? 'Short by' : 'Remaining', fmt(Math.abs(remaining)), remaining < 0 ? 'neg' : '')}</div>
+      ${items.length ? `<ul class="sb-items">${items.map(x => `<li class="sb-it" data-kind="${esc(x.kind || '')}" data-amt="${Math.round(+x.amount) || 0}"${x.templateId ? ` data-tpl="${esc(x.templateId)}"` : ''}${x.debtId ? ` data-debt="${esc(x.debtId)}"` : ''}><span class="grow"><span class="sb-it-n">${esc(x.name)}</span>${meta(x) ? `<span class="tiny faint">${esc(meta(x))}</span>` : ''}</span><b class="num">${fmt(Math.round(+x.amount) || 0)}</b></li>`).join('')}</ul>` : `<p class="small muted" style="margin:6px 0">Nothing is committed here yet.</p>`}
+      ${remaining > 0 && items.length ? `<p class="tiny faint" style="margin:4px 0 8px">${fmt(remaining)} of this isn’t tied to a bill or set-aside yet.</p>` : remaining < 0 ? `<p class="tiny neg" style="margin:4px 0 8px">The items above need ${fmt(-remaining)} more than this category has.</p>` : ''}`;
+  }
+
+  // ---- Recommendation transparency: why, the numbers it used, how the split was worked out, trade-offs, what to change
+  function sbWhy(st) {
+    const R = st.R; if (!R) return '';
+    const s = st.list.find(x => x.id === R.id);
+    const name = s ? sbName(s) : SB_NAMES[R.id] || 'Personalized';
+    const conf = R.confidence, confTxt = { high: 'High confidence', medium: 'Medium confidence', low: 'Not enough information' }[conf];
+    const val = f => typeof f.value === 'string' ? esc(f.value) : Number.isInteger(f.value) ? fmt(f.value) : f.value != null && isFinite(+f.value) ? esc(String(Math.round(+f.value * 10) / 10)) : '—';
+    const how = sbStrs(R.how);
+    const benefits = R.benefits.length ? R.benefits : sbStrs(s && s.benefits).length ? sbStrs(s.benefits) : sbStrs((SB_INFO[R.id] || {}).benefits);
+    const drawbacks = R.drawbacks.length ? R.drawbacks : sbStrs(s && s.drawbacks).length ? sbStrs(s.drawbacks) : sbStrs((SB_INFO[R.id] || {}).drawbacks);
+    return `<section class="section" id="sbWhy">${sectionH('Why this recommendation', `<span class="pill sb-conf c-${conf}">${confTxt}</span>`)}
+      <div class="card sb-why-card" data-rec="${esc(R.id)}" data-confidence="${conf}">
+        <p class="sb-why-lead"><span class="eyebrow">Recommended strategy</span><b>${esc(name)}</b></p>
+        ${R.reason ? `<p class="small sb-why">${esc(R.reason.replace(/^Recommended Strategy:\s*[^.]+\.\s*/, ''))}</p>` : ''}
+        ${conf === 'low' ? `<div class="callout small sb-lowconf">${ic('info')}<div>There isn’t enough information to recommend one strategy with confidence, so none is marked <b>Recommended for you</b>.${R.missing.length ? ' Adding these would help:' + sbList2(R.missing, 'sb-ul') : ''}</div></div>` : ''}
+        ${R.factors.length ? `<div class="sb-h5">What it’s based on</div><div class="sb-factors">${R.factors.map(f => `<div class="sb-fac"><span class="grow"><b>${esc(f.label)}</b>${f.effect ? `<span class="tiny faint">${esc(f.effect)}</span>` : ''}</span><b class="num">${val(f)}</b></div>`).join('')}</div>` : ''}
+        <details class="sb-det"><summary>How the percentages were worked out</summary>${how.length ? sbList2(how, 'sb-ul') : '<p class="small muted">Living costs and minimum payments come first; the rest follows the strategy’s priorities.</p>'}</details>
+        <details class="sb-det"><summary>Benefits, drawbacks and what to change</summary>
+          <div class="sb-pc2"><div><div class="sb-h5">Benefits</div>${sbList2(benefits, 'sb-ul') || '<p class="small muted">—</p>'}</div><div><div class="sb-h5">Drawbacks</div>${sbList2(drawbacks, 'sb-ul') || '<p class="small muted">—</p>'}</div></div>
+          ${R.improve.length ? `<div class="sb-h5">What would improve this</div>${sbList2(R.improve, 'sb-ul')}` : ''}
+          ${R.missing.length && conf !== 'low' ? `<div class="sb-h5">Missing information</div>${sbList2(R.missing, 'sb-ul')}` : ''}
+        </details>
+        <p class="tiny faint" style="margin:10px 0 0">An estimate from the numbers you’ve entered, not financial advice. Nothing changes until you choose a plan.</p>
+      </div></section>`;
+  }
+
   function sbProj(st, s) {
-    const row = (st.cmp.rows || []).find(x => x && x.id === s.id) || {}; const p = s.projection || {};
+    const row = (st.cmp.rows || []).find(x => x && sbId(x.id) === s.id) || {}; const p = s.projection || {};
     const pick = k => row[k] !== undefined ? row[k] : p[k];
     return { savings12: s.annualSavings != null && isFinite(+s.annualSavings) ? +s.annualSavings : +pick('savings12') || 0, debtPaid12: +pick('debtPaid12') || 0, debtFreeMonths: pick('debtFreeMonths') == null ? null : +pick('debtFreeMonths'), estimate: !!(pick('debtFreeEstimate') || pick('estimate')), spendingMonthly: s.disposable != null && isFinite(+s.disposable) ? +s.disposable : pick('spendingMonthly') != null ? +pick('spendingMonthly') : +s.amounts.wants || 0 };
   }
   const sbFree = (st, m, est) => m == null || !isFinite(m) ? (st.a.debtTotal > 0 ? 'Not in 12+ yrs' : 'No debt') : m <= 0 ? 'Now' : (est ? 'About ' : '') + W.monthLabel(W.addMonthKey(curMonth(), Math.round(m)), true) + (est ? ' (estimate)' : '');
+  // the first debt that gets the extra money under a repayment order (from WTPlan.debtPlans when loaded)
+  // which debt gets the extra money first (not which one is paid off first):
+  // avalanche = highest known interest rate, snowball = smallest balance
+  function sbFirstDebt(order) {
+    const ds = sbTry(() => W.debtInputs(), []).filter(d => d.balanceCents > 0);
+    if (!ds.length) return '';
+    if (order === 'snowball') return ds.slice().sort((a, b) => a.balanceCents - b.balanceCents)[0].name;
+    if (order === 'avalanche') { const known = ds.filter(d => d.aprCenti > 0); return known.length ? known.sort((a, b) => b.aprCenti - a.aprCenti || a.balanceCents - b.balanceCents)[0].name : ''; }
+    return '';
+  }
+  // ---- the 8 named strategies, each personalized
   function sbCompare(st) {
-    const best = st.cmp.bestId;
-    const isBest = s => s.id === best && sbRealistic(s, st.a);
-    const badges = s => `${isBest(s) ? '<span class="pill paid">Best fit</span>' : ''}${sbRealistic(s, st.a) ? '<span class="pill sb-ok">Realistic</span>' : '<span class="pill over">Not realistic</span>'}`;
-    const btn = s => s.id === st.chosen.id ? `<button class="btn sm" disabled aria-label="${esc(sbName(s))} is in use">${ic('check')}In use</button>` : `<button class="btn sm${isBest(s) ? ' primary' : ''}" data-act="sbUse" data-id="${esc(s.id)}" aria-label="Use ${esc(sbName(s))}">Use this</button>`;
-    const cust = s => `<button class="btn sm ghost sb-cz" data-act="sbCustomize" data-id="${esc(s.id)}" aria-label="Customize ${esc(sbName(s))}">${ic('sliders')}Customize this</button>`;
-    const cards = st.list.map(s => { const e = sbEff(s), p = sbProj(st, s), ds = sbDebtSplit(st, e); const risks = (Array.isArray(s.risks) ? s.risks : []).filter(x => typeof x === 'string' && x).slice(0, 2);
-      return `<article class="sb-card${isBest(s) ? ' best' : ''}${s.id === st.chosen.id ? ' on' : ''}" data-strategy="${esc(s.id)}" data-realistic="${sbRealistic(s, st.a)}">
-        <div class="sb-card-h"><b>${esc(sbName(s))}</b><span class="sb-badges">${badges(s)}</span></div>
+    const badge = sbBadgeId(st);
+    const named = SB_NAMED.map(id => st.list.find(s => s.id === id)).filter(Boolean);
+    const firstDebt = {}; ['avalanche', 'snowball'].forEach(o => { firstDebt[o] = +st.a.debtTotal > 0 ? sbFirstDebt(o) : ''; });
+    const card = s => {
+      const e = sbEff(s), info = SB_INFO[s.id] || {}, ds = sbDebtSplit(st, e), p = sbProj(st, s), real = sbRealistic(s, st.a);
+      const ex = s.example && SB_KEYS.every(k => isFinite(+s.example[k])) ? s.example : info.example;
+      const exOff = ex ? SB_KEYS.filter(k => Math.abs((+e.pct[k] || 0) - (+ex[k] || 0)) >= 1) : [];
+      const mods = sbStrs(s.modifications).length ? sbStrs(s.modifications) : s.modified == null && s.id !== 'custom' && s.id !== 'zero' && ex ? exOff.map(k => `${SB_BUCKETS.find(b => b[0] === k)[1]} ${(+e.pct[k] || 0) > (+ex[k] || 0) ? 'raised' : 'lowered'} from ${sbPct(ex[k])} to ${sbPct(e.pct[k])} to fit your bills and debts.`) : [];
+      const modified = typeof s.modified === 'boolean' ? s.modified : mods.length > 0;
+      const order = s.debtOrder === 'avalanche' || s.debtOrder === 'snowball' ? s.debtOrder : s.id === 'avalanche' || s.id === 'snowball' ? s.id : null;
+      const benefits = sbStrs(s.benefits).length ? sbStrs(s.benefits) : sbStrs(info.benefits), drawbacks = sbStrs(s.drawbacks).length ? sbStrs(s.drawbacks) : sbStrs(info.drawbacks);
+      const risks = sbStrs(s.risks).slice(0, 3);
+      const fit = typeof s.fit === 'string' && s.fit ? s.fit : typeof s.why === 'string' ? s.why : '';
+      const isRec = s.id === badge, on = s.id === st.chosen.id;
+      const btn = on ? `<button class="btn sm" disabled aria-label="${esc(sbName(s))} is in use">${ic('check')}In use</button>` : `<button class="btn sm${isRec ? ' primary' : ''}" data-act="sbUse" data-id="${esc(s.id)}" aria-label="Use ${esc(sbName(s))}">Use this</button>`;
+      return `<article class="sb-card${isRec ? ' best' : ''}${on ? ' on' : ''}" role="listitem" data-strategy="${esc(s.id)}" data-realistic="${real}" data-recommended="${isRec}" data-modified="${modified}">
+        <div class="sb-card-h"><b class="sb-card-t">${esc(sbName(s))}</b><span class="sb-badges">${isRec ? '<span class="pill sb-recp">Recommended for you</span>' : ''}${real ? '<span class="pill sb-ok">Realistic</span>' : '<span class="pill over">Not realistic</span>'}</span></div>
         ${sbKind(s.id, true)}
+        <table class="sb-split"><thead><tr><th></th><th class="r">Example</th><th class="r">For you</th><th class="r">A month</th></tr></thead><tbody>${SB_BUCKETS.map(([k, n, c]) => `<tr data-bucket="${k}"><td><i class="dot" style="background:${c}"></i>${n}</td><td class="r num faint">${ex ? sbPct(ex[k]) : '—'}</td><td class="r num"><b>${sbPct(e.pct[k])}</b></td><td class="r num">${fmt0(+e.amounts[k] || 0)}</td></tr>`).join('')}</tbody></table>
         ${sbStack(e.pct)}
-        <div class="sb-mini">${SB_BUCKETS.map(([k, n, c]) => `<span><i class="dot" style="background:${c}"></i>${n} <b class="num">${sbPct(e.pct[k])}</b></span>`).join('')}</div>
         <div class="kv"><span>Debt minimums</span><b class="num">${fmt0(ds.minimum)}/mo</b></div>
         <div class="kv"><span>Extra on debt</span><b class="num">${ds.extra > 0 ? fmt0(ds.extra) + '/mo' : 'None'}</b></div>
         <div class="kv"><span>Spending money</span><b class="num">${fmt0(p.spendingMonthly)}/mo</b></div>
         <div class="kv"><span>Saved in a year</span><b class="num">${fmt0(p.savings12)}</b></div>
-        <div class="kv"><span>Debt paid in 12 months</span><b class="num">${p.estimate ? 'about ' : ''}${fmt0(p.debtPaid12)}</b></div>
         <div class="kv"><span>Debt-free</span><b>${sbFree(st, p.debtFreeMonths, p.estimate)}</b></div>
-        ${risks.length ? `<ul class="sb-risks">${risks.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-        ${s.feasible === false && !risks.length ? `<p class="tiny sb-note">${esc((s.warnings && s.warnings[0]) || 'Your bills need more than this plan allows.')}${e.isAdjusted ? ' Planned as ' + SB_BUCKETS.map(([k, n]) => n.toLowerCase() + ' ' + sbPct(e.pct[k])).join(', ') + '.' : ''}</p>` : ''}
-        <div class="sb-card-f">${btn(s)}${cust(s)}</div>
-      </article>`; }).join('');
-    const table = `<div class="tbl-wrap"><table class="tbl sb-tbl"><thead><tr><th>Strategy</th>${SB_BUCKETS.map(([, n]) => `<th class="r">${n}</th>`).join('')}<th class="r">Debt min + extra</th><th class="r">Saved in a year</th><th>Debt-free</th><th class="r">Spending/mo</th><th></th></tr></thead><tbody>
-      ${st.list.map(s => { const e = sbEff(s), p = sbProj(st, s), ds = sbDebtSplit(st, e); return `<tr data-strategy="${esc(s.id)}"${s.id === st.chosen.id ? ' class="on"' : ''}><td><b>${esc(sbName(s))}</b>${sbKind(s.id, false)}<div class="sb-badges">${badges(s)}</div></td>${SB_KEYS.map(k => `<td class="r num">${sbPct(e.pct[k])}</td>`).join('')}<td class="r num">${fmt0(ds.minimum)} + ${fmt0(ds.extra)}</td><td class="r num">${fmt0(p.savings12)}</td><td>${sbFree(st, p.debtFreeMonths, p.estimate)}</td><td class="r num">${fmt0(p.spendingMonthly)}</td><td class="r"><div class="row" style="gap:6px;justify-content:flex-end;flex-wrap:nowrap">${btn(s)}${cust(s)}</div></td></tr>`; }).join('')}
-    </tbody></table></div>`;
-    return `<section class="section">${sectionH('Compare strategies', 'Next 12 months')}<div class="sb-cards" role="list" aria-label="Budget strategies">${cards.replace(/<article /g, '<article role="listitem" ')}</div><div class="sb-cmp-tbl">${table}</div><p class="tiny faint" style="margin:6px 0 0">Debt figures are estimates based on your balances, rates and minimums.</p></section>`;
+        ${order ? `<p class="tiny muted sb-order">${order === 'avalanche' ? 'Extra goes to the highest interest rate first' : 'Extra goes to the smallest balance first'}${firstDebt[order] ? `: <b>${esc(firstDebt[order])}</b>` : ''}.</p>` : ''}
+        ${modified ? `<div class="sb-mod"><span class="pill sb-modp">Modified for you</span>${sbList2(mods.slice(0, 3), 'sb-ul tiny')}</div>` : ''}
+        ${fit ? `<p class="small sb-fit"><b>For you:</b> ${esc(fit)}</p>` : ''}
+        <details class="sb-more"><summary>Benefits and drawbacks</summary><div class="sb-h5">Benefits</div>${sbList2(benefits, 'sb-ul') || '<p class="tiny faint">—</p>'}<div class="sb-h5">Drawbacks</div>${sbList2(drawbacks, 'sb-ul') || '<p class="tiny faint">—</p>'}${risks.length ? `<div class="sb-h5">Watch out for</div>${sbList2(risks, 'sb-ul sb-risks')}` : ''}</details>
+        <div class="sb-card-f">${btn}<button class="btn sm ghost sb-cz" data-act="sbCustomize" data-id="${esc(s.id)}" aria-label="Customize ${esc(sbName(s))}">${ic('sliders')}Customize this</button></div>
+      </article>`;
+    };
+    const blankCustom = named.some(s => s.id === 'custom') ? '' : `<article class="sb-card sb-card-new" role="listitem" data-strategy="custom" data-realistic="false" data-recommended="false"><div class="sb-card-h"><b class="sb-card-t">Custom</b></div>${sbKind('custom', true)}<p class="small muted">You haven’t set your own split yet. Start from the plan in use and change any amount.</p>${sbSavedList().length ? `<p class="tiny faint">You have ${sbSavedList().length} saved strateg${sbSavedList().length === 1 ? 'y' : 'ies'} in Customize.</p>` : ''}<div class="sb-card-f"><button class="btn sm sb-cz" data-act="sbCustomize" data-id="${esc(st.chosen.id)}">${ic('sliders')}Create your own</button></div></article>`;
+    return `<section class="section" id="sbStrats">${sectionH('Budget strategies', SB_NAMED.length + ' ways to split your pay')}<p class="small muted" style="margin:8px 0 0">Example splits are only illustrations. “For you” is worked out from your bills, debts and pay.</p><div class="sb-cards" role="list" aria-label="Budget strategies">${named.map(card).join('')}${blankCustom}</div></section>`;
+  }
+
+  // ---- side-by-side over 6 months to 5 years (E.compareAll)
+  function sbForecast(st) {
+    const m = sbHz, cmp = sbCompareAll(st, m), badge = sbBadgeId(st);
+    const seg = `<div class="seg boxed sb-hz" role="group" aria-label="Time frame">${SB_HZ.map(([v, l, long]) => `<button type="button" class="${v === m ? 'on' : ''}" aria-pressed="${v === m}" data-act="sbHorizon" data-m="${v}" aria-label="${long}">${l}</button>`).join('')}</div>`;
+    const cell = (f, k, label, html) => `<td class="r num" data-label="${label}" data-f="${k}"${f[k] != null ? ` data-v="${f[k]}"` : ''}>${html}</td>`;
+    const money = (f, k, est) => f[k] == null ? '—' : (est ? 'about ' : '') + fmt0(f[k]);
+    const nw = f => f.netWorthEnd == null ? '—' : fmt0(f.netWorthEnd) + (f.netWorthStart != null ? `<span class="tiny ${f.netWorthEnd >= f.netWorthStart ? 'pos' : 'neg'}"> ${f.netWorthEnd >= f.netWorthStart ? '+' : '−'}${fmt0(Math.abs(f.netWorthEnd - f.netWorthStart))}</span>` : '');
+    const rows = cmp.rows.map(({ s, f }) => `<tr data-strategy="${esc(s.id)}"${s.id === st.chosen.id ? ' class="on"' : ''}><td class="sb-fn"><b>${esc(sbName(s))}</b>${s.id === badge ? ' <span class="pill sb-recp">Recommended for you</span>' : ''}${s.id === st.chosen.id ? ' <span class="pill">In use</span>' : ''}</td>
+      ${cell(f, 'debtPaid', 'Debt paid', money(f, 'debtPaid', f.local))}${cell(f, 'interest', 'Interest', money(f, 'interest', f.debtFreeEstimate))}<td data-label="Debt-free" data-f="debtFree">${sbFreeTxt(st, f, m)}</td>${cell(f, 'savingsEnd', 'Savings at end', money(f, 'savingsEnd'))}${cell(f, 'netWorthEnd', 'Net worth at end', nw(f))}${cell(f, 'spending', 'Spending money', fmt0(f.spending) + '/mo')}</tr>`).join('');
+    return `<section class="section" id="sbCmp">${sectionH('Compare over time', 'Estimates')}
+      <div class="row between wrap sb-cmp-top"><p class="small muted" style="margin:0">How each strategy could play out over the next ${SB_HZ.find(h => h[0] === m)[2]}.</p>${seg}</div>
+      <div class="sb-ftbl-wrap"><table class="tbl sb-ftbl" data-months="${m}"><thead><tr><th>Strategy</th><th class="r">Debt paid</th><th class="r">Interest</th><th>Debt-free</th><th class="r">Savings at end</th><th class="r">Net worth at end</th><th class="r">Spending money</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${sbRateHtml()}
+      <div class="sb-assume"><div class="sb-h5">Assumptions</div>${sbList2(cmp.assumptions.length ? cmp.assumptions : ['Your income, bills and minimum payments stay the same.', 'Savings earn 0% unless you entered a rate.'], 'sb-ul tiny')}
+      ${cmp.missing.length ? `<div class="sb-h5">Missing information</div>${sbList2(cmp.missing, 'sb-ul tiny sb-missing')}` : ''}</div>
+    </section>`;
+  }
+  // optional savings interest rate (settings.smartBudget.savingsAprCenti, hundredths of a percent); 0% growth when empty
+  function sbRateHtml() {
+    const r = sbCfg().savingsAprCenti, has = Number.isInteger(r) && r > 0;
+    return `<label class="sb-rate"><span class="small"><b>Savings interest rate</b> <span class="faint">(optional)</span><span class="tiny faint" style="display:block">${has ? 'Used to grow savings in these estimates. Rates can change.' : 'Leave empty to assume 0% growth.'}</span></span><span class="sb-rate-in"><input class="input" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" data-act-change="sbSavApr" aria-label="Savings interest rate, percent a year" placeholder="0" value="${has ? esc(String(r / 100)) : ''}"><span aria-hidden="true">% a year</span></span></label>`;
+  }
+  function sbRedrawCmp() {
+    const sec = $('#sbCmp'); if (sec && sbLive) { const y = window.scrollY; try { sec.outerHTML = sbForecast(sbLive); } catch (e) { console.error(e); } window.scrollTo(0, y); }
+    sbPrevNow();
   }
 
   // ---- Customize: Dollars | Percent editor over the draft
@@ -1440,11 +1658,11 @@
         <input type="range" class="sb-range" id="sb-${k}" min="0" max="100" step="0.5" value="${Math.min(100, c.pct[k])}" data-sb="${k}"${lk ? ' disabled' : ''} aria-label="${n} slider" aria-valuetext="${sbPct(c.pct[k])}, ${esc(fmt(c.dollars[k]))} a month" style="--c:${col};--p:${Math.min(100, c.pct[k])}%">
         ${lk ? `<div class="tiny faint">${ic('lock')} Locked. Other changes won’t move it.</div>` : ''}
       </div>`; }).join('');
-    const opts = st.list.map(s => `<option value="${esc(s.id)}">${esc(sbName(s))}</option>`).join('');
+    const opts = ['recommended'].concat(SB_NAMED).map(id => st.list.find(s => s.id === id)).filter(Boolean).map(s => `<option value="${esc(s.id)}">${esc(sbName(s))}</option>`).join('');
     const unlocked = SB_BUCKETS.filter(([k]) => !d.locks[k]);
     return `<section class="section" id="sbEdit">${sectionH('Customize', `<span id="sbDirty">${d.dirty ? '<span class="pill due">Unsaved changes</span>' : 'Saved plan'}</span>`)}
       <div class="sb-custom" data-income="${I}">
-        <p class="small muted" style="margin:10px 0 8px">Type an amount or drag a slider. Each bucket only moves when you change it. Nothing is saved until you tap Save.</p>
+        <p class="small muted" style="margin:10px 0 8px">Type an amount or drag a slider. Each category only moves when you change it. Nothing is saved until you tap Save.</p>
         <div class="sb-ed-top">
           <div class="seg boxed sb-mode" role="group" aria-label="Enter amounts as"><button type="button" class="${pm ? '' : 'on'}" aria-pressed="${!pm}" data-act="sbMode" data-v="dollars">Dollars</button><button type="button" class="${pm ? 'on' : ''}" aria-pressed="${pm}" data-act="sbMode" data-v="percent">Percent</button></div>
           <select class="input sb-from" data-act-change="sbFrom" aria-label="Start from a strategy"><option value="">Start from a strategy…</option>${opts}</select>
@@ -1452,21 +1670,59 @@
         <div class="sb-ed-b"><div class="sb-ed-donut">${sbDonutLive(c, I)}</div><div class="sb-bks">${cards}</div></div>
         <div class="sb-warn gap-s" id="sbWarn" aria-live="polite">${sbWarnings(c.warnings)}</div>
         <div class="sb-tools">
+          <button type="button" class="btn" data-act="sbFill"${unlocked.length ? '' : ' disabled'} title="Unlocked categories absorb the difference so the plan equals your take-home pay exactly">${ic('check')}Fill to 100%</button>
           <select class="input sb-into" data-act-change="sbInto" aria-label="Put remaining into"${unlocked.length ? '' : ' disabled'}><option value="">Put remaining into…</option>${unlocked.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select>
           <button type="button" class="btn" data-act="sbSpread"${unlocked.length ? '' : ' disabled'}>${ic('sliders')}Spread over unlocked</button>
           <button type="button" class="btn" data-act="sbReset">${ic('undo')}Reset</button>
         </div>
+        <details class="sb-det sb-vs" id="sbVs"><summary>Compare with recommended</summary><div id="sbVsBody">${sbVsRec(st, c)}</div></details>
+        <details class="sb-det sb-prev" id="sbPrev"><summary>Preview impact before saving</summary><div id="sbPrevBody">${sbPreview(st, c)}</div></details>
         <details class="sb-roll"${d.dirty && SB_KEYS.some(k => d.rollover[k] !== 'reset') ? ' open' : ''}><summary><b>Leftover money at month end</b> <span class="tiny faint">Rollover</span></summary>
-          <p class="small muted" style="margin:6px 0 8px">What happens to money left in a bucket when the month ends. Saved with your budget. Past months stay as they were.</p>
+          <p class="small muted" style="margin:6px 0 8px">What happens to money left in a category when the month ends. Saved with your budget. Past months stay as they were.</p>
           ${SB_BUCKETS.map(([k, n, col]) => `<label class="sb-roll-r"><span class="row" style="gap:7px"><i class="dot" style="background:${col}"></i>${n}</span><select class="input" data-act-change="sbRoll" data-k="${k}" aria-label="${n} leftover">${SB_ROLL.map(([v, t]) => `<option value="${v}"${d.rollover[k] === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`).join('')}
           <div class="sb-carry small" style="margin-top:8px">${carry ? (carryTot > 0 ? `Carried into ${W.monthLabel(curMonth())}: ` + SB_BUCKETS.filter(([k]) => +carry[k] > 0).map(([k, n]) => `${n} <b class="num">+${fmt(+carry[k])}</b>`).join(', ') : `<span class="muted">Nothing carried into ${W.monthLabel(curMonth())}.${roll.note ? ' ' + esc(roll.note) : ''}</span>`) : '<span class="muted">Carry-in shows here once last month’s budget is saved.</span>'}</div>
         </details>
+        ${sbSavedHtml()}
         <div class="sb-remain ${c.over > 0 ? 'over' : c.unallocated > 0 ? 'left' : 'ok'}" id="sbRemain">
           <div class="sb-remain-t" role="status" aria-live="polite"><span class="tiny sb-remain-l">${c.over > 0 ? 'Over by' : c.unallocated > 0 ? 'Remaining to allocate' : 'Every dollar allocated'}</span><b class="num sb-remain-v">${fmt(c.over > 0 ? c.over : Math.max(0, c.unallocated))}</b><span class="tiny faint sb-remain-s">${fmt(c.total)} of ${fmt(I)}</span></div>
           <div class="sb-remain-b"><button type="button" class="btn" data-act="sbCancel"${d.dirty ? '' : ' disabled'}>Cancel</button><button type="button" class="btn primary" data-act="sbSave">${ic('check')}Save</button></div>
         </div>
       </div></section>`;
   }
+  // current draft vs the recommended plan, per category
+  function sbVsRec(st, c) {
+    const r = sbEff(st.rec), I = +st.a.income || 0;
+    const diff = (x, y) => x === y ? '<span class="faint">Same</span>' : `<span class="${x > y ? '' : ''}">${x > y ? '+' : '−'}${fmt(Math.abs(x - y))}</span>`;
+    return `<table class="tbl sb-vs-t"><thead><tr><th>Category</th><th class="r">Yours</th><th class="r">Recommended</th><th class="r">Difference</th></tr></thead><tbody>${SB_BUCKETS.map(([k, n, col]) => { const y = c.dollars[k], rv = Math.round(+r.amounts[k] || 0); return `<tr data-bucket="${k}"><td><i class="dot" style="background:${col}"></i>${n}</td><td class="r num" data-v="${y}">${fmt(y)}<div class="tiny faint">${sbPct(c.pct[k])}</div></td><td class="r num" data-v="${rv}">${fmt(rv)}<div class="tiny faint">${sbPct(I > 0 ? Math.round(rv * 1000 / I) / 10 : 0)}</div></td><td class="r num" data-v="${y - rv}">${diff(y, rv)}</td></tr>`; }).join('')}</tbody></table>`;
+  }
+  // forecast of the unsaved draft next to the saved plan, before anything is saved
+  function sbDraftStrategy(st, c) {
+    const min = +st.a.debtMinimums || 0, base = st.eff || {};
+    return { id: 'custom', name: 'This draft', amounts: Object.assign({}, c.dollars), pct: Object.assign({}, c.pct), debtSplit: { minimum: Math.min(c.dollars.debt, min), extra: Math.max(0, c.dollars.debt - min) }, debtOrder: base.debtOrder === 'snowball' ? 'snowball' : 'avalanche', feasible: c.dollars.needs >= (+st.a.essentials || 0) && c.dollars.debt >= min, realistic: c.dollars.needs >= sbLiving(st.a) && c.dollars.debt >= min && c.over === 0, projection: base.projection };
+  }
+  function sbPreview(st, c) {
+    const m = sbHz, saved = st.eff, draft = sbDraftStrategy(st, c);
+    const A = sbForecastOf(st, saved, m), B = sbForecastOf(st, draft, m);
+    const seg = `<div class="seg boxed sb-hz sm" role="group" aria-label="Preview time frame">${SB_HZ.map(([v, l, long]) => `<button type="button" class="${v === m ? 'on' : ''}" aria-pressed="${v === m}" data-act="sbHorizon" data-m="${v}" aria-label="${long}">${l}</button>`).join('')}</div>`;
+    const line = (label, k, better) => { const x = A[k], y = B[k]; const d = x != null && y != null ? y - x : null; const cls = d == null || d === 0 ? 'faint' : (d > 0) === (better > 0) ? 'pos' : 'warn';
+      return `<tr data-f="${k}"><td>${label}</td><td class="r num">${x == null ? '—' : fmt0(x)}</td><td class="r num">${y == null ? '—' : fmt0(y)}</td><td class="r num ${cls}" data-v="${d == null ? '' : d}">${d == null ? '—' : d === 0 ? 'Same' : (d > 0 ? '+' : '−') + fmt0(Math.abs(d))}</td></tr>`; };
+    return `<div class="row between wrap" style="gap:8px;margin:6px 0"><span class="tiny faint">Saved plan vs this draft over ${SB_HZ.find(h => h[0] === m)[2]}. Estimates; nothing is saved.</span>${seg}</div>
+      <table class="tbl sb-prev-t" data-months="${m}"><thead><tr><th></th><th class="r">Saved plan</th><th class="r">This draft</th><th class="r">Change</th></tr></thead><tbody>
+      ${line('Debt paid', 'debtPaid', 1)}${line('Interest paid', 'interest', -1)}${line('Savings at end', 'savingsEnd', 1)}${line('Net worth at end', 'netWorthEnd', 1)}${line('Spending money a month', 'spending', 1)}
+      <tr data-f="debtFree"><td>Debt-free</td><td class="r">${sbFreeTxt(st, A, m)}</td><td class="r">${sbFreeTxt(st, B, m)}</td><td></td></tr></tbody></table>
+      ${B.missing.length ? `<p class="tiny faint" style="margin:6px 0 0">Missing: ${esc(B.missing.join(' '))}</p>` : ''}`;
+  }
+  let sbPrevT = null;
+  function sbPrevNow() { clearTimeout(sbPrevT); sbPrevT = null; const b = $('#sbPrevBody'); if (b && sbLive && sbDraft) { try { b.innerHTML = sbPreview(sbLive, sbCalc(sbLive.a, sbDraft.dollars)); } catch (e) { console.error(e); } } }
+  function sbPrevLater() { clearTimeout(sbPrevT); sbPrevT = setTimeout(sbPrevNow, 160); }
+  // saved named strategies (restore / delete)
+  function sbSavedHtml() {
+    const list = sbSavedList();
+    return `<div class="sb-saved" id="sbSaved"><div class="row between wrap" style="gap:8px"><div><b>Saved strategies</b> <span class="tiny faint">${list.length} of ${SB_SAVED_MAX}</span></div><button type="button" class="btn sm" data-act="sbSaveAs"${list.length >= SB_SAVED_MAX ? ' disabled' : ''}>${ic('plus')}Save as…</button></div>
+      ${list.length ? `<div class="sb-svl">${list.map(x => `<div class="sb-sv" data-id="${esc(x.id)}"><div class="grow"><b class="sb-sv-n">${esc(x.name)}</b><div class="tiny faint">${x.savedOn ? 'Saved ' + W.shortDate(x.savedOn) + ' · ' : ''}${SB_BUCKETS.map(([k, n]) => `${n} ${fmt0(x.dollars[k])}`).join(' · ')}${SB_KEYS.some(k => x.locks && x.locks[k]) ? ' · ' + SB_BUCKETS.filter(([k]) => x.locks && x.locks[k]).map(([, n]) => n).join(', ') + ' locked' : ''}</div></div><div class="row" style="gap:6px"><button type="button" class="btn sm" data-act="sbRestore" data-id="${esc(x.id)}" aria-label="Restore ${esc(x.name)}">${ic('undo')}Restore</button><button type="button" class="btn sm ghost icon" data-act="sbDelSaved" data-id="${esc(x.id)}" aria-label="Delete ${esc(x.name)}">${ic('trash')}</button></div></div>`).join('')}</div>` : '<p class="small muted" style="margin:6px 0 0">Save this split with a name to try other ideas and come back to it later.</p>'}
+    </div>`;
+  }
+  function sbRedrawSaved() { const el = $('#sbSaved'); if (el) el.outerHTML = sbSavedHtml(); }
   // repaint the editor in place (no page re-render, focus and caret kept). `src` is the element being edited: never rewritten.
   function sbPaint(src) {
     const root = $('.sb-custom'); if (!root || !sbDraft || !sbLive) return;
@@ -1493,6 +1749,8 @@
       const cb = rb.querySelector('[data-act=sbCancel]'); if (cb) cb.disabled = !sbDraft.dirty;
     }
     const w = root.querySelector('#sbWarn'); if (w) { const html = sbWarnings(c.warnings); if (w.innerHTML !== html) w.innerHTML = html; }
+    const vs = root.querySelector('#sbVsBody'); if (vs) vs.innerHTML = sbVsRec(sbLive, c);
+    sbPrevLater();
     const dp = $('#sbDirty'); if (dp) { const html = sbDraft.dirty ? '<span class="pill due">Unsaved changes</span>' : 'Saved plan'; if (dp.innerHTML !== html) dp.innerHTML = html; }
   }
   // typing in a $ / % field, or dragging a slider: changes only that bucket
@@ -1529,7 +1787,9 @@
   }
   function sbRedraw(focusSel) {
     const sec = $('#sbEdit'); if (!sec || !sbLive) { refresh(); return; }
+    const open = { vs: !!($('#sbVs') || {}).open, prev: !!($('#sbPrev') || {}).open };
     const y = window.scrollY; sec.outerHTML = sbCustom(sbLive); window.scrollTo(0, y);
+    if (open.vs && $('#sbVs')) $('#sbVs').open = true; if (open.prev && $('#sbPrev')) $('#sbPrev').open = true;
     if (focusSel) { const n = $(focusSel); if (n) try { n.focus({ preventScroll: true }); } catch (e) { n.focus(); } }
   }
   // load a strategy's amounts into the draft (unsaved). Locked buckets keep their amounts.
@@ -1561,19 +1821,20 @@
   // save a strategy: strategyId (+ custom plan) and this month's snapshot in history (one per month, max 36)
   function sbCommit(id, extra) {
     const E = sbEngine(); if (!E) { toast('Smart Budget isn\'t available right now', { error: true }); return; }
+    id = sbId(id);
     const prev = sbCfg();
     const next = Object.assign({}, prev, { strategyId: id }, extra || {});
     W.saveSettings({ smartBudget: next });
     sbDraft = null; sbModeUi = null;
     let s = null, a = null;
-    try { a = E.analyze(curMonth()); s = (E.strategies(a) || []).find(x => x && x.id === id) || null; } catch (e) { console.error(e); }
+    try { a = E.analyze(curMonth()); s = sbList(E, a, next).find(x => x && x.id === id) || null; } catch (e) { console.error(e); }
     if (id === 'custom' && a && sbCentsOk(next.customDollars)) { const c = sbCalc(a, next.customDollars); s = Object.assign({}, s || { id: 'custom', name: 'Custom' }, { amounts: c.dollars, pct: c.pct }); delete s.adjusted; }
     else if (!sbValid(s) && id === 'custom' && a && typeof E.allocate === 'function') s = sbTry(() => Object.assign({ id: 'custom', name: 'Custom' }, E.allocate(a, next.custom)), null);
     if (!sbValid(s)) { refresh(); toast('Saved'); return; }
     s = sbEff(s);
-    const snap0 = sbTry(() => typeof E.snapshot === 'function' ? E.snapshot(curMonth(), s) : null, null) || {};
+    const snap0 = sbTry(() => typeof E.snapshot === 'function' ? E.snapshot(curMonth(), s.engineId ? Object.assign({}, s, { id: s.engineId }) : s) : null, null) || {};
     const snap = { month: /^\d{4}-\d{2}$/.test(snap0.month || '') ? snap0.month : curMonth(), strategyId: id, pct: {}, amounts: {}, income: 0, savedAt: /^\d{4}-\d{2}-\d{2}$/.test(snap0.savedAt || '') ? snap0.savedAt : today() };
-    const sp = id === 'custom' ? s : sbValid(snap0) ? snap0 : s;
+    const sp = id === 'custom' || s.synthetic ? s : sbValid(snap0) ? snap0 : s;
     SB_KEYS.forEach(k => { snap.pct[k] = Math.max(0, Math.min(100, Math.round((+sp.pct[k] || 0) * 10) / 10)); snap.amounts[k] = Math.max(0, Math.round(+sp.amounts[k] || 0)); });
     snap.income = a && Number.isInteger(a.income) ? a.income : Number.isInteger(snap0.income) ? snap0.income : SB_KEYS.reduce((t, k) => t + snap.amounts[k], 0);
     snap.dollars = Object.assign({}, snap.amounts);
@@ -1583,6 +1844,72 @@
     W.saveSettings({ smartBudget: Object.assign({}, next, { history: hist }) });
     toast(sbName(s.id === 'custom' ? { id: 'custom' } : s) + ' saved for ' + W.monthLabel(snap.month));
     refresh();
+  }
+  // ---- expand / collapse a category in "Personalized Plans for You" (in place, each one independent)
+  function sbToggle(k, btn) {
+    if (!SB_KEYS.includes(k)) return;
+    sbOpen[k] = !sbOpen[k];
+    const row = btn && btn.closest('.sb-x'), p = row && row.querySelector('.sb-x-p');
+    if (!row || !p) { refresh(); return; }
+    row.classList.toggle('open', sbOpen[k]); btn.setAttribute('aria-expanded', String(sbOpen[k])); p.hidden = !sbOpen[k];
+    const sr = btn.querySelector('.sr-only'); if (sr) sr.textContent = (sbOpen[k] ? 'Hide' : 'Show') + ' details';
+  }
+  function sbFill() {
+    const st = sbLive; if (!st) return;
+    const d = sbGetDraft(st), I = +st.a.income || 0;
+    if (SB_KEYS.every(k => d.locks[k])) { toast('Unlock a category first', { error: true }); return; }
+    const lockedSum = SB_KEYS.reduce((t, k) => t + (d.locks[k] ? d.dollars[k] : 0), 0);
+    if (lockedSum > I) { toast(`Your locked amounts (${fmt(lockedSum)}) are more than your take-home pay. Unlock one to fill to 100%.`, { error: true }); return; }
+    const out = sbFillExact(st.a, d.dollars, d.locks);
+    if (!out) { toast('Couldn’t fill to exactly 100%. Adjust an amount and try again.', { error: true }); return; }
+    SB_KEYS.forEach(k => { if (out[k] !== d.dollars[k]) delete d.pctTyped[k]; });
+    d.dollars = out; d.dirty = true; sbRedraw();
+    toast('Filled to exactly ' + fmt(I) + '. Locked categories didn’t change.');
+  }
+  function sbSaveAs() {
+    const st = sbLive; if (!st) return;
+    const d = sbGetDraft(st), list = sbSavedList();
+    if (list.length >= SB_SAVED_MAX) { toast(`You can keep up to ${SB_SAVED_MAX} saved strategies. Delete one first.`, { error: true }); return; }
+    const sum = SB_BUCKETS.map(([k, n]) => `${n} ${fmt(d.dollars[k])}`).join(', ');
+    modal({ title: 'Save as a named strategy', submit: 'Save strategy',
+      body: `<p class="small muted" style="margin:0 0 10px">Keeps this split (${esc(sum)}) so you can restore it later. Your budget in use doesn’t change until you tap Save.</p><label class="field"><span>Name</span><input class="input" name="name" maxlength="40" autocomplete="off" autofocus placeholder="For example: Holiday months" style="font-size:16px"></label>`,
+      onSubmit: async f => {
+        const name = String(f.name || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 40);
+        if (!name) { toast('Give it a name', { error: true }); return false; }
+        const cur = sbSavedList(), ex = cur.find(x => x.name.toLowerCase() === name.toLowerCase());
+        if (ex && !(await confirmBox(`Replace “${esc(ex.name)}”?`, `You already have a saved strategy called <b>${esc(ex.name)}</b>${ex.savedOn ? ' (saved ' + esc(W.shortDate(ex.savedOn)) + ')' : ''}. Replace it with this split?`, 'Replace'))) return false;
+        if (!ex && cur.length >= SB_SAVED_MAX) { toast(`You can keep up to ${SB_SAVED_MAX} saved strategies. Delete one first.`, { error: true }); return false; }
+        const locks = {}; SB_KEYS.forEach(k => { locks[k] = !!d.locks[k]; });
+        const entry = { id: ex ? ex.id : 'sv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, dollars: SB_KEYS.reduce((o, k) => (o[k] = Math.max(0, Math.round(+d.dollars[k] || 0)), o), {}), locks, savedOn: today() };
+        const next = ex ? cur.map(x => x.id === ex.id ? entry : x) : cur.concat([entry]);
+        W.saveSettings({ smartBudget: Object.assign({}, sbCfg(), { saved: next.slice(0, SB_SAVED_MAX) }) });
+        sbRedrawSaved(); toast(`“${name}” ${ex ? 'replaced' : 'saved'}`);
+      } });
+  }
+  let sbRestoreM = null;
+  function sbRestoreApply(id, keepLocked) {
+    const st = sbLive; if (sbRestoreM) { sbRestoreM.close(); sbRestoreM = null; }
+    const sv = sbSavedList().find(x => x.id === id); if (!st || !sv) return;
+    const d = sbGetDraft(st);
+    SB_KEYS.forEach(k => { if (!(keepLocked && d.locks[k])) d.dollars[k] = sv.dollars[k]; });
+    SB_KEYS.forEach(k => { d.locks[k] = keepLocked ? !!(d.locks[k] || (sv.locks && sv.locks[k])) : !!(sv.locks && sv.locks[k]); });
+    d.pctTyped = {}; d.from = 'saved'; d.dirty = true; sbRedraw();
+    toast(`“${sv.name}” loaded${keepLocked && SB_KEYS.some(k => d.locks[k]) ? ', locked categories kept' : ''}. Tap Save to use it.`);
+  }
+  function sbRestore(id) {
+    const st = sbLive; if (!st) return;
+    const sv = sbSavedList().find(x => x.id === id); if (!sv) return;
+    const d = sbGetDraft(st);
+    const clash = SB_BUCKETS.filter(([k]) => d.locks[k] && d.dollars[k] !== sv.dollars[k]);
+    if (!clash.length) { sbRestoreApply(id, true); return; }
+    sbRestoreM = modal({ title: 'Some categories are locked', footer: `<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn" data-act="sbRestoreKeep" data-id="${esc(id)}">Keep locked amounts</button><button type="button" class="btn primary" data-act="sbRestoreAll" data-id="${esc(id)}">Replace them too</button>`,
+      body: `<p class="small" style="margin:0 0 8px">“${esc(sv.name)}” has different amounts for categories you locked:</p><ul class="sb-ul small">${clash.map(([k, n]) => `<li><b>${n}</b>: locked at ${fmt(d.dollars[k])}, saved as ${fmt(sv.dollars[k])}</li>`).join('')}</ul><p class="small muted" style="margin:8px 0 0">Locked amounts only change if you choose “Replace them too”. Nothing is saved until you tap Save.</p>` });
+  }
+  async function sbDelSaved(id) {
+    const sv = sbSavedList().find(x => x.id === id); if (!sv) return;
+    if (!(await confirmBox(`Delete “${esc(sv.name)}”?`, 'This removes the saved strategy. Your budget in use stays the same.', 'Delete', true))) return;
+    W.saveSettings({ smartBudget: Object.assign({}, sbCfg(), { saved: sbSavedList().filter(x => x.id !== id) }) });
+    sbRedrawSaved(); toast(`“${sv.name}” deleted`);
   }
   function sbVsActual(st) {
     const va = typeof st.E.vsActual === 'function' ? st.E.vsActual(st.a, st.eff, curMonth()) : null;
@@ -1636,7 +1963,7 @@
     const hist = (Array.isArray(st.cfg.history) ? st.cfg.history : []).filter(h => h && /^\d{4}-\d{2}$/.test(h.month || '') && sbValid(h)).slice().reverse();
     return `<section class="section">${sectionH('History', hist.length ? hist.length + ' month' + (hist.length === 1 ? '' : 's') : '')}
       ${hist.length ? `<div class="sb-hist">${hist.map(h => { const ci = h.rollover && typeof h.rollover === 'object' ? sbSum(h.rollover) : 0; return `<div class="sb-h" data-month="${h.month}"><div class="row between"><span><b>${W.monthLabel(h.month)}</b>${h.month === curMonth() ? ' <span class="pill">This month</span>' : ''}</span><b class="num">${fmt(+h.income || 0)}</b></div>
-        <div class="tiny faint">${esc(SB_NAMES[h.strategyId] || 'Budget')}${h.savedAt ? ' · saved ' + W.shortDate(h.savedAt) : ''}${ci > 0 ? ' · ' + fmt(ci) + ' carried in' : ''}</div>${sbStack(h.pct)}
+        <div class="tiny faint">${esc(SB_NAMES[h.strategyId] || (h.strategyId === 'custom' ? 'Custom' : 'Budget'))}${h.savedAt ? ' · saved ' + W.shortDate(h.savedAt) : ''}${ci > 0 ? ' · ' + fmt(ci) + ' carried in' : ''}</div>${sbStack(h.pct)}
         <div class="sb-mini">${SB_BUCKETS.map(([k, n, c]) => `<span><i class="dot" style="background:${c}"></i>${n} <b class="num">${sbPct(h.pct[k])}</b> <span class="faint">${fmt0(+h.amounts[k] || 0)}</span></span>`).join('')}</div></div>`; }).join('')}</div>` : `<p class="small muted" style="margin:10px 0 0">Each month you save a budget, it's kept here so you can look back.</p>`}
     </section>`;
   }
@@ -2308,6 +2635,14 @@
     sbLock: d => { if (!sbLive || !SB_KEYS.includes(d.k)) return; const dr = sbGetDraft(sbLive); dr.locks[d.k] = !dr.locks[d.k]; dr.dirty = true; sbRedraw(`[data-act=sbLock][data-k=${d.k}]`); },
     sbSpread: () => { if (!sbLive) return; const dr = sbGetDraft(sbLive); const nx = sbDistribute(sbLive.a, dr.dollars, dr.locks); SB_KEYS.forEach(k => { if (nx[k] !== dr.dollars[k]) delete dr.pctTyped[k]; }); dr.dollars = nx; dr.dirty = true; sbRedraw(); },
     sbCustomize: d => sbCustomize(d.id),
+    sbToggle: (d, el) => sbToggle(d.k, el),
+    sbHorizon: d => { const m = +d.m; if (!SB_HZ.some(h => h[0] === m)) return; sbHz = m; sbRedrawCmp(); const b = $(`#sbCmp [data-act=sbHorizon][data-m="${m}"]`); if (b) try { b.focus({ preventScroll: true }); } catch (e) { /* ignore */ } },
+    sbFill: () => sbFill(),
+    sbSaveAs: () => sbSaveAs(),
+    sbRestore: d => sbRestore(d.id),
+    sbRestoreKeep: d => sbRestoreApply(d.id, true),
+    sbRestoreAll: d => sbRestoreApply(d.id, false),
+    sbDelSaved: d => { sbDelSaved(d.id); },
     sbCats: () => sbCatsModal(),
     sbEss: d => sbSetEss(d.id, d.v === '1'),
     sbEssReset: () => sbSetEss(null, null),
@@ -2318,6 +2653,16 @@
     movePc: (el) => { W.assignInstance(el.dataset.id, el.value); toast('Moved to the ' + W.shortDate(el.value.split('|')[1]) + ' paycheck'); refresh(); },
     sbInto: el => { const k = el.value; el.value = ''; if (!sbLive || !SB_KEYS.includes(k)) return; const dr = sbGetDraft(sbLive); if (dr.locks[k]) return; const nx = sbDistribute(sbLive.a, dr.dollars, dr.locks, k); SB_KEYS.forEach(x => { if (nx[x] !== dr.dollars[x]) delete dr.pctTyped[x]; }); dr.dollars = nx; dr.dirty = true; sbRedraw(); },
     sbFrom: el => { const id = el.value; el.value = ''; if (id) sbCustomize(id); },
+    sbSavApr: el => {
+      const v = el.value.trim().replace(/\s*%$/, '');
+      const p = v === '' ? 0 : /^\d*\.?\d*$/.test(v) && v !== '.' ? parseFloat(v) : NaN;
+      if (!(isFinite(p) && p >= 0 && p <= 20)) { el.setAttribute('aria-invalid', 'true'); toast('Enter a rate between 0% and 20%', { error: true }); return; }
+      el.removeAttribute('aria-invalid');
+      const c = Math.round(p * 100), cfg = Object.assign({}, sbCfg());
+      if (c > 0) cfg.savingsAprCenti = c; else delete cfg.savingsAprCenti;
+      W.saveSettings({ smartBudget: cfg }); toast(c > 0 ? `Savings estimates now grow at ${c / 100}% a year` : 'Savings estimates assume 0% growth');
+      refresh();
+    },
     sbRoll: el => { if (!sbLive || !SB_KEYS.includes(el.dataset.k) || !SB_ROLL.some(r => r[0] === el.value)) return; const dr = sbGetDraft(sbLive); dr.rollover[el.dataset.k] = el.value; dr.dirty = true; sbPaint(el); },
     payoffExtra: el => { const c = W.parseMoney(el.value); ui.payoffExtra = c > 0 ? c : 0; refresh(); },
     widgetToggle: el => { const s = W.settings().dashboard; const hidden = s.hidden.filter(k => k !== el.dataset.k); if (!el.checked) hidden.push(el.dataset.k); W.saveSettings({ dashboard: { order: s.order, hidden } }); },

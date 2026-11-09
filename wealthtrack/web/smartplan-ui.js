@@ -118,7 +118,7 @@
 .sp .sp-dirty { background: var(--due-soft); color: var(--due); }
 .sp .sp-tabs { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line-2); border-radius: 10px; margin-top: 12px; }
 .sp .sp-tabs button { flex: 1; min-height: 40px; border: 0; border-radius: 8px; background: none; font-weight: 650; font-size: 14px; color: var(--ink-2); cursor: pointer; }
-.sp .sp-tabs button.on { background: var(--brand); color: var(--on-brand); }
+.sp .sp-tabs button.on { background: var(--sb-accent, var(--brand)); color: var(--sb-on-accent, var(--on-brand)); }
 .sp .sp-extra { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .sp .sp-extra label { max-width: 320px; flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sp .sp-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 12px; }
@@ -126,7 +126,7 @@
 .sp .sp-fig b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .sp .sp-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
 .sp .sp-tbl td.r, .sp .sp-tbl th.r { text-align: right; }
-.sp .sp-tbl tr.on td { background: var(--brand-soft); }
+.sp .sp-tbl tr.on td { background: var(--sb-soft, var(--brand-soft)); }
 .sp .sp-order { margin-top: 6px; }
 .sp .sp-debt { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 0; border-bottom: 1px dotted var(--line-2); }
 .sp .sp-debt .sp-rank { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--sunken); font-weight: 700; font-size: 12.5px; }
@@ -142,7 +142,7 @@
   .sp .sp-tbl thead { display: none; }
   .sp .sp-tbl, .sp .sp-tbl tbody, .sp .sp-tbl tr, .sp .sp-tbl td { display: block; width: 100%; }
   .sp .sp-tbl tr { border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; margin-bottom: 8px; background: var(--surface); }
-  .sp .sp-tbl tr.on { border-color: var(--brand); }
+  .sp .sp-tbl tr.on { border-color: var(--sb-accent, var(--brand)); }
   .sp .sp-tbl tr.on td { background: none; }
   .sp .sp-tbl td { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border: 0; text-align: right; }
   .sp .sp-tbl td::before { content: attr(data-label); color: var(--ink-3); font-size: 12.5px; text-align: left; }
@@ -304,7 +304,9 @@
     const s = isObj(cfg().debt) ? cfg().debt : null;
     const ch = (ctx || getCtx()).chosen || {};
     const defExtra = ch.debtSplit && Number.isFinite(+ch.debtSplit.extra) ? Math.max(0, num(ch.debtSplit.extra)) : 0;
-    return { method: s && ['avalanche', 'snowball', 'custom'].includes(s.method) ? s.method : 'avalanche', extra: s && Number.isFinite(+s.extra) ? Math.max(0, num(s.extra)) : defExtra, order: s && Array.isArray(s.order) ? s.order.slice(0, 100) : [] };
+    // no saved debt plan yet: follow the chosen strategy's repayment order (Debt Snowball -> snowball), else avalanche
+    const defMethod = ch.debtOrder === 'snowball' || ch.id === 'snowball' ? 'snowball' : 'avalanche';
+    return { method: s && ['avalanche', 'snowball', 'custom'].includes(s.method) ? s.method : defMethod, extra: s && Number.isFinite(+s.extra) ? Math.max(0, num(s.extra)) : defExtra, order: s && Array.isArray(s.order) ? s.order.slice(0, 100) : [] };
   }
   function editDebt() { if (!draft.debt) draft.debt = JSON.parse(JSON.stringify(debtDraft())); draft.debtDirty = true; return draft.debt; }
   function debtResult(d) { if (!has('debtPlans')) return null; const r = Plan().debtPlans({ extra: d.extra, method: d.method, order: d.order.slice() }); return r && isObj(r.methods) ? r : null; }
