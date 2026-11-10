@@ -5909,7 +5909,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.4'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.5'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -6415,14 +6415,14 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   }
   // ------------------------------------------------------------ BILLS
   function viewBills() {
-    const tabs = `<div class="seg" style="margin-bottom:6px">${[['upcoming', 'Upcoming'], ['manage', 'All bills'], ['subs', 'Subscriptions']].map(([k, l]) => `<button class="${billsTabOf() === k ? 'on' : ''}" data-act="billsTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
+    const tabs = `<div class="seg" style="margin-bottom:6px">${[['upcoming', 'Overview'], ['manage', 'All bills'], ['subs', 'Subscriptions']].map(([k, l]) => `<button class="${billsTabOf() === k ? 'on' : ''}" data-act="billsTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
     const head = `<div class="topbar"><div><h1>Bills</h1><div class="sub">Tap the circle to mark a bill paid. Each month keeps its own record.</div></div><div class="row wrap desk-only"><button class="btn primary" data-act="addBill">${ic('plus')}New bill</button></div></div>${tabs}`;
     const tab = billsTabOf();
     if (tab === 'manage') return head + `<div style="margin-top:16px">${viewManageBills()}</div>`;
     if (tab === 'subs') return head + `<div style="margin-top:16px">${viewSubs()}</div>`;
     return head + viewUpcoming();
   }
-  // "This month" (Upcoming's default choice): the whole month, paid and unpaid, with month-to-month browsing.
+  // "This month" (Overview's default choice): the whole month, paid and unpaid, with month-to-month browsing.
   // For the current month it also shows the cash outlook (paychecks, available, projected after).
   function viewBillMonth(rangeSeg) {
     const mk = ui.month; const sm = W.billsSummary(mk); const pct = sm.total ? Math.round(sm.paid * 100 / sm.total) : 0;
@@ -6532,7 +6532,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     return groupedList(items.slice().sort(sorter), fn, { order: ord, row: { showPaycheck: group !== 'paycheck' } });
   }
   const UP_RANGES = [['date', 'Through a date'], ['month', 'This month'], ['30', '30 days'], ['60', '60 days']];
-  // the old separate "This month" tab is now Upcoming > This month
+  // the old separate "This month" tab is now Overview > This month
   const billsTabOf = () => ['manage', 'subs'].includes(ui.billsTab) ? ui.billsTab : 'upcoming';
   // remembered per device (ui) and with your data (settings.upRange); older saved choices fall back to End of month
   const upRangeOf = () => { const v = UP_RANGES.some(x => x[0] === ui.upRange) ? ui.upRange : (W.D && W.settings().upRange) || ''; return UP_RANGES.some(x => x[0] === v) ? v : 'month'; };

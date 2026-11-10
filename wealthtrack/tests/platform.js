@@ -81,7 +81,7 @@ const stored = page => page.evaluate(() => new Promise(res => { const r = indexe
     ok(JSON.stringify(labels) === JSON.stringify(['Through a date', 'This month', '30 days', '60 days']), 'Upcoming has exactly 4 choices: ' + labels.join(', '));
     ok(/on/.test(await page.locator('.up-range button[data-r=month]').getAttribute('class')), 'This month is the default');
     const tabs = await page.locator('[data-act=billsTab]').allTextContents();
-    ok(JSON.stringify(tabs.map(x => x.trim())) === JSON.stringify(['Upcoming', 'All bills', 'Subscriptions']), 'Bills has 3 tabs (no separate This month): ' + tabs.join(', '));
+    ok(JSON.stringify(tabs.map(x => x.trim())) === JSON.stringify(['Overview', 'All bills', 'Subscriptions']), 'Bills has 3 tabs (no separate This month): ' + tabs.join(', '));
     ok(await page.locator('#main .month-sel [data-act=monthStep]').count() === 2, 'This month has the month picker to browse months');
     const mIds = await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].map(b => b.dataset.inst));
     const allMonth = await page.evaluate(() => WT.instancesForMonth(WT.monthOf(WT.todayStr())).length);
