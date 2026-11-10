@@ -448,5 +448,6 @@
 
   window.WTExt = window.WTExt || {};
   window.WTExt.plan = { act };
-  window.WTPlanUI = { ready: true, renderPaychecks, renderDebt, _draft: draft };
+  // dirty(): unsaved paycheck or debt-plan changes (app.js keeps them while the Smart Budget section changes)
+  window.WTPlanUI = { ready: true, renderPaychecks, renderDebt, dirty: () => pcDirty() || !!draft.debtDirty, _draft: draft };
 })();

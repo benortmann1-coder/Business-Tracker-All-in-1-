@@ -280,7 +280,9 @@
       expenses: e => int(e, 'amountCents', true) && date(e, 'date', true) && str(e, 'category', 100) && str(e, 'description', 500) && str(e, 'notes', 5000) && src(e, 'sourceId') && ref(e, 'receiptId'),
       receipts: r => typeof r.dataUrl === 'string' && r.dataUrl.length < 12e6 && IMG.test(r.dataUrl),
       debts: d => str(d, 'name', 200, true) && str(d, 'type', 50) && int(d, 'startBalanceCents', true) && date(d, 'startDate', true) && intDef(d, 'aprCenti', 0, 0, 100000) &&
-        intDef(d, 'minCents', 0, 0) && intDef(d, 'dueDay', 1, 1, 31) && int(d, 'limitCents', false, 0) && bool(d, 'autoInterest') && bool(d, 'closed') && bool(d, 'deleted'),
+        intDef(d, 'minCents', 0, 0) && intDef(d, 'dueDay', 1, 1, 31) && int(d, 'limitCents', false, 0) && bool(d, 'autoInterest') && bool(d, 'closed') && bool(d, 'deleted') &&
+        // mortgage escrow part of the monthly payment (cents, optional): a bad value is dropped, never the debt
+        (d.escrowCents == null || (Number.isInteger(d.escrowCents) && d.escrowCents >= 0 && d.escrowCents <= 1e11) || ((delete d.escrowCents), report.fixed++, true)),
       debtTxns: x => ref(x, 'debtId', true) && int(x, 'amountCents', true) && date(x, 'date', true) && ['payment', 'interest', 'charge', 'adjust', 'fee'].includes(x.type) && src(x, 'sourceId') &&
         str(x, 'note', 500) && bool(x, 'voided') && ((x.key = typeof x.key === 'string' && x.key.length < 200 ? x.key : null), true),
       budgets: b => b.category === b.id && int(b, 'limitCents', true, 0) && bool(b, 'rollover') && ((b.startMonth = typeof b.startMonth === 'string' && MONTH.test(b.startMonth) ? b.startMonth : new Date().toISOString().slice(0, 7)), true),
@@ -310,8 +312,13 @@
         if (typeof m.profile.photo === 'string' && m.profile.photo.length <= 300000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(m.profile.photo)) pr.photo = m.profile.photo;
         keep.profile = pr;
       }
-      if (['USD', 'CAD', 'AUD', 'MXN', 'EUR', 'GBP', 'INR', 'PHP'].includes(m.currency)) keep.currency = m.currency;
-      if (m.dateFormat === 'md' || m.dateFormat === 'dm') keep.dateFormat = m.dateFormat;
+      // same codes as CURRENCIES in app.js
+      if (['USD', 'ARS', 'AUD', 'BDT', 'BRL', 'GBP', 'CAD', 'CLP', 'CNY', 'COP', 'CZK', 'DKK', 'EGP', 'EUR', 'GHS', 'HKD', 'HUF', 'INR', 'IDR', 'ILS', 'JPY', 'KES', 'MYR', 'MXN', 'MAD',
+        'TWD', 'NZD', 'NGN', 'NOK', 'PKR', 'PEN', 'PHP', 'PLN', 'QAR', 'RON', 'SAR', 'SGD', 'ZAR', 'KRW', 'LKR', 'SEK', 'CHF', 'THB', 'TRY', 'AED', 'UAH', 'VND'].includes(m.currency)) keep.currency = m.currency;
+      // date formats (WT.DATE_FORMATS); older backups used 'md' (Nov 7) and 'dm' (7 Nov)
+      if (m.dateFormat === 'md') keep.dateFormat = 'mdy';
+      else if (m.dateFormat === 'dm') keep.dateFormat = 'dmy';
+      else if (['mdy', 'dmy', 'mdy_long', 'mdy_num', 'dmy_num', 'dmy_dot', 'ymd'].includes(m.dateFormat)) keep.dateFormat = m.dateFormat;
       if (m.gdrive && typeof m.gdrive === 'object') keep.gdrive = { on: !!m.gdrive.on, email: typeof m.gdrive.email === 'string' ? m.gdrive.email.slice(0, 200) : '' };
       if (Number.isInteger(m.monthColorSeed) && m.monthColorSeed > 0 && m.monthColorSeed < 2147483648) keep.monthColorSeed = m.monthColorSeed;
       if (m.reminders && typeof m.reminders === 'object') keep.reminders = { enabled: !!m.reminders.enabled, daysBefore: Array.isArray(m.reminders.daysBefore) ? m.reminders.daysBefore.filter(d => Number.isInteger(d) && d >= 0 && d <= 30) : [3, 1, 0], hour: Number.isInteger(m.reminders.hour) && m.reminders.hour >= 0 && m.reminders.hour < 24 ? m.reminders.hour : 9 };
@@ -321,6 +328,7 @@
       }
       if (['due', 'status', 'name', 'mine', 'category', 'paycheck'].includes(m.billView)) keep.billView = m.billView;
       if (['date', 'month', '30', '60'].includes(m.upRange)) keep.upRange = m.upRange;
+      if (['plan', 'compare', 'customize'].includes(m.sbSection)) keep.sbSection = m.sbSection; // Smart Budget page section
       if (m.demoDone === true) keep.demoDone = true;
       if (Array.isArray(m.billOrder)) keep.billOrder = Array.from(new Set(m.billOrder.filter(isRef))).slice(0, 1000); // My order (Bills)
       if (Array.isArray(m.setAsides)) keep.setAsides = m.setAsides.filter(x => x && typeof x === 'object').slice(0, 50).map(x => ({ id: isRef(x.id) ? x.id : 'sa_' + Math.random().toString(36).slice(2), name: String(x.name == null ? '' : x.name).slice(0, 100), amountCents: Number.isInteger(x.amountCents) && x.amountCents >= 0 ? x.amountCents : 0 }));

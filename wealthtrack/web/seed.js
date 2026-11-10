@@ -11,6 +11,9 @@
     ['cat_loans', 'Loans', '#f43f5e'], ['cat_subscriptions', 'Subscriptions', '#8b5cf6'], ['cat_entertainment', 'Entertainment', '#06b6d4'],
     ['cat_healthcare', 'Healthcare', '#10b981'], ['cat_savings', 'Savings', '#84cc16'], ['cat_other', 'Other', '#94a3b8'],
     ['cat_phone', 'Phone & Internet', '#3b82f6'],
+    // home ownership (all essential): added to older installs by ensureBuiltins()
+    ['cat_mortgage', 'Mortgage', '#4f46e5'], ['cat_property_tax', 'Property tax', '#64748b'], ['cat_home_insurance', 'Homeowners insurance', '#0d9488'],
+    ['cat_pmi', 'Mortgage insurance (PMI)', '#7c3aed'], ['cat_hoa', 'HOA fees', '#0891b2'], ['cat_home_maintenance', 'Home maintenance & repairs', '#b45309'],
   ];
 
   // Always blank (opts kept for compatibility with older callers).
@@ -20,6 +23,19 @@
     WT.save('accounts', { id: 'acc_checking', name: 'Checking', type: 'checking', openingCents: 0, openingDate: today, inAvailable: true, order: 1 });
     WT.saveSettings({ seeded: 'blank', seededAt: today });
   }
-  const api = { seed, CATS };
+  // Older installs only got the categories that existed when they were first set up. Adds any built-in
+  // category that is missing, without touching the user's own categories: skipped when a category with the
+  // same id exists (even hidden) or the user already has one with the same name. Safe to run on every start.
+  function ensureBuiltins(WT) {
+    const have = (WT.D && WT.D.categories) || {};
+    const names = new Set(Object.values(have).filter(Boolean).map(c => String(c.name || '').trim().toLowerCase()));
+    const added = [];
+    CATS.forEach(([id, name, color]) => {
+      if (Object.prototype.hasOwnProperty.call(have, id) || names.has(name.toLowerCase())) return;
+      WT.save('categories', { id, name, color, builtin: true }); names.add(name.toLowerCase()); added.push(id);
+    });
+    return added;
+  }
+  const api = { seed, ensureBuiltins, CATS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.WTSeed = api;
 })(typeof window !== 'undefined' ? window : globalThis);

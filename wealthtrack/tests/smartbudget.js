@@ -42,6 +42,9 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   const go = async (p, r) => { await p.evaluate(r => { location.hash = '#/' + r; }, r); await p.waitForTimeout(250); };
   const shot = async (p, n, full) => { if (SHOTS) { await p.waitForTimeout(250); await p.screenshot({ path: path.join(SHOTS, n + '.png'), fullPage: !!full }); } };
   const mainText = p => p.locator('#main').textContent();
+  // the page is split into 3 sections picked from the "Section" dropdown; inactive sections are hidden (still in the DOM)
+  const SECS = ['plan', 'compare', 'customize'];
+  const sec = async (p, v) => { await p.selectOption('#sbSec', v); await p.waitForTimeout(120); };
 
   ok(await page.evaluate(() => !!(window.WTSmart && WTSmart.analyze)), 'engine loaded (window.WTSmart)');
   const before = await page.evaluate(DATA);
@@ -55,11 +58,51 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   await go(page, 'budgets');
   ok(await page.evaluate(() => WTApp.ui.route) === 'smart', 'old Budgets link opens Smart Budget');
   await go(page, 'dashboard');
-  ok(await page.locator('#main a[href="#/smart"]').count() >= 1, 'dashboard Smart Budget widget');
+  ok(await page.locator('#main a[href="#/smart/plan"]').count() >= 1, 'dashboard Smart Budget widget (opens My plan)');
 
   // 1) recommended card
   await go(page, 'smart');
   ok(!/Something went wrong/.test(await mainText(page)), 'page renders with sample data');
+  // sections: a labeled "Section" dropdown right under the page title, 3 choices, My plan first
+  const SEC_CARDS = { plan: ['#sbPlans', '#sbRecSum', '#sbVa', '#sbSug', '#sbHist'], compare: ['#sbWhy', '#sbStrats', '#sbCmp'], customize: ['#sbEdit', '#sbSaved', '#spPaychecks', '#spDebt'] };
+  const secInfo = () => page.evaluate(() => { const s = document.querySelector('#sbSec'), l = document.querySelector('label[for=sbSec]'), tb = document.querySelector('#main .topbar');
+    return s && { tag: s.tagName, label: l && l.textContent.trim(), opts: [...s.options].map(o => o.value + '=' + o.textContent), val: s.value, under: tb.getBoundingClientRect().bottom <= s.getBoundingClientRect().top && !!(tb.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(s.compareDocumentPosition(document.querySelector('#sbPlans')) & Node.DOCUMENT_POSITION_FOLLOWING), fs: parseFloat(getComputedStyle(s).fontSize), h: s.getBoundingClientRect().height, w: s.getBoundingClientRect().width, mainW: document.querySelector('.sb').getBoundingClientRect().width }; });
+  const si0 = await secInfo();
+  ok(si0 && si0.tag === 'SELECT' && si0.label === 'Section' && si0.opts.join('|') === 'plan=My plan|compare=Strategies & compare|customize=Customize & paychecks', 'Section dropdown with 3 options: ' + (si0 && si0.opts.join(', ')));
+  ok(si0.val === 'plan' && si0.under, 'dropdown sits under the page title, before the plan; opens on My plan');
+  ok(si0.fs >= 16 && si0.h >= 40 && si0.w >= si0.mainW - 1, 'phone: dropdown is full width, 16px text, at least 40px tall (' + Math.round(si0.w) + '/' + Math.round(si0.mainW) + 'px, ' + Math.round(si0.h) + 'px)');
+  const visMap = () => page.evaluate(C => { const o = {}; for (const k in C) o[k] = C[k].map(s => { const e = document.querySelector(s); return e ? (e.getClientRects().length > 0 ? 1 : 0) : -1; }); return o; }, SEC_CARDS);
+  for (const v of SECS) {
+    await sec(page, v);
+    const m = await visMap(), bad = [];
+    for (const k in m) m[k].forEach((x, i) => { if (x !== (k === v ? 1 : 0)) bad.push(SEC_CARDS[k][i] + (x < 0 ? ' missing' : x ? ' shown' : ' hidden')); });
+    ok(!bad.length && await page.locator(`#sbSec-${v}`).isVisible(), `section "${v}" shows only its own cards` + (bad.length ? ' (' + bad.join(', ') + ')' : ''));
+  }
+  ok(await page.locator('[data-sbsec]').evaluateAll(els => els.every(e => e.getAttribute('role') === 'region' && e.getAttribute('aria-label'))) && (await page.locator('#sbSec').getAttribute('aria-controls')).split(' ').length === 3, 'sections are labeled regions the dropdown controls');
+  ok(await page.evaluate(() => WT.settings().sbSection) === 'customize' && await page.evaluate(() => location.hash) === '#/smart/customize', 'choice saved (settings.sbSection) and shown in the address (#/smart/customize)');
+  await sec(page, 'compare');
+  await page.reload(); await page.waitForFunction(() => window.__wtReady); await go(page, 'smart');
+  ok(await page.locator('#sbSec').inputValue() === 'compare' && await page.locator('#sbWhy').isVisible() && !(await page.locator('#sbPlans').isVisible()), 'section choice persists across reload');
+  await page.evaluate(() => { const u = JSON.parse(localStorage.getItem('wt.ui') || '{}'); delete u.sbSec; localStorage.setItem('wt.ui', JSON.stringify(u)); });
+  await page.reload(); await page.waitForFunction(() => window.__wtReady); await go(page, 'smart');
+  ok(await page.locator('#sbSec').inputValue() === 'compare', 'section also comes back from settings (another device / restored backup)');
+  await go(page, 'dashboard'); await page.locator('#main a[href="#/smart/plan"]').first().click(); await page.waitForTimeout(300);
+  ok(await page.locator('#sbSec').inputValue() === 'plan' && await page.locator('#sbPlans').isVisible(), 'the dashboard widget opens Smart Budget on My plan');
+  await sec(page, 'compare');
+  // deep links: a section name or a card id opens the right section and scrolls to the card
+  await go(page, 'smart/sbEdit'); await page.waitForTimeout(150);
+  const dl = await page.evaluate(() => ({ val: document.querySelector('#sbSec').value, top: Math.round(document.querySelector('#sbEdit').getBoundingClientRect().top), hash: location.hash }));
+  ok(dl.val === 'customize' && dl.top >= -2 && dl.top < 120 && dl.hash === '#/smart/customize', 'deep link #/smart/sbEdit opens Customize & paychecks at the editor ' + JSON.stringify(dl));
+  await go(page, 'smart/plan');
+  ok(await page.locator('#sbSec').inputValue() === 'plan' && await page.locator('#sbPlans').isVisible(), 'deep link #/smart/plan opens My plan');
+  // My plan: the essentials come first on a phone, with a short recommendation summary that links to the details
+  const fold = await page.evaluate(() => { const r = s => document.querySelector(s).getBoundingClientRect(); return { sel: r('#sbSec').bottom, hero: r('.sb-hero-t').bottom, rows: r('.sb-hero .sb-row').top }; });
+  ok(fold.sel < 844 && fold.hero < 844 && fold.rows < 844 * 1.1, 'phone: dropdown and the plan heading are above the fold ' + JSON.stringify(fold));
+  ok(await page.locator('#sbRecSum').isVisible() && /Recommended strategy/.test(await page.locator('#sbRecSum').textContent()), 'My plan has a short recommendation summary');
+  await page.click('#sbRecSum [data-act=sbGo][data-to=sbWhy]'); await page.waitForTimeout(150);
+  const wj = await page.evaluate(() => ({ val: document.querySelector('#sbSec').value, top: Math.round(document.querySelector('#sbWhy').getBoundingClientRect().top) }));
+  ok(wj.val === 'compare' && wj.top >= -2 && wj.top < 120, '"Why this plan" switches to Strategies & compare and scrolls to the reasons ' + JSON.stringify(wj));
+  await sec(page, 'plan'); await page.evaluate(() => window.scrollTo(0, 0));
   // palette: the four bucket tokens are muted (low saturation), not the old bright categorical colors, and every chart uses them
   const pl = await page.evaluate(PALETTE);
   ok(pl.ok, 'professional palette: --sb-needs/debt/savings/wants are restrained ' + JSON.stringify(pl.v));
@@ -108,6 +151,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   ok(/Allocated/.test(await page.locator('#sbx-needs').textContent()) && /Recommended/.test(await page.locator('#sbx-needs').textContent()) && /Remaining|Short by/.test(await page.locator('#sbx-needs').textContent()), 'expanded category shows allocated, recommended %, remaining');
   await shot(page, 'smart-top');
   for (const k of ['needs', 'debt', 'savings', 'wants']) await page.click(`[data-act=sbToggle][data-k=${k}]`);
+  await sec(page, 'compare');
   // recommendation transparency
   const R = await page.evaluate(() => WTSmart.recommend(WTSmart.analyze()));
   const why = await page.locator('#sbWhy').textContent();
@@ -173,6 +217,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
 
   // 3) Customize: Dollars | Percent editor over an unsaved draft
   const K = ['needs', 'debt', 'savings', 'wants'];
+  await sec(page, 'customize');
   await page.locator('#sbEdit').scrollIntoViewIfNeeded();
   await page.evaluate(() => { document.querySelector('.sb-custom').__keep = 1; });
   const ed = () => page.evaluate(() => { const K = ['needs', 'debt', 'savings', 'wants']; const rb = document.querySelector('#sbRemain'); return {
@@ -365,6 +410,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   // a past month's snapshot is kept untouched and listed
   await page.evaluate(() => { const s = WT.settings().smartBudget; const old = { month: WT.addMonthKey(WT.monthOf(WT.todayStr()), -1), strategyId: 'recommended', pct: { needs: 50, debt: 10, savings: 20, wants: 20 }, amounts: { needs: 100000, debt: 20000, savings: 40000, wants: 40000 }, income: 200000, savedAt: '2020-01-01' }; WT.saveSettings({ smartBudget: Object.assign({}, s, { history: [old].concat(s.history) }) }); WTApp.refresh(); });
   await page.waitForTimeout(200);
+  await sec(page, 'plan');
   await page.locator('[data-act=sbUse][data-id=recommended]').first().click(); await page.waitForTimeout(300);
   sb = await page.evaluate(() => WT.settings().smartBudget);
   const prevMk = await page.evaluate(() => WT.addMonthKey(WT.monthOf(WT.todayStr()), -1));
@@ -460,15 +506,52 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   await page.evaluate(() => { window.WTSmart = window.__sb; WTApp.refresh(); }); await page.waitForTimeout(150);
   await ctx.close();
 
+  // sections: "Customize this" jumps to Customize & paychecks; unsaved editor changes survive switching sections
+  {
+    const { ctx, page } = await open();
+    await go(page, 'smart'); await sec(page, 'compare');
+    await page.locator('.sb-card[data-strategy=balanced] [data-act=sbCustomize]').click(); await page.waitForTimeout(250);
+    const cj = await page.evaluate(() => ({ val: document.querySelector('#sbSec').value, vis: document.querySelector('#sbEdit').getClientRects().length > 0, top: Math.round(document.querySelector('#sbEdit').getBoundingClientRect().top), cmp: document.querySelector('#sbCmp').getClientRects().length, hash: location.hash, dirty: document.querySelector('#sbDirty').textContent }));
+    ok(cj.val === 'customize' && cj.vis && cj.cmp === 0 && cj.top >= -2 && cj.top < 120 && cj.hash === '#/smart/customize', '"Customize this" switches to Customize & paychecks and scrolls to the editor ' + JSON.stringify(cj));
+    const bal = await page.evaluate(() => { const A = WTSmart.analyze(); const s = WTSmart.strategies(A).find(x => x.id === 'balanced'); return ['needs', 'debt', 'savings', 'wants'].map(k => WT.parseMoney(document.querySelector('#sbf-' + k).value) === s.amounts[k]).every(Boolean); });
+    ok(bal && /Unsaved/.test(cj.dirty), 'and loads that strategy into the editor (unsaved)');
+    // type, switch away and back: the typed amounts, locks and the Unsaved state are kept
+    await page.fill('#sbf-needs', '1234.56'); await page.keyboard.press('Tab');
+    await page.click('[data-act=sbLock][data-k=savings]');
+    const keep0 = await page.evaluate(() => ['needs', 'debt', 'savings', 'wants'].map(k => document.querySelector('#sbf-' + k).value).join('|'));
+    await sec(page, 'plan');
+    ok(/unsaved changes/i.test(await page.locator('#sbSecNote').textContent()) && await page.locator('#sbSecNote').isVisible(), 'switching away with unsaved changes says they are kept');
+    ok(await page.locator('.toast', { hasText: 'Unsaved changes kept' }).count() >= 1, 'and a toast confirms it');
+    await sec(page, 'compare');
+    await page.evaluate(() => WTApp.refresh()); await page.waitForTimeout(150); // a full re-render while away
+    ok(await page.locator('#sbSec').inputValue() === 'compare' && await page.locator('#sbWhy').isVisible(), 'a re-render keeps the chosen section');
+    await page.click('#sbSecNote [data-act=sbGo]'); await page.waitForTimeout(150);
+    const keep1 = await page.evaluate(() => ({ f: ['needs', 'debt', 'savings', 'wants'].map(k => document.querySelector('#sbf-' + k).value).join('|'), lock: document.querySelector('[data-act=sbLock][data-k=savings]').getAttribute('aria-pressed'), dirty: document.querySelector('#sbDirty').textContent, val: document.querySelector('#sbSec').value, note: document.querySelector('#sbSecNote').textContent }));
+    ok(keep1.val === 'customize' && keep1.f === keep0 && keep0.startsWith('1,234.56') && keep1.lock === 'true' && /Unsaved/.test(keep1.dirty) && !keep1.note, 'unsaved editor changes survive a section switch and a re-render (' + keep1.f + ')');
+    ok(await page.evaluate(() => { const s = WT.settings().smartBudget || {}; return !s.customDollars; }), 'switching sections saves nothing');
+    await page.click('[data-act=sbCancel]'); await page.waitForTimeout(150);
+    await sec(page, 'plan');
+    ok(!(await page.locator('#sbSecNote').textContent()), 'no note once the changes are cancelled');
+    // keyboard: the dropdown is focusable and switches with the arrow keys
+    await page.focus('#sbSec'); await page.keyboard.press('ArrowDown'); await page.waitForTimeout(150);
+    ok(await page.evaluate(() => document.activeElement && document.activeElement.id === 'sbSec') && await page.locator('#sbSec').inputValue() !== '', 'dropdown works from the keyboard and keeps focus');
+    await ctx.close();
+  }
   // 360px: no sideways scroll; tap targets
   {
     const { ctx, page } = await open({ viewport: { width: 360, height: 760 } });
     await go(page, 'smart');
-    const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, vw: innerWidth, wide: [...document.querySelectorAll('#main *')].filter(el => { const b = el.getBoundingClientRect(); if (!b.width) return false; for (let p = el.parentElement; p; p = p.parentElement) { const o = getComputedStyle(p).overflowX; if ((o === 'auto' || o === 'hidden' || o === 'scroll') && p !== document.body) return false; } return b.right > innerWidth + 1; }).length, small: [...document.querySelectorAll('#main .btn, #main .sb-range')].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).length }));
-    ok(r.sw <= r.vw && r.wide === 0, `360px: no horizontal overflow (scrollWidth ${r.sw}, wide ${r.wide})`);
-    ok(r.small === 0, '360px: buttons and sliders are at least 40px tall');
-    await shot(page, 'smart-360', true);
+    // every section on its own (inactive ones are hidden, so each is measured while it shows)
+    const fit360 = () => page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, vw: innerWidth, wide: [...document.querySelectorAll('#main *')].filter(el => { const b = el.getBoundingClientRect(); if (!b.width) return false; for (let p = el.parentElement; p; p = p.parentElement) { const o = getComputedStyle(p).overflowX; if ((o === 'auto' || o === 'hidden' || o === 'scroll') && p !== document.body) return false; } return b.right > innerWidth + 1; }).length, small: [...document.querySelectorAll('#main .btn, #main .sb-range, #sbSec')].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).length }));
+    for (const v of SECS) {
+      await sec(page, v);
+      const r = await fit360();
+      ok(r.sw <= 360 && r.vw === 360 && r.wide === 0, `360px "${v}": no horizontal overflow (scrollWidth ${r.sw}, wide ${r.wide})`);
+      ok(r.small === 0, `360px "${v}": buttons, sliders and the dropdown are at least 40px tall`);
+      await shot(page, 'smart-360-' + v, true);
+    }
     // editing on a phone: big amount fits, Remaining bar stays on screen, still no sideways scroll
+    await sec(page, 'customize');
     await page.locator('#sbf-needs').scrollIntoViewIfNeeded();
     await page.fill('#sbf-needs', '12345678.90'); await page.keyboard.press('Tab'); await page.waitForTimeout(100);
     await page.fill('#sbf-wants', '9999'); await page.keyboard.press('Tab'); await page.waitForTimeout(100);
@@ -477,15 +560,18 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
       return { val: f.value, fits: f.scrollWidth <= f.clientWidth + 1, inView: rb.top >= 0 && rb.bottom <= nb + 1, sw: document.scrollingElement.scrollWidth, vw: innerWidth, over: /Over by/.test(document.querySelector('#sbRemain').textContent), save: !!document.querySelector('#sbRemain [data-act=sbSave]'), cancel: !!document.querySelector('#sbRemain [data-act=sbCancel]') }; });
     ok(m.val === '12,345,678.90' && m.fits, '360px: a large typed amount fits its field (' + m.val + ')');
     ok(m.inView && m.over && m.save && m.cancel, '360px: sticky bar with Over warning, Save and Cancel stays on screen while editing');
-    ok(m.sw <= m.vw, '360px: no sideways scroll while editing');
+    ok(m.sw <= 360, '360px: no sideways scroll while editing');
+    await sec(page, 'plan');
     await page.locator('#sbPlans').scrollIntoViewIfNeeded();
     for (const k of ['needs', 'debt', 'savings', 'wants']) await page.click(`[data-act=sbToggle][data-k=${k}]`);
     await page.evaluate(() => document.querySelectorAll('.sb details').forEach(d => { d.open = true; }));
-    const x3 = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, vw: innerWidth, wide: [...document.querySelectorAll('#main *')].filter(el => { const b = el.getBoundingClientRect(); if (!b.width) return false; for (let p = el.parentElement; p; p = p.parentElement) { const o = getComputedStyle(p).overflowX; if ((o === 'auto' || o === 'hidden' || o === 'scroll') && p !== document.body) return false; } return b.right > innerWidth + 1; }).length, small: [...document.querySelectorAll('#main .sb-x-b, #main [data-act=sbHorizon]:not(.sm *), #sbSaved .btn')].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).map(el => el.className + ':' + el.textContent.trim().slice(0, 20) + ':' + Math.round(el.getBoundingClientRect().height)) }));
+    const x3s = [];
+    for (const v of SECS) { await sec(page, v); x3s.push(await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, vw: innerWidth, wide: [...document.querySelectorAll('#main *')].filter(el => { const b = el.getBoundingClientRect(); if (!b.width) return false; for (let p = el.parentElement; p; p = p.parentElement) { const o = getComputedStyle(p).overflowX; if ((o === 'auto' || o === 'hidden' || o === 'scroll') && p !== document.body) return false; } return b.right > innerWidth + 1; }).length, small: [...document.querySelectorAll('#main .sb-x-b, #main [data-act=sbHorizon]:not(.sm *), #sbSaved .btn')].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).map(el => el.className + ':' + el.textContent.trim().slice(0, 20) + ':' + Math.round(el.getBoundingClientRect().height)) }))); }
+    const x3 = { sw: Math.max(...x3s.map(x => x.sw)), vw: 360 /* a phone viewport can grow to fit wide content, so compare with 360 itself */, wide: x3s.reduce((t, x) => t + x.wide, 0), small: [].concat(...x3s.map(x => x.small)) };
     ok(x3.sw <= x3.vw && x3.wide === 0, `360px: expanded categories, strategy details and forecast cards fit (scrollWidth ${x3.sw}, wide ${x3.wide})`);
     ok(x3.small.length === 0, '360px: category rows, horizon buttons and saved-strategy buttons are at least 40px tall ' + x3.small.join(', '));
-    await page.locator('#sbPlans').scrollIntoViewIfNeeded(); await shot(page, 'smart-360-plans');
-    await page.locator('#sbCmp').scrollIntoViewIfNeeded(); await shot(page, 'smart-360-forecast');
+    await sec(page, 'plan'); await page.locator('#sbPlans').scrollIntoViewIfNeeded(); await shot(page, 'smart-360-plans');
+    await sec(page, 'compare'); await page.locator('#sbCmp').scrollIntoViewIfNeeded(); await shot(page, 'smart-360-forecast');
     await shot(page, 'smart-360-editing');
     await ctx.close();
   }
@@ -493,6 +579,10 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   {
     const { ctx, page } = await open({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
     await go(page, 'smart');
+    const dsel = await page.evaluate(() => { const r = document.querySelector('#sbSec').getBoundingClientRect(); return { w: r.width, vis: r.height > 0 }; });
+    ok(dsel.vis && dsel.w >= 200 && dsel.w <= 420, 'desktop: the Section dropdown is there too (' + Math.round(dsel.w) + 'px wide)');
+    await shot(page, 'smart-desktop-plan', true);
+    await sec(page, 'compare');
     ok(await page.locator('#sbCmp .sb-ftbl thead').isVisible() && await page.locator('.sb-cards').evaluate(e => getComputedStyle(e).display) === 'grid', 'desktop: strategy cards in a grid and a comparison table');
     ok(await page.locator('nav.nav-group a[data-nav=smart]').count() === 1, 'desktop nav has Smart Budget');
     const ord = await page.locator('nav.nav-group a').evaluateAll(a => a.map(x => x.dataset.nav));
@@ -511,7 +601,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
     ok(dk.bk < 60 && dk.inp < 60 && dk.rb < 60, 'dark mode: editor cards, fields and Remaining bar are dark ' + JSON.stringify(dk));
     const pd = await page.evaluate(PALETTE);
     ok(pd.ok, 'dark mode: restrained bucket colors ' + JSON.stringify(pd.v));
-    await page.locator('#sbEdit').scrollIntoViewIfNeeded(); await shot(page, 'smart-dark-editor');
+    await sec(page, 'customize'); await page.locator('#sbEdit').scrollIntoViewIfNeeded(); await shot(page, 'smart-dark-editor');
     await shot(page, 'smart-dark', true);
     await ctx.close();
   }
@@ -564,6 +654,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
     ok(await page.locator('.demo-bar').count() === 1 && await page.locator('.sb-cards .sb-card').count() === 8 && await page.locator('.sb-hero .sb-row').count() === 4, 'demo: DEMO banner, plans and 8 strategies');
     await page.click('[data-act=sbToggle][data-k=debt]');
     ok(/Demo Credit Card/.test(await page.locator('#sbx-debt').textContent()) && await page.locator('#sbx-debt .sb-it[data-kind=minimum]').count() === 2, 'demo: Debt expands to the 2 demo debts');
+    await sec(page, 'customize');
     await page.click('#sbSaved [data-act=sbSaveAs]'); await page.fill('.overlay input[name=name]', 'Demo try'); await page.click('.overlay button[type=submit]'); await page.waitForTimeout(250);
     ok(await page.locator('#sbSaved .sb-sv').count() === 1, 'demo: Save as works');
     await page.reload(); await page.waitForFunction(() => window.__wtReady); await go(page, 'smart');

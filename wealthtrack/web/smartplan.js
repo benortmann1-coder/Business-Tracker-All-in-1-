@@ -19,7 +19,7 @@
 
   const ALLOC = ['everyday', 'savings', 'extraDebt', 'wants'];
   const ALLOC_NAMES = { everyday: 'Everyday', savings: 'Savings', extraDebt: 'Extra debt', wants: 'Spending' };
-  const ESSENTIAL_RE = /housing|rent|mortgage|utilit|electric|water|gas|internet|phone|insurance|grocer|food|medical|health|transport|car|auto|fuel|child|loan|tax/i;
+  const ESSENTIAL_RE = /housing|rent|mortgage|utilit|electric|water|gas|internet|phone|insurance|grocer|food|medical|health|transport|car|auto|fuel|child|loan|tax|homeowner|property|hoa|pmi|escrow|maintenance|repair/i;
   const TIGHT = 2500; // warn when less than $25 is left after bills and allocations
   const fmt = c => WT.fmt(c);
   const today = () => WT.todayStr();
@@ -72,11 +72,13 @@
   // ---------------------------------------------------------------- bills
   function billOf(i, moved, td) {
     const st = WT.instStatus(i, td);
-    const kind = i.debtId ? 'debt' : (essential(i.category) ? 'needs' : 'wants');
+    // a mortgage bill is housing (needs), even though it pays down a debt
+    const mortgage = !!(i.debtId && WT.D.debts[i.debtId] && WT.D.debts[i.debtId].type === 'mortgage');
+    const kind = i.debtId && !mortgage ? 'debt' : (mortgage || essential(i.category) ? 'needs' : 'wants');
     return {
       instId: i.id, templateId: i.templateId, name: i.name, dueDate: i.dueDate, amount: i.amountCents || 0, remaining: st.remaining,
       paidAmount: Math.min(st.paid, i.amountCents || 0), paid: st.remaining === 0, status: st.status, kind, essential: kind !== 'wants',
-      debtId: i.debtId || null, manual: !!i.paycheckKey || moved, moved,
+      debtId: i.debtId || null, mortgage, manual: !!i.paycheckKey || moved, moved,
     };
   }
   // the paycheck that would fund this bill with no manual assignment (the automatic rule in WT.paycheckFor)
@@ -274,12 +276,16 @@
       else if (bal <= 0) continue; // paid off
       const aprSet = Number.isInteger(d.aprCenti) && (d.aprCenti > 0 || d.aprKnown === true);
       if (!aprSet) fields.push('apr');
-      const min = Math.max(Number.isInteger(d.minCents) ? d.minCents : 0, linked[d.id] || 0);
+      // a mortgage's escrow (property tax + insurance) is in the payment but doesn't pay down the loan: P&I only
+      const esc = WT.debtEscrow ? WT.debtEscrow(d) : 0;
+      const min = Math.max(0, Math.max(Number.isInteger(d.minCents) ? d.minCents : 0, linked[d.id] || 0) - esc);
       if (!(min > 0)) fields.push('minimum');
       if (fields.length) missing.push({ id: d.id, name: d.name, fields });
       if (noBalance) continue;
       const type = d.type || 'other';
-      out.push({ id: d.id, name: d.name, balance: bal, apr: aprSet ? d.aprCenti : 0, minimum: min, dueDay: d.dueDay || 1, aprMissing: !aprSet, minMissing: !(min > 0), billMinimum: linked[d.id] || 0, type, revolving: !!REVOLVING[type] });
+      const row = { id: d.id, name: d.name, balance: bal, apr: aprSet ? d.aprCenti : 0, minimum: min, dueDay: d.dueDay || 1, aprMissing: !aprSet, minMissing: !(min > 0), billMinimum: linked[d.id] || 0, type, revolving: !!REVOLVING[type] };
+      if (type === 'mortgage') Object.assign(row, { housing: true, escrow: esc, payment: min + esc });
+      out.push(row);
     }
     return { debts: out, missing };
   }
@@ -324,6 +330,8 @@
     const order = Array.isArray(opts.order) ? opts.order : (Array.isArray(saved.order) ? saved.order : []);
     const { debts, missing } = debtList();
     const minimums = debts.reduce((t, d) => t + d.minimum, 0);
+    // mortgage principal + interest is paid from Essentials (housing); the rest are the Debt bucket's minimums
+    const housingMinimums = debts.filter(d => d.housing).reduce((t, d) => t + d.minimum, 0);
     const totalBalance = debts.reduce((t, d) => t + d.balance, 0);
     const estimate = missing.length > 0;
     const missingNotes = [];
@@ -340,7 +348,7 @@
       if (prio) per.sort((a, b) => (a.month == null ? Infinity : a.month) - (b.month == null ? Infinity : b.month) || prio(a.d, b.d));
       const orderOut = per.map(x => {
         const exact = !estimate && x.month != null;
-        return { id: x.d.id, name: x.d.name, type: x.d.type, revolving: x.d.revolving, balance: x.d.balance, apr: x.d.apr, minimum: x.d.minimum, aprMissing: x.d.aprMissing, minimumMissing: x.d.minMissing, interest: x.interest, payoffMonth: x.month, payoffDate: exact ? payoffDateFor(x.d.dueDay, x.month) : null };
+        return { id: x.d.id, name: x.d.name, type: x.d.type, housing: !!x.d.housing, escrow: x.d.escrow || 0, revolving: x.d.revolving, balance: x.d.balance, apr: x.d.apr, minimum: x.d.minimum, aprMissing: x.d.aprMissing, minimumMissing: x.d.minMissing, interest: x.interest, payoffMonth: x.month, payoffDate: exact ? payoffDateFor(x.d.dueDay, x.month) : null };
       });
       const notes = [];
       const months = sim.months;
@@ -372,7 +380,7 @@
       const b = best && methods[best];
       if (!b || m.totalInterest < b.totalInterest || (m.totalInterest === b.totalInterest && m.months < b.months)) best = id;
     }
-    return { minimums, extra, method, order: order.slice(), totalBalance, count: debts.length, methods, selected: methods[method], best, estimate, missing };
+    return { minimums, housingMinimums, debtMinimums: minimums - housingMinimums, extra, method, order: order.slice(), totalBalance, count: debts.length, methods, selected: methods[method], best, estimate, missing };
   }
 
   // Public payoff simulation over debtPlans-shaped debts ({id, name, balance, apr, minimum}).

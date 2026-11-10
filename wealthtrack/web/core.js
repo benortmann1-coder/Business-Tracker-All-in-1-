@@ -63,15 +63,29 @@
     return (neg ? '-' : '') + Math.floor(c / 100) + '.' + String(c % 100).padStart(2, '0');
   }
   // display preferences (Settings > Personal info); money stays integer cents underneath
-  const DISPLAY = { symbol: '$', dateOrder: 'md' };
-  function setDisplay(o) { if (o && typeof o.symbol === 'string' && o.symbol) DISPLAY.symbol = o.symbol; if (o && (o.dateOrder === 'md' || o.dateOrder === 'dm')) DISPLAY.dateOrder = o.dateOrder; }
+  // dateFormat: one of DATE_FORMATS ('mdy' default). dateOrder ('md'|'dm') is derived, kept for older callers.
+  // decimals: 0 for currencies with no minor unit (JPY, KRW...): amounts are still cents underneath.
+  const DISPLAY = { symbol: '$', dateFormat: 'mdy', dateOrder: 'md', decimals: 2 };
+  const DATE_FORMATS = ['mdy', 'dmy', 'mdy_long', 'mdy_num', 'dmy_num', 'dmy_dot', 'ymd'];
+  // older saved values: 'md' (Nov 7) and 'dm' (7 Nov)
+  function normDateFormat(v) { if (v === 'md') return 'mdy'; if (v === 'dm') return 'dmy'; return DATE_FORMATS.includes(v) ? v : 'mdy'; }
+  function setDisplay(o) {
+    if (!o) return;
+    if (typeof o.symbol === 'string' && o.symbol) DISPLAY.symbol = o.symbol;
+    if (o.decimals === 0 || o.decimals === 2) DISPLAY.decimals = o.decimals;
+    const f = o.dateFormat != null ? o.dateFormat : o.dateOrder;
+    if (f === 'md' || f === 'dm' || DATE_FORMATS.includes(f)) { DISPLAY.dateFormat = normDateFormat(f); DISPLAY.dateOrder = DISPLAY.dateFormat.startsWith('dmy') ? 'dm' : 'md'; }
+  }
   function fmt(c, opts) {
     if (c == null || isNaN(c)) return '—';
+    const noCents = (opts && opts.noCents) || DISPLAY.decimals === 0;
+    // zero-decimal currencies round to the whole unit (half up) instead of dropping the cents
     const a = Math.abs(Math.round(c)); const neg = c < 0 && a !== 0;
-    const whole = String(Math.floor(a / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const units = DISPLAY.decimals === 0 ? Math.floor((a + 50) / 100) : Math.floor(a / 100);
+    const whole = String(units).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     const frac = String(a % 100).padStart(2, '0');
     const sym = (opts && opts.symbol) || DISPLAY.symbol;
-    if (opts && opts.noCents) return (neg ? '-' : '') + sym + whole;
+    if (noCents) return (neg && (DISPLAY.decimals !== 0 || units !== 0) ? '-' : '') + sym + whole;
     return (neg ? '-' : '') + sym + whole + '.' + frac;
   }
   function pctStr(p) { return centsToStr(p).replace(/\.?0+$/, '') + '%'; }
@@ -107,14 +121,38 @@
   function monthsBetween(a, b) { return (+b.slice(0, 4) - +a.slice(0, 4)) * 12 + (+b.slice(5, 7) - +a.slice(5, 7)); } // b - a (month keys)
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   function monthLabel(mk, short) { const n = MONTHS[+mk.slice(5, 7) - 1]; return (short ? n.slice(0, 3) : n) + ' ' + mk.slice(0, 4); }
-  function dateLabel(s, withYear) {
-    if (!s) return '';
-    const p = parts(s); const w = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow(s)];
-    const mon = MONTHS[p.m - 1].slice(0, 3);
-    if (DISPLAY.dateOrder === 'dm') return w + ', ' + p.d + ' ' + mon + (withYear ? ' ' + p.y : '');
-    return w + ', ' + mon + ' ' + p.d + (withYear ? ', ' + p.y : '');
+  // Every date in the app is shown with its year, in the format picked in Settings > Personal info.
+  function formatDate(s, f) {
+    if (!s || !/^\d{4}-\d{2}-\d{2}/.test(s)) return s ? String(s) : '';
+    const p = parts(s); const mon = MONTHS[p.m - 1];
+    switch (normDateFormat(f || DISPLAY.dateFormat)) {
+      case 'dmy': return p.d + ' ' + mon.slice(0, 3) + ' ' + p.y;
+      case 'mdy_long': return mon + ' ' + p.d + ', ' + p.y;
+      case 'mdy_num': return pad2(p.m) + '/' + pad2(p.d) + '/' + p.y;
+      case 'dmy_num': return pad2(p.d) + '/' + pad2(p.m) + '/' + p.y;
+      case 'dmy_dot': return pad2(p.d) + '.' + pad2(p.m) + '.' + p.y;
+      case 'ymd': return s.slice(0, 10);
+      default: return mon.slice(0, 3) + ' ' + p.d + ', ' + p.y;
+    }
   }
-  function shortDate(s) { if (!s) return ''; const p = parts(s); return DISPLAY.dateOrder === 'dm' ? p.d + ' ' + MONTHS[p.m - 1].slice(0, 3) : MONTHS[p.m - 1].slice(0, 3) + ' ' + p.d; }
+  // withYear is kept for older callers: the year is always shown now
+  function dateLabel(s, withYear) { // eslint-disable-line no-unused-vars
+    if (!s) return '';
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow(s)] + ', ' + formatDate(s);
+  }
+  function shortDate(s) { return s ? formatDate(s) : ''; }
+  // compact day+month for chart axis ticks only (the chart title/tooltip carries the year)
+  function axisDate(s) {
+    if (!s) return ''; const p = parts(s); const mon = MONTHS[p.m - 1].slice(0, 3);
+    switch (DISPLAY.dateFormat) {
+      case 'dmy': return p.d + ' ' + mon;
+      case 'mdy_num': return p.m + '/' + p.d;
+      case 'dmy_num': return p.d + '/' + p.m;
+      case 'dmy_dot': return p.d + '.' + p.m + '.';
+      case 'ymd': return pad2(p.m) + '-' + pad2(p.d);
+      default: return mon + ' ' + p.d;
+    }
+  }
 
   // ---------------------------------------------------------------- recurrence
   // rule: {frequency, interval, unit, anchor}
@@ -171,7 +209,7 @@
     COLLS, FREQS, D: null, persist: null, today: todayStr, listeners: [], setToday(s) { TODAY_OVERRIDE = s || null; },
     parseMoney, parsePct, fmt, centsToStr, pctStr, divRound, monthlyInterest,
     todayStr, parts, mkDate, dim, addDays, diffDays, dow, monthOf, addMonthKey, monthStart, monthEnd,
-    dateInMonthClamped, addMonthsClamp, monthsBetween, monthLabel, dateLabel, shortDate, MONTHS, setDisplay, display: () => Object.assign({}, DISPLAY),
+    dateInMonthClamped, addMonthsClamp, monthsBetween, monthLabel, dateLabel, shortDate, formatDate, axisDate, DATE_FORMATS, normDateFormat, MONTHS, setDisplay, display: () => Object.assign({}, DISPLAY),
     occurrences, stepOf, nextOccurrenceOnOrAfter,
   };
 
@@ -631,16 +669,45 @@
   };
 
   // ---------------------------------------------------------------- debts
+  // Mortgage escrow: the part of a mortgage payment the lender holds for property tax and homeowners insurance.
+  // Only debts of type 'mortgage' with escrowCents > 0 have one; for every other debt this is 0.
+  WT.debtEscrow = function (d) {
+    if (typeof d === 'string') d = WT.D.debts[d];
+    return d && d.type === 'mortgage' && Number.isInteger(d.escrowCents) && d.escrowCents > 0 ? d.escrowCents : 0;
+  };
+  // principal + interest part of a debt's monthly payment (minCents minus escrow; unchanged for non-mortgages)
+  WT.debtPI = function (d, paymentCents) {
+    if (typeof d === 'string') d = WT.D.debts[d];
+    const pay = paymentCents != null ? paymentCents : ((d && d.minCents) || 0);
+    return Math.max(0, pay - WT.debtEscrow(d));
+  };
+  // payment id -> escrow part, for bill payments on mortgages with escrow. Per bill instance the first
+  // escrowCents paid (earliest payment first) goes to escrow; only the rest lowers the loan balance.
+  function mortgageEscrowShares() {
+    const out = new Map(); const byInst = new Map();
+    for (const p of vals('payments')) {
+      if (p.voided || !(p.amountCents > 0)) continue;
+      const i = WT.D.instances[p.instanceId]; if (!i || !i.debtId || !WT.debtEscrow(WT.D.debts[i.debtId])) continue;
+      if (!byInst.has(i.id)) byInst.set(i.id, []); byInst.get(i.id).push(p);
+    }
+    for (const [instId, ps] of byInst) {
+      let left = WT.debtEscrow(WT.D.debts[WT.D.instances[instId].debtId]);
+      ps.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      for (const p of ps) { const e = Math.min(left, p.amountCents); if (e > 0) { out.set(p.id, e); left -= e; } }
+    }
+    return out;
+  }
   // derived flows into every debt (signed: + raises balance), built in one pass and cached until the next write
   function allDebtCharges() {
     return memo('debtCharges', () => {
       const m = new Map(); const add = (id, x) => { if (!m.has(id)) m.set(id, []); m.get(id).push(x); };
       const srcDebt = s => (s && s.startsWith('debt:') ? s.slice(5) : null);
       for (const e of vals('expenses')) { const d = srcDebt(e.sourceId); if (d) add(d, { date: e.date, amountCents: e.amountCents, type: 'charge', label: e.description || WT.catName(e.category), ref: e.id }); }
+      const escrowOf = mortgageEscrowShares();
       for (const p of vals('payments')) {
         if (p.voided) continue;
         const i = WT.D.instances[p.instanceId];
-        if (i && i.debtId) add(i.debtId, { date: p.date, amountCents: -p.amountCents, type: 'payment', label: 'Payment — ' + i.name, ref: p.id });
+        if (i && i.debtId) { const esc = escrowOf.get(p.id) || 0; add(i.debtId, Object.assign({ date: p.date, amountCents: -(p.amountCents - esc), type: 'payment', label: 'Payment — ' + i.name + (esc ? ' (' + fmt(esc) + ' to escrow)' : ''), ref: p.id }, esc ? { escrowCents: esc } : {})); }
         const d = srcDebt(p.sourceId); if (d) add(d, { date: p.date, amountCents: p.amountCents, type: 'charge', label: 'Bill charged — ' + (i ? i.name : ''), ref: p.id });
       }
       for (const x of vals('debtTxns')) if (!x.voided) add(x.debtId, { date: x.date, amountCents: x.amountCents, type: x.type, label: x.note || x.type, ref: x.id, txn: true });
@@ -714,7 +781,14 @@
     }
     return { months: stuck ? null : month, totalInterest, debts: ds, timeline, stuck, monthlyBudget: budget };
   };
-  WT.debtInputs = () => WT.debts().filter(d => !d.closed).map(d => ({ id: d.id, name: d.name, balanceCents: WT.debtBalance(d.id), aprCenti: d.aprCenti, minCents: d.minCents }));
+  // payoff inputs. For a mortgage with escrow, minCents is principal + interest only (the escrow part pays
+  // property tax and insurance, not the loan); paymentCents/escrowCents keep the full payment and its escrow part.
+  WT.debtInputs = () => WT.debts().filter(d => !d.closed).map(d => {
+    const r = { id: d.id, name: d.name, balanceCents: WT.debtBalance(d.id), aprCenti: d.aprCenti, minCents: d.minCents };
+    const esc = WT.debtEscrow(d);
+    if (esc) Object.assign(r, { minCents: WT.debtPI(d), paymentCents: d.minCents || 0, escrowCents: esc });
+    return r;
+  });
 
   // ---------------------------------------------------------------- expenses
   WT.addExpense = function (f) {
@@ -918,6 +992,85 @@
     }
     for (const p of vals('payments')) if (!WT.D.instances[p.instanceId]) issues.push('Payment ' + p.id + ' has no bill');
     return issues;
+  };
+  // Structured version for Settings > Check data, which can clean these up:
+  //   {type:'dupBill', key, templateId, periodKey, name, keepId, removeIds, conflict, paidCents, text}
+  //     conflict = more than one copy has real (not voided) payments that add up to more than the bill,
+  //     so the user might have paid twice: never merged without asking.
+  //   {type:'orphanPayment', key, paymentId, amountCents, date, voided, name, text}
+  const activePaid = id => payRecs(id).reduce((a, p) => a + (p.voided ? 0 : p.amountCents), 0);
+  function keepScore(i) { // higher is better: the copy holding money records and edits wins
+    const c = i.custom || {};
+    return [activePaid(i.id) > 0 ? 1 : 0, hasPayments(i.id) ? 1 : 0, i.id === 'i_' + i.templateId + '_' + i.periodKey ? 1 : 0,
+      (c.amount || c.due || c.note ? 1 : 0) + (i.note ? 1 : 0) + (i.paycheckKey ? 1 : 0) + (i.skipped ? 1 : 0)];
+  }
+  function dupGroup(templateId, periodKey) {
+    const g = vals('instances').filter(i => i.templateId === templateId && i.periodKey === periodKey);
+    g.sort((a, b) => { const x = keepScore(a), y = keepScore(b); for (let k = 0; k < x.length; k++) if (x[k] !== y[k]) return y[k] - x[k]; return String(a.createdAt || '') < String(b.createdAt || '') ? -1 : String(a.createdAt || '') > String(b.createdAt || '') ? 1 : a.id < b.id ? -1 : 1; });
+    return g;
+  }
+  WT.integrityIssues = function () {
+    const out = []; const groups = {};
+    for (const i of vals('instances')) {
+      if (!WT.D.templates[i.templateId]) continue;
+      const k = i.templateId + '|' + i.periodKey; (groups[k] = groups[k] || []).push(i);
+    }
+    for (const k of Object.keys(groups).sort()) {
+      if (groups[k].length < 2) continue;
+      const g0 = groups[k][0]; const g = dupGroup(g0.templateId, g0.periodKey); const keep = g[0];
+      const paidCopies = g.filter(i => activePaid(i.id) > 0);
+      const paidCents = g.reduce((a, i) => a + activePaid(i.id), 0);
+      const conflict = paidCopies.length > 1 && paidCents > keep.amountCents;
+      out.push({ type: 'dupBill', key: 'dup:' + k, templateId: keep.templateId, periodKey: keep.periodKey, name: keep.name, keepId: keep.id, removeIds: g.slice(1).map(i => i.id), conflict, paidCents, amountCents: keep.amountCents,
+        text: (g.length === 2 ? keep.name + ' is listed twice for ' : keep.name + ' is listed ' + g.length + ' times for ') + formatDate(keep.periodKey) + (conflict ? '. More than one copy is paid (' + fmt(paidCents) + ' in total), so you may have paid it twice.' : '.') });
+    }
+    for (const p of vals('payments').sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)) {
+      if (WT.D.instances[p.instanceId]) continue;
+      const t = WT.D.templates[p.templateId];
+      out.push({ type: 'orphanPayment', key: 'pay:' + p.id, paymentId: p.id, amountCents: p.amountCents, date: p.date, voided: !!p.voided, name: t ? t.name : '',
+        text: (p.voided ? 'A voided payment of ' : 'A payment of ') + fmt(p.amountCents) + (t ? ' for ' + t.name : '') + ' on ' + formatDate(p.date) + ' is not linked to any bill.' });
+    }
+    return out;
+  };
+  // Fixes the given issues (from integrityIssues). Duplicates: the extra copies are removed and their
+  // payments moved onto the copy that is kept, so no money record is ever lost. A conflict (paid twice)
+  // is only merged with opts.merge; then every payment is kept on one bill so the user can void the extra.
+  // Orphan payments are deleted only when passed in (the user chose to). Returns {fixed, skipped, snapshot};
+  // WT.undoRepair(snapshot) puts every touched record back exactly as it was.
+  WT.repairIntegrity = function (issues, opts) {
+    opts = opts || {}; const snap = []; const seenSnap = {}; let fixed = 0; const skipped = [];
+    const keep = (coll, id) => { const k = coll + '|' + id; if (seenSnap[k]) return; seenSnap[k] = 1; const r = WT.D[coll][id]; snap.push({ coll, id, rec: r ? JSON.parse(JSON.stringify(r)) : null }); };
+    for (const is of issues || []) {
+      if (!is) continue;
+      if (is.type === 'dupBill') {
+        const g = dupGroup(is.templateId, is.periodKey); // re-checked against the data as it is now
+        if (g.length < 2) { skipped.push(is.key); continue; }
+        const k = g[0]; const extras = g.slice(1);
+        const paidCopies = g.filter(i => activePaid(i.id) > 0);
+        if (paidCopies.length > 1 && g.reduce((a, i) => a + activePaid(i.id), 0) > k.amountCents && !opts.merge) { skipped.push(is.key); continue; }
+        for (const x of extras) {
+          for (const p of payRecs(x.id)) { keep('payments', p.id); const np = Object.assign({}, p, { instanceId: k.id, movedFrom: x.id }); del('payments', p.id); save('payments', np); }
+          keep('instances', x.id);
+          if (x.id === 'i_' + x.templateId + '_' + x.periodKey) { // stop the next app open from making it again
+            const t = WT.D.templates[x.templateId];
+            if (t && !(t.removedKeys || []).includes(x.periodKey)) { keep('templates', t.id); t.removedKeys = (t.removedKeys || []).concat(x.periodKey); save('templates', t); }
+          }
+          del('instances', x.id);
+        }
+        fixed++;
+      } else if (is.type === 'orphanPayment') {
+        const p = WT.D.payments[is.paymentId];
+        if (!p || WT.D.instances[p.instanceId]) { skipped.push(is.key); continue; }
+        keep('payments', p.id); del('payments', p.id); fixed++;
+      }
+    }
+    return { fixed, skipped, snapshot: snap };
+  };
+  WT.undoRepair = function (snapshot) {
+    for (const s of (snapshot || []).slice().reverse()) {
+      if (WT.D[s.coll][s.id]) del(s.coll, s.id); // clears the payment index for a moved payment
+      if (s.rec) save(s.coll, JSON.parse(JSON.stringify(s.rec)));
+    }
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = WT;

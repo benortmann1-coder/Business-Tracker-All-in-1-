@@ -35,7 +35,7 @@
   const NAMES = { recommended: 'Recommended for you', '50-30-20': '50/30/20', '60-20-20': '60/20/20', debt: 'Debt-focused', savings: 'Savings-focused', zero: 'Zero-based', custom: 'Custom' };
   const KINDS = { recommended: 'Personalized', '50-30-20': 'Balanced', '60-20-20': 'High cost of living', debt: 'Debt payoff', savings: 'Savings builder', zero: 'Every dollar assigned', custom: 'Your own plan' };
   const ROLLOVER_RULES = ['carry', 'savings', 'debt', 'reset'];
-  const ESSENTIAL_RE = /housing|rent|mortgage|utilit|electric|water|gas|internet|phone|insurance|grocer|food|medical|health|transport|car|auto|fuel|child|loan|tax/i;
+  const ESSENTIAL_RE = /housing|rent|mortgage|utilit|electric|water|gas|internet|phone|insurance|grocer|food|medical|health|transport|car|auto|fuel|child|loan|tax|homeowner|property|hoa|pmi|escrow|maintenance|repair/i;
   const OPTIONAL_RE = /subscript|stream|entertain|dining|restaurant|shopping|hobby|gift|travel|fun|personal/i;
   const HIGH_APR = 1500;          // 15.00% in hundredths of a percent
   const STARTER_CAP = 100000;     // starter emergency fund: min(1 month of living costs, $1,000)
@@ -109,7 +109,10 @@
     if (OPTIONAL_RE.test(name)) return false;
     return kind !== 'expense'; // unknown: bills are essential, everyday spending is optional
   }
-  const billBucket = i => i.debtId ? 'debt' : (essentialCategory(i.category, 'bill') ? 'needs' : 'wants');
+  // A mortgage is housing (an essential) but still a debt: its payment is counted in Essentials, never in the
+  // Debt bucket's minimums, while its balance stays a debt that can get extra payments from the Debt bucket.
+  const isHousingDebt = id => { const d = id && WT.D.debts && WT.D.debts[id]; return !!(d && !d.deleted && d.type === 'mortgage'); };
+  const billBucket = i => i.debtId ? (isHousingDebt(i.debtId) ? 'needs' : 'debt') : (essentialCategory(i.category, 'bill') ? 'needs' : 'wants');
 
   // monthly-normalized amount of a bill template (12-month average from month mk; one-time bills only in mk)
   function templateMonthly(t, mk) {
@@ -213,6 +216,8 @@
     const type = r.type || 'other';
     const revolving = !!REVOLVING[type];
     const out = { id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti, minCents: d.minCents, type, revolving, dueDay: r.dueDay || 1, billId: (billIds && billIds[0]) || null, limitCents: r.limitCents || null, interestMonthly: WT.monthlyInterest(d.balanceCents, d.aprCenti) };
+    // mortgage: minCents is principal + interest only; the full payment (with escrow) is in Essentials as housing
+    if (d.housing) Object.assign(out, { housing: true, escrowCents: d.escrowCents || 0, paymentCents: d.paymentCents || d.minCents });
     out.termMonths = termAtMinimum(out);
     return out;
   }
@@ -257,12 +262,17 @@
     return m;
   }
 
-  // debts used for payoff math: open, balance > 0; minimum = max(debt minimum, linked monthly bill)
+  // debts used for payoff math: open, balance > 0; minimum = max(debt minimum, linked monthly bill).
+  // A mortgage's minimum is principal + interest (payment minus escrow): escrow never pays down the loan.
   function debtModel(mk, linkedByDebt) {
-    return WT.debtInputs().filter(d => d.balanceCents > 0).map(d => ({
-      id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti || 0,
-      minCents: Math.max(d.minCents || 0, linkedByDebt[d.id] || 0), setMin: d.minCents || 0,
-    }));
+    return WT.debtInputs().filter(d => d.balanceCents > 0).map(d => {
+      const housing = isHousingDebt(d.id);
+      const esc = housing && WT.debtEscrow ? WT.debtEscrow(d.id) : 0;
+      const linkedPI = Math.max(0, (linkedByDebt[d.id] || 0) - esc);
+      const out = { id: d.id, name: d.name, balanceCents: d.balanceCents, aprCenti: d.aprCenti || 0, minCents: Math.max(d.minCents || 0, linkedPI), setMin: d.minCents || 0 };
+      if (housing) Object.assign(out, { housing: true, escrowCents: esc, paymentCents: Math.max(d.paymentCents != null ? d.paymentCents : (d.minCents || 0), linkedByDebt[d.id] || 0) });
+      return out;
+    });
   }
 
   // ---------------------------------------------------------------- analyze
@@ -303,6 +313,12 @@
     for (const t of Object.values(WT.D.templates || {})) {
       const m = templateMonthly(t, mk);
       if (m <= 0) continue;
+      if (t.debtId && isHousingDebt(t.debtId)) {
+        // mortgage bill: housing, so it's an essential bill (counted here once, never again as a debt minimum)
+        if (openDebtIds.has(t.debtId)) { linkedByDebt[t.debtId] = (linkedByDebt[t.debtId] || 0) + m; (billsByDebt[t.debtId] = billsByDebt[t.debtId] || []).push(t.id); }
+        essentials += m; essentialBills.push(Object.assign({ id: t.id, name: t.name, monthly: m, category: t.category, debtId: t.debtId, mortgage: true }, billInfo(t, mk, td)));
+        continue;
+      }
       if (t.debtId) {
         if (openDebtIds.has(t.debtId)) { linkedByDebt[t.debtId] = (linkedByDebt[t.debtId] || 0) + m; (billsByDebt[t.debtId] = billsByDebt[t.debtId] || []).push(t.id); }
         else if (!WT.D.debts[t.debtId] || WT.D.debts[t.debtId].deleted || WT.D.debts[t.debtId].closed) orphanDebtBills.push(Object.assign({ id: t.id, name: t.name, monthly: m }, billInfo(t, mk, td)));
@@ -313,7 +329,21 @@
       else { optionalBills += m; subscriptions.push(Object.assign({ id: t.id, name: t.name, monthly: m, category: t.category, subscription: !!t.subscription }, info)); }
     }
     const debts = debtModel(mk, linkedByDebt);
-    const debtMinimums = debts.reduce((a, d) => a + d.minCents, 0) + orphanDebtBills.reduce((a, b) => a + b.monthly, 0);
+    // mortgages: the whole monthly payment (principal, interest and any escrow) is housing, counted once in
+    // Essentials: through its linked bill(s) above, plus the rest of the set payment if the bills are smaller.
+    const housing = { payment: 0, escrow: 0, principalInterest: 0, debts: [] };
+    for (const d of debts) {
+      if (!d.housing) continue;
+      const fromBills = linkedByDebt[d.id] || 0;
+      const rest = Math.max(0, d.paymentCents - fromBills);
+      // a bill that starts later in the year averages below the payment: count the full payment on that bill line
+      const line = rest > 0 && essentialBills.find(x => x.mortgage && x.debtId === d.id);
+      if (line) { line.monthly += rest; essentials += rest; }
+      else if (rest > 0) { essentials += rest; essentialBills.push({ id: null, name: d.name + ' payment', monthly: rest, category: null, debtId: d.id, mortgage: true, frequency: 'monthly', irregular: false, oneTime: false, amountEach: rest, dueDay: (WT.D.debts[d.id] || {}).dueDay || 1, dueDate: WT.dateInMonthClamped(mk, (WT.D.debts[d.id] || {}).dueDay || 1), nextDue: null }); }
+      housing.payment += fromBills + rest; housing.escrow += d.escrowCents || 0; housing.principalInterest += d.minCents;
+      housing.debts.push({ id: d.id, name: d.name, payment: fromBills + rest, escrowCents: d.escrowCents || 0, principalInterest: d.minCents, balanceCents: d.balanceCents, aprCenti: d.aprCenti });
+    }
+    const debtMinimums = debts.filter(d => !d.housing).reduce((a, d) => a + d.minCents, 0) + orphanDebtBills.reduce((a, b) => a + b.monthly, 0);
     const debtTotal = WT.totalDebt();
     debts.forEach(d => {
       if (!d.minCents) notes.push(d.name + ' has no minimum payment set. Add one so this plan can count it.');
@@ -413,6 +443,16 @@
     };
     // v3: set-asides for less-than-monthly bills, emergency fund depth, net worth, missing inputs
     a.annualSetAside = essentialBills.filter(b => b.irregular && !b.oneTime).reduce((t, b) => t + b.monthly, 0);
+    // home costs: mortgage payment(s) plus property tax, homeowners insurance, PMI, HOA and upkeep bills
+    const homeRe = /mortgage|property|homeowner|hoa|pmi|escrow|maintenance|repair|housing|rent/i;
+    const homeBills = essentialBills.filter(b => !b.mortgage && homeRe.test(String(WT.catName(b.category) || '') + ' ' + (b.name || '')));
+    housing.otherCosts = homeBills.reduce((t, b) => t + b.monthly, 0);
+    housing.otherList = homeBills.map(b => ({ id: b.id, name: b.name, monthly: b.monthly, irregular: !!b.irregular, frequency: b.frequency }));
+    housing.total = housing.payment + housing.otherCosts;
+    housing.pct = income > 0 ? Math.round(housing.total * 1000 / income) / 10 : 0;
+    housing.hasMortgage = housing.debts.length > 0;
+    a.housing = housing;
+    a.consumerDebts = a.debts.filter(d => !d.housing).length;
     a.emergency = { balance: sav, monthsCovered: living > 0 ? Math.round(sav * 10 / living) / 10 : 0, target3: living * 3, target6: living * 6, starterTarget, starterGap: starter.gap };
     a.netWorth = netWorthNow();
     a.savingsAprCenti = savingsRate();
@@ -588,6 +628,8 @@
     const take = (b, label, c) => { c = Math.max(0, Math.min(R, Math.round(c))); if (c > 0) { o[b] += c; R -= c; const l = lines.find(x => x.label === label && x.bucket === b); if (l) l.amount += c; else lines.push({ bucket: b, label, amount: c }); } return c; };
     return { o, lines, take, left: () => R };
   }
+  // every open debt is a mortgage (housing): extra payments wait until the emergency fund is in place
+  const onlyHousing = A => A.debts.length > 0 && A.debts.every(d => d.housing);
   const L = { fun: 'Spending money', ef: 'Starter emergency fund', up: 'Upcoming one-time bills', goals: 'Savings goals', extra: 'Extra debt payment', save: 'Savings', fullEf: 'Emergency fund (3 months)' };
   function planAmounts(A, kind) {
     if (A.income <= 0) return { amounts: zero(), lines: [] };
@@ -607,6 +649,8 @@
       take('savings', L.ef, A.starter.gap);
       take('savings', L.up, A.upcomingSetAside);
       take('savings', L.goals, A.goalsNeeded);
+      // only a (low-rate) mortgage left: the 3-month emergency fund comes before any extra mortgage payment
+      if (onlyHousing(A)) take('savings', L.fullEf, Math.max(0, A.living * 3 - A.balances.savings - A.starter.gap));
       if (hasDebt) take('debt', L.extra, Math.round(P.left() * (A.highApr ? 0.5 : 0.25)));
       take('savings', L.fullEf, Math.max(0, A.living * 3 - A.balances.savings - A.starter.gap));
       const X = P.left(); const half = Math.round(X / 2);
@@ -757,7 +801,7 @@
     const tgt = b => Math.round(I * def.example[b] / 100);
     take('wants', L.fun, wantsFloor(A, R0));
     take('savings', L.up, A.upcomingSetAside);
-    take('savings', L.ef, hasDebt ? Math.min(A.starter.gap, Math.round(P.left() * def.ef)) : A.starter.gap);
+    take('savings', L.ef, hasDebt && !onlyHousing(A) ? Math.min(A.starter.gap, Math.round(P.left() * def.ef)) : A.starter.gap);
     const into = b => (b === 'debt' && !hasDebt) ? 'savings' : b;
     const give = (b, c) => {
       b = into(b);
@@ -788,6 +832,7 @@
     let wants = Math.min(wantsT, F);
     if (slack < 0) wants = Math.min(F, Math.max(wantsFloor(A, F), wantsT + slack));
     take('wants', L.fun, Math.max(0, wants));
+    if (onlyHousing(A)) { take('savings', L.up, A.upcomingSetAside); take('savings', L.ef, A.starter.gap); }
     const pot = P.left();
     const debtShare = hasDebt ? Math.floor(pot / 2) : 0;
     take('debt', L.extra, debtShare);
@@ -986,6 +1031,14 @@
       else if (obl >= 75) add('Essentials and minimum payments', `${obl}% of your pay`, 'High fixed costs: stability first. Favors Zero-Based, which plans every dollar; less room for aggressive goals.', { zero: 20, 'pay-first': -10, aggressive: -10, '50-30-20': -5 });
       else factors.push({ label: 'Essentials and minimum payments', value: `${obl}% of your pay`, effect: obl <= 50 ? 'Leaves plenty of room for savings, debt and goals.' : 'Leaves a moderate amount for savings, debt and spending.' });
     }
+    if (I > 0 && A.housing && A.housing.hasMortgage) {
+      const H = A.housing; const mins = A.debts.filter(d => !d.housing);
+      const parts = [`mortgage ${cents(H.payment)}${H.escrow ? ` (${cents(H.escrow)} of it escrow for property tax and insurance)` : ''}`];
+      if (H.otherCosts) parts.push(`other home costs ${cents(H.otherCosts)}`);
+      const highOther = mins.some(d => d.aprCenti > Math.max(...A.debts.filter(x => x.housing).map(x => x.aprCenti || 0)));
+      add('Housing (mortgage)', `${cents(H.total)} a month, ${H.pct}% of take-home pay`, `Your mortgage is housing, so its payment is counted in Essentials, not with debt minimums. Its balance is still a debt. ${highOther ? 'Extra payments go to your higher-interest debts first; the mortgage gets extra only after them.' : A.emergency.monthsCovered < 3 ? 'Build your emergency fund before making extra mortgage payments.' : 'Extra mortgage payments are optional: they save interest but lock money in your home.'}${H.pct > 35 ? ' Housing above about 30-35% of take-home pay leaves less room for everything else.' : ''}`,
+        onlyHousing(A) ? (A.emergency.monthsCovered < 3 ? { aggressive: -25, avalanche: -15, snowball: -15, 'pay-first': 10, balanced: 5 } : { aggressive: -10, avalanche: -5, snowball: -5, balanced: 5 }) : {});
+    }
     if (A.annualSetAside > 0) factors.push({ label: 'Bills that are not monthly', value: `${cents(A.annualSetAside)} a month set aside`, effect: 'Counted in Essentials as a monthly set-aside so the full bill is ready when it is due.' });
     // C. debt
     if (!hasDebt) add('Debt', 'No open debts', 'Favors saving and wealth building: Pay Yourself First and Balanced.', { avalanche: -60, snowball: -60, aggressive: -60, 'pay-first': 20 + (A.incomeDetail.irregular ? 0 : 5), balanced: 15, '50-30-20': 5 });
@@ -1068,7 +1121,8 @@
     const src = A.incomeDetail.sources;
     out.push(`Take-home pay: ${cents(I)} a month${src.length > 1 ? ` from ${src.length} sources` : ''}${src.some(x => x.basis === 'recorded-average') ? ' (planned on what actually arrived, because it varies)' : ''}. Extra income isn't counted until it arrives.`);
     out.push(`Essentials: ${cents(A.essentials)} in bills${A.annualSetAside ? ` (including ${cents(A.annualSetAside)} set aside each month for bills that aren't monthly)` : ''}${A.everyday ? ` plus ${cents(A.everyday)} for groceries and gas` : ''} = ${cents(A.living)} (${pc(A.living)}).`);
-    if (A.debtMinimums) out.push(`Minimum debt payments: ${cents(A.debtMinimums)} (${pc(A.debtMinimums)}). Bills that pay a debt are counted here once, not in Essentials.`);
+    if (A.housing && A.housing.hasMortgage) out.push(`Mortgage: the ${cents(A.housing.payment)} monthly payment is housing, so it is in Essentials, once${A.housing.escrow ? `. ${cents(A.housing.escrow)} of it is escrow (property tax and insurance); only the other ${cents(Math.max(0, A.housing.payment - A.housing.escrow))} pays principal and interest` : ''}. It is not in the debt minimums below.`);
+    if (A.debtMinimums) out.push(`Minimum debt payments: ${cents(A.debtMinimums)} (${pc(A.debtMinimums)}). Bills that pay a debt are counted here once, not in Essentials${A.housing && A.housing.hasMortgage ? ' (except the mortgage, which is housing)' : ''}.`);
     out.push(A.free >= 0 ? `Left after required costs: ${cents(A.free)} (${pc(A.free)}).` : `Short after required costs: ${cents(A.shortfall)}.`);
     const opt = s.lines.filter(l => !l.required);
     if (opt.length) out.push(`${s.name} assigns it: ${opt.map(l => `${l.label.toLowerCase()} ${cents(l.amount)}`).join(', ')}.`);
@@ -1089,6 +1143,10 @@
     if (A.highApr) { const t = A.highAprDebts[0]; o.push(`Ask about a lower rate on ${t.name}. At ${aprStr(t.aprCenti)} APR it costs about ${money(WT.monthlyInterest(t.balanceCents, t.aprCenti))} a month in interest.`); }
     if (A.starter.gap > 0 && A.shortfall === 0) o.push(`Finish your starter emergency fund: ${money(A.starter.gap)} to go.`);
     else if (A.emergency.monthsCovered < 3 && A.shortfall === 0 && A.living > 0) o.push(`Build toward 3 months of essentials (${money(A.emergency.target3)}). You have ${A.emergency.monthsCovered} months now.`);
+    if (A.housing && A.housing.hasMortgage) {
+      if (!A.housing.escrow && !A.housing.otherCosts) o.push('If your mortgage payment includes escrow (property tax and homeowners insurance), enter it on the mortgage under Debt so only principal and interest count as paying down the loan.');
+      if (A.housing.pct > 35) o.push(`Housing takes ${A.housing.pct}% of your take-home pay. Above about 30-35% leaves little room; ask about removing PMI or appealing your property tax if they apply.`);
+    }
     if (A.optionalBills > 0 && A.shortfall === 0) o.push(`Optional bills and subscriptions cost ${money(A.optionalBills)} a month. Trimming any you rarely use frees money for your goals.`);
     if (A.incomeDetail.irregular) o.push(`Plan on a typical low month and send extra income${A.incomeDetail.variability.extraMonthly ? ` (about ${money(A.incomeDetail.variability.extraMonthly)} a month on average)` : ''} to ${leftoverWord(s.id, A)} when it arrives.`);
     (timing || []).filter(t => t.shortfall > 0).forEach(t => o.push(`The ${WT.shortDate(t.date)} paycheck is ${money(t.shortfall)} short: hold money back from the paycheck before it or move a bill.`));
@@ -1226,9 +1284,11 @@
       return it;
     };
     const items = { needs: [], debt: [], savings: [], wants: [] };
-    A.essentialList.forEach(b => items.needs.push(billItem(b, b.irregular ? 'setaside' : 'bill')));
+    const hd = id => (A.housing && A.housing.debts || []).find(x => x.id === id) || {};
+    A.essentialList.forEach(b => items.needs.push(billItem(b, b.irregular ? 'setaside' : 'bill', b.mortgage ? { debtId: b.debtId, mortgage: true, escrowCents: hd(b.debtId).escrowCents || 0 } : undefined)));
     if (A.everyday > 0) items.needs.push({ kind: 'spending', name: A.setAsideNames.length ? A.setAsideNames.join(', ') : 'Everyday needs (groceries, gas)', amount: A.everyday });
     A.debts.forEach(d => {
+      if (d.housing) return; // a mortgage payment is housing: it's listed once, under Essentials
       const it = { kind: 'minimum', name: d.name, amount: d.minCents, debtId: d.id, dueDay: d.dueDay, dueDate: WT.dateInMonthClamped(A.month, d.dueDay), balance: d.balanceCents, aprCenti: d.aprCenti, revolving: d.revolving };
       if (d.billId) { it.templateId = d.billId; const i = inst[d.billId]; if (i) { const st = WT.instStatus(i, td); it.dueDate = i.dueDate; it.paid = Math.min(st.paid, i.amountCents || 0); it.left = st.remaining; it.status = st.status; } }
       items.debt.push(it);
@@ -1289,7 +1349,9 @@
     const method = s.debtOrder === 'snowball' ? 'snowball' : 'avalanche';
     const ds = A.debts.map(d => ({ id: d.id, name: d.name, balance: d.balanceCents, apr: d.aprCenti || 0, min: d.minCents || 0, dueDay: d.dueDay || 1, bal: d.balanceCents, month: null }));
     const prio = ds.slice().sort(method === 'snowball' ? SN_ORDER : AV_ORDER);
-    const budget = eff.debt;
+    // a mortgage's principal + interest is paid from Essentials (housing), so it's added to the Debt bucket's money here
+    const housingPI = A.debts.filter(d => d.housing).reduce((t, d) => t + (d.minCents || 0), 0);
+    const budget = eff.debt + housingPI;
     const rate = A.savingsAprCenti || 0;
     const sav0 = A.balances.savings; let sav = sav0;
     const debt0 = ds.reduce((t, x) => t + x.bal, 0);
@@ -1526,7 +1588,7 @@
       if (recExtra > 0) {
         const amt = chosenExtra > 0 ? chosenExtra : recExtra;
         const s = sim(amt); const saved = (!s.stuck && !baseSim.stuck) ? Math.max(0, baseSim.totalInterest - s.totalInterest) : 0;
-        add({ kind: 'extra-debt', urgency: 'soon', affordable: true, impact: saved, amount: amt, title: `Put ${money(amt)} extra a month toward ${target.name}`, detail: `${target.name} has the highest rate (${aprStr(target.aprCenti)} APR). Pay it first, then move to the next highest.` + (s.months && baseSim.months ? ` You'd be debt-free in about ${plural(s.months, 'month')} instead of ${baseSim.months}` + (saved > 0 ? ` and save about ${money(saved)} in interest.` : '.') : '') + (A.debtDataMissing ? ' This is an estimate because some debts are missing details.' : '') });
+        add({ kind: 'extra-debt', urgency: 'soon', affordable: true, impact: saved, amount: amt, title: `Put ${money(amt)} extra a month toward ${target.name}`, detail: `${target.name} has the highest rate (${aprStr(target.aprCenti)} APR). Pay it first, then move to the next highest.` + (target.housing ? ' It is your mortgage, so extra payments are optional: they save interest, but only make them while your emergency fund keeps growing.' : '') + (s.months && baseSim.months ? ` You'd be debt-free in about ${plural(s.months, 'month')} instead of ${baseSim.months}` + (saved > 0 ? ` and save about ${money(saved)} in interest.` : '.') : '') + (A.debtDataMissing ? ' This is an estimate because some debts are missing details.' : '') });
       } else {
         const why = I <= 0 ? 'add your income first' : A.shortfall > 0 ? 'your bills, groceries, gas and minimum payments aren\'t fully covered yet' : A.starter.gap > 0 ? `build your ${money(A.starter.target)} starter emergency fund first` : 'there is no money left after your living costs';
         add({ kind: 'extra-debt', urgency: 'later', affordable: false, impact: 0, title: 'Hold off on extra debt payments for now', detail: `Pay the required minimums only: ${why}.` + (chosenExtra > 0 ? ` Your chosen plan puts ${money(chosenExtra)} extra toward debt. It's safer to use that for necessities and savings first.` : '') });

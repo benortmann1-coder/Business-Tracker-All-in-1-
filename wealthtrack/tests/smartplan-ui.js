@@ -32,7 +32,9 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
     if (wired == null) wired = has;
     if (!has) await p.evaluate(() => { document.querySelectorAll('#spPaychecks,#spDebt').forEach(e => e.remove()); document.querySelector('#main').insertAdjacentHTML('beforeend', WTPlanUI.renderPaychecks() + WTPlanUI.renderDebt()); });
   };
-  const go = async (p, r) => { await p.evaluate(r => { location.hash = '#/' + r; }, r); await p.waitForTimeout(300); if (r === 'smart') await ensure(p); };
+  // the paycheck and debt plans live in the "Customize & paychecks" section of Smart Budget (#/smart/customize)
+  const go = async (p, r) => { await p.evaluate(r => { location.hash = '#/' + (r === 'smart' ? 'smart/customize' : r); }, r); await p.waitForTimeout(300); if (r === 'smart') await ensure(p); };
+  const sec = async (p, v) => { if (await p.locator('#sbSec').count()) { await p.selectOption('#sbSec', v); await p.waitForTimeout(150); } };
   const shot = async (p, n, sel) => { if (!SHOTS) return; await p.waitForTimeout(200); if (sel) await p.locator(sel).screenshot({ path: path.join(SHOTS, n + '.png') }); else await p.screenshot({ path: path.join(SHOTS, n + '.png'), fullPage: true }); };
   const settle = async p => { await p.waitForTimeout(250); await ensure(p); };
   // the engine's numbers for what the screen currently previews (saved settings + the unsaved draft)
@@ -70,6 +72,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   const settings0 = await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {}));
   ok(await page.locator('#main #spPaychecks').count() === 1 && await page.locator('#main #spDebt').count() === 1, 'both sections render inside #/smart' + (wired ? ' (via app.js)' : ' (injected: app.js does not call WTPlanUI yet)'));
   ok(!/Something went wrong/.test(await page.locator('#main').textContent()), 'page renders without errors');
+  if (wired) ok(await page.locator('#sbSec').inputValue() === 'customize' && await page.locator('#spPaychecks').isVisible() && await page.locator('#spDebt').isVisible() && await page.locator('#sbSec-customize #spPaychecks').count() === 1, 'paycheck + debt plans are in the "Customize & paychecks" section');
   const c0 = await matchesEngine(page, 'paycheck cards: carry-in, reserve, bills and remaining match WTPlan');
   ok(c0.eng.paychecks.every((e, i) => c0.ui[i] && c0.ui[i].bills.length === e.bills.length), 'every bill listed in its paycheck');
   const allIds = c0.ui.flatMap(c => c.bills.map(b => b.id));
@@ -82,7 +85,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   ok(paidCard.billsDue === (await fmtAll(page, [unpaidSum]))[0], 'bills due = unpaid bills only (' + paidCard.billsDue + ')');
   // reserve callout wording with an exact amount and date
   const anyRes = c0.ui.flatMap(c => c.resIn);
-  if (anyRes.length) ok(anyRes.every(r => /Set aside \$[\d,]+\.\d\d from the [A-Z][a-z]{2} \d+ paycheck/.test(r.text)), 'reserve callout: "' + anyRes[0].text.trim().slice(0, 60) + '…"');
+  if (anyRes.length) ok(anyRes.every(r => /Set aside \$[\d,]+\.\d\d from the [A-Z][a-z]{2} \d+(, \d{4})? paycheck/.test(r.text)), 'reserve callout: "' + anyRes[0].text.trim().slice(0, 60) + '…"');
   else ok(true, 'no paycheck needs a reserve in this data');
   await shot(page, 'plan-paychecks', '#spPaychecks');
 
@@ -101,6 +104,17 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   ok(c1.eng.paychecks[0].alloc.savings === 10000 && c1.eng.paychecks[0].alloc.wants === 2575, 'allocations 100.00 / 25.75 in the preview');
   ok(await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {})) === settings0, 'nothing saved while editing');
   ok(await page.locator('#spPaychecks [data-act=spPcSave]').isEnabled(), 'Save enabled with unsaved changes');
+  // switching Smart Budget sections keeps the unsaved paycheck changes (memory only, nothing saved)
+  if (wired) {
+    ok(await page.evaluate(() => WTPlanUI.dirty() === true), 'WTPlanUI.dirty() reports unsaved paycheck changes');
+    await sec(page, 'plan');
+    ok(!(await page.locator('#spPaychecks').isVisible()) && /unsaved changes/i.test(await page.locator('#sbSecNote').textContent()), 'My plan hides the paycheck plan and says unsaved changes are kept');
+    await sec(page, 'compare'); await page.evaluate(() => WTApp.refresh()); await page.waitForTimeout(150);
+    await sec(page, 'customize');
+    const kv = [await page.$eval(net0, el => el.value), await page.$eval(sav0, el => el.value)];
+    ok(kv[0] === '1800.50' && /^100(\.00)?$/.test(kv[1]) && await page.locator('#spPaychecks [data-act=spPcSave]').isEnabled() && await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {})) === settings0, 'unsaved paycheck edits survive a section switch and a re-render, still unsaved');
+    await matchesEngine(page, 'after switching back: numbers still match WTPlan');
+  }
   // overallocation warning
   const k3 = c0.ui[3].key;
   await page.fill(`#spPaychecks .sp-card[data-key="${k3}"] input[data-k=wants]`, '99999');
@@ -238,7 +252,9 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
     await go(page, 'smart');
     const on = () => page.$eval('#spDebt .sp-tabs button.on', b => b.dataset.m);
     ok(await page.evaluate(() => !(WT.settings().smartBudget || {}).debt) && await on() === 'avalanche', 'no saved debt plan: Avalanche order by default');
+    await sec(page, 'compare');
     await page.locator('.sb-card[data-strategy=snowball] [data-act=sbUse]').click(); await page.waitForTimeout(300);
+    await sec(page, 'customize');
     ok(await page.evaluate(() => WT.settings().smartBudget.strategyId) === 'snowball' && await on() === 'snowball', 'using Debt Snowball opens the debt planner on the Snowball order');
     const col = await page.evaluate(() => { const b = document.querySelector('#spDebt .sp-tabs button.on'); const t = document.createElement('i'); t.style.color = 'var(--sb-accent)'; document.body.appendChild(t); const c = getComputedStyle(t).color; t.remove(); return [getComputedStyle(b).backgroundColor, c]; });
     ok(col[0] === col[1], 'selected method tab uses the navy accent token (' + col[0] + ')');

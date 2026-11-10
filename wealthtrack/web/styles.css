@@ -871,7 +871,21 @@ body[data-month] .month-sel .m-label::before { content: ""; display: inline-bloc
 .pi-note { margin-top: 4px; }
 .pi-grid input[readonly] { background: var(--hover); color: var(--ink-2); }
 .pi-form .row { margin-top: 12px; }
+.pi-status { margin-top: 10px; text-align: right; min-height: 1.4em; transition: color .2s; }
 @media (max-width: 560px) { .pi-grid { grid-template-columns: 1fr; } .pi-grid .span2 { grid-column: auto; } }
+/* Settings > Check data */
+.dc-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.dc-it { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.dc-it .grow { min-width: 0; overflow-wrap: anywhere; }
+.dc-it .btn { flex: none; }
+@media (max-width: 420px) { .dc-it { flex-wrap: wrap; } .dc-it .btn { margin-left: auto; } }
+/* dates always carry the year (Settings > Date format): let them wrap instead of being cut off on phones */
+.tx-date { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .tx { grid-template-columns: 74px minmax(0, 1fr) auto; gap: 10px; }
+  .bill .meta { white-space: normal; overflow: visible; text-overflow: clip; }
+  .ex-meta { flex-wrap: wrap; white-space: normal; row-gap: 0; }
+}
 
 /* ---------------------------------------------------------------- Smart Budget */
 .sb-entry { text-decoration: none; align-items: center; margin-bottom: 18px; min-height: 44px; }
@@ -1115,6 +1129,7 @@ body[data-month] .month-sel .m-label::before { content: ""; display: inline-bloc
 .sb-rate-in .input[aria-invalid="true"] { border-color: var(--over); }
 .sb-missing { color: var(--due); }
 .sb-vs-t, .sb-prev-t { margin-top: 4px; font-size: 13px; }
+#sbVsBody, #sbPrevBody { overflow-x: auto; max-width: 100%; } /* very large typed amounts scroll inside, never the page */
 .sb-vs-t td, .sb-vs-t th, .sb-prev-t td, .sb-prev-t th { padding: 7px 8px; }
 .sb-vs-t td .dot { width: 8px; height: 8px; margin-right: 6px; display: inline-block; }
 .sb-saved { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
@@ -1146,6 +1161,27 @@ body[data-month] .month-sel .m-label::before { content: ""; display: inline-bloc
   .sb-vs-t td, .sb-vs-t th, .sb-prev-t td, .sb-prev-t th { padding: 6px 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .sb-x-p { animation: none; } .sb-chev, .sb-stack > i { transition: none; } }
+/* Smart Budget sections: one "Section" dropdown (all widths); inactive sections are hidden, never removed */
+.sb-secbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: -4px 0 4px; scroll-margin-top: 8px; }
+.sb-sec-l { font-size: 13px; font-weight: 650; color: var(--ink-2); }
+.sb-secbar select.sb-sec { flex: 0 1 340px; width: auto; min-width: 0; height: 44px; font-size: 16px; font-weight: 600; color: var(--ink); }
+.sb-secnote { flex: 1 0 100%; }
+.sb-secnote:empty { display: none; }
+.sb-panel[hidden] { display: none !important; }
+.sb-panel > .section:first-child { margin-top: 14px; }
+.sb-panel .section, .sb-plan .section { scroll-margin-top: 8px; }
+.sb-plan-split { margin-top: 30px; }
+.sb-recsum { padding: 13px 15px; }
+.sb-recsum .eyebrow { display: block; }
+.sb-recsum-n { font-size: 16px; overflow-wrap: anywhere; }
+.sb-recsum-r { margin: 6px 0 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sb-recsum-a { gap: 8px; margin-top: 10px; }
+.sb-recsum-a .btn { min-height: 40px; }
+@media (max-width: 700px) {
+  .sb-secbar { flex-direction: column; align-items: stretch; gap: 4px; }
+  .sb-secbar select.sb-sec { flex: none; width: 100%; }
+  .sb-recsum-a .btn { flex: 1 1 140px; }
+}
 /* reorder bills: press and hold, then drag */
 #main .bill[data-tpl], #main tr[data-tpl] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 html:has(body.reordering), body.reordering { overflow-anchor: none; } /* no scroll anchoring while a bill moves (it made the page creep) */

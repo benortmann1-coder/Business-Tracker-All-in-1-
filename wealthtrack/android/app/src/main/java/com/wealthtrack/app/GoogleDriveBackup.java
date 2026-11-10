@@ -207,21 +207,57 @@ final class GoogleDriveBackup {
 
     // ---------------------------------------------------------------- results back to the page
 
+    // Shown when the phone can't reach Google (no internet, no DNS, Private DNS / VPN / ad-blocker
+    // blocking it, a dropped connection). The page treats {offline:true} as "waiting", not a failure,
+    // and tries again when the phone is back online.
+    static final String OFFLINE = "No internet connection. Backup will try again when you're back online.";
+
     private static String describe(Exception e) {
+        if (isOffline(e)) return OFFLINE;
         if (e instanceof ApiException) {
             int code = ((ApiException) e).getStatusCode();
             if (code == 10) return "Google sign-in isn't set up for this app yet (developer error 10)";
-            if (code == 7) return "No internet connection";
             if (code == 16 || code == 12501) return "cancelled";
             return "Google sign-in failed (code " + code + ")";
         }
         return e.getMessage() != null ? e.getMessage() : e.toString();
     }
 
-    private void emitError(String op, Exception e) { emitError(op, describe(e)); }
+    /** True when the error means the network couldn't be reached (rather than Google refusing). */
+    static boolean isOffline(Throwable e) {
+        for (int depth = 0; e != null && depth < 8; depth++, e = e.getCause()) {
+            if (e instanceof ApiException && ((ApiException) e).getStatusCode() == 7) return true; // NETWORK_ERROR
+            if (e instanceof java.net.UnknownHostException // "Unable to resolve host": no internet / DNS
+                    || e instanceof java.net.ConnectException
+                    || e instanceof java.net.SocketTimeoutException
+                    || e instanceof java.net.NoRouteToHostException
+                    || e instanceof java.net.PortUnreachableException
+                    || e instanceof java.io.InterruptedIOException
+                    || e instanceof java.io.EOFException) return true;
+            if (e instanceof java.security.cert.CertificateException) return false; // a real certificate problem
+            if (e instanceof java.net.SocketException) return true; // "Network is unreachable", "Connection reset", "Software caused connection abort"
+            if (e instanceof javax.net.ssl.SSLException) {
+                // a handshake cut off by a dropped connection (common when Wi-Fi drops) vs a certificate problem
+                String m = String.valueOf(e.getMessage()).toLowerCase(java.util.Locale.ROOT);
+                if (m.contains("connection reset") || m.contains("connection closed") || m.contains("broken pipe")
+                        || m.contains("timed out") || m.contains("i/o error") || m.contains("unexpected end")) return true;
+            }
+        }
+        return false;
+    }
+
+    private void emitError(String op, Exception e) {
+        if (isOffline(e)) emitOffline(op); else emitError(op, describe(e));
+    }
 
     private void emitError(String op, String error) {
+        if (OFFLINE.equals(error)) { emitOffline(op); return; }
         try { emit(new JSONObject().put("op", op).put("ok", false).put("error", error)); } catch (Exception ignored) { }
+    }
+
+    private void emitOffline(String op) {
+        String msg = "backup".equals(op) ? OFFLINE : "No internet connection. Connect to the internet and try again.";
+        try { emit(new JSONObject().put("op", op).put("ok", false).put("offline", true).put("error", msg)); } catch (Exception ignored) { }
     }
 
     private void emit(JSONObject detail) {

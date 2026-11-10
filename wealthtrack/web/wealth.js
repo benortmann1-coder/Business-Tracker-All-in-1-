@@ -26,7 +26,7 @@
 })(this, function (WT) {
   'use strict';
 
-  const ESSENTIAL_RE = /housing|rent|mortgage|utilit|electric|water|gas|internet|phone|insurance|grocer|food|medical|health|transport|car|auto|fuel|child|loan|tax/i;
+  const ESSENTIAL_RE = /housing|rent|mortgage|utilit|electric|water|gas|internet|phone|insurance|grocer|food|medical|health|transport|car|auto|fuel|child|loan|tax|homeowner|property|hoa|pmi|escrow|maintenance|repair/i;
   const OPTIONAL_RE = /subscript|stream|entertain|dining|restaurant|shopping|hobby|gift|travel|fun|personal/i;
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const fmt = c => WT.fmt(c);

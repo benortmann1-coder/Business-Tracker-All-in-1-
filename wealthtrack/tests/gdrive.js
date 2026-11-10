@@ -19,6 +19,12 @@ const fakeBridge = () => {
     googleSignIn() { send({ op: 'signin', ok: true, email: 'alex@example.com' }); },
     googleBackup(json) {
       if (window.__gd.mode === 'signin-required') return send({ op: 'backup', ok: false, error: 'signin-required' });
+      window.__gd.tries = (window.__gd.tries || 0) + 1;
+      // phone without internet (what GoogleDriveBackup.java sends for UnknownHostException & co.)
+      if (window.__gd.mode === 'offline') return send({ op: 'backup', ok: false, offline: true, error: 'No internet connection. Backup will try again when you\'re back online.' });
+      // an older app build that passes the raw Java message through
+      if (window.__gd.mode === 'offline-raw') return send({ op: 'backup', ok: false, error: 'Unable to resolve host "www.googleapis.com": No address associated with hostname' });
+      if (window.__gd.mode === 'error') return send({ op: 'backup', ok: false, error: 'Google Drive error 500' });
       window.__gd.backups.push(json); window.__gd.drive = json; send({ op: 'backup', ok: true, time: Date.now() });
     },
     googleRestore() { send(window.__gd.drive ? { op: 'restore', ok: true } : { op: 'restore', ok: false, error: 'No WealthTrack backup was found in this Google Drive yet' }); },
@@ -88,6 +94,45 @@ const fakeBridge = () => {
   await page.evaluate(() => { window.__gd.mode = 'ok'; });
   await row().locator('[data-act=gdSignIn]').click(); await page.clock.runFor(600);
   ok(await row().locator('.pill', { hasText: 'On' }).count() === 1, 'signing in again restores normal backups');
+  // no internet when an automatic backup runs: shown as waiting (amber), retried when back online
+  await page.clock.runFor(70000);
+  await page.evaluate(() => { window.__gd.mode = 'offline'; window.__gd.tries = 0; const i = Object.values(WT.D.instances).find(x => x.templateId === 'bill_gym' && WT.instStatus(x).remaining > 0); WT.markPaid(i.id); }); await settle(page);
+  await page.clock.runFor(65000);
+  await page.evaluate(() => { location.hash = '#/settings/data'; WTApp.refresh(); }); await page.clock.runFor(200);
+  const offTxt = await row().textContent();
+  ok(await page.evaluate(() => window.__gd.tries) === 1 && /No internet connection\. Backup will try again when you're back online\./.test(offTxt) && await row().locator('.neg').count() === 0 && await row().locator('.warn').count() === 1 && /Last backup/.test(offTxt) && !/Unable to resolve host/.test(offTxt), 'offline: clear waiting message (amber, not a red error), last backup still shown');
+  ok(await row().locator('[data-act=gdBackup]', { hasText: 'Back up now' }).count() === 1, 'offline: "Back up now" button appears');
+  // backoff: tries again on its own after ~30 s, then ~1 min (not in a tight loop)
+  await page.clock.runFor(31000); const t2 = await page.evaluate(() => window.__gd.tries);
+  await page.clock.runFor(20000); const t2b = await page.evaluate(() => window.__gd.tries);
+  await page.clock.runFor(45000); const t3 = await page.evaluate(() => window.__gd.tries);
+  ok(t2 === 2 && t2b === 2 && t3 === 3, 'offline: retries with backoff (' + [t2, t2b, t3].join(',') + ')');
+  // back online: the "online" event backs up right away and clears the message
+  await page.evaluate(() => { window.__gd.mode = 'ok'; window.dispatchEvent(new Event('online')); }); await page.clock.runFor(4000);
+  ok(await page.evaluate(() => window.__gd.tries) === 4 && await page.evaluate(() => Object.values(JSON.parse(window.__gd.drive).data.payments).some(p => p.templateId === 'bill_gym' && !p.voided)), 'back online: the waiting backup runs and includes the change');
+  await page.evaluate(() => WTApp.refresh()); await page.clock.runFor(200);
+  ok(!/No internet/.test(await row().textContent()) && await row().locator('[data-act=gdBackup]').count() === 0, 'after a good backup the message and button go away');
+  ok(await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('wt.gd')); return !s.offline && !s.err; }), 'offline flag cleared after the next successful backup');
+  // nothing to do: online/foreground events don't back up when the last one worked
+  await page.evaluate(() => { window.dispatchEvent(new Event('online')); }); await page.clock.runFor(5000);
+  ok(await page.evaluate(() => window.__gd.tries) === 4, 'no extra backup when nothing failed');
+  // an older build's raw "Unable to resolve host" is treated the same way; coming back to the app retries
+  await page.evaluate(() => { window.__gd.mode = 'offline-raw'; });
+  await page.evaluate(() => WTApp.refresh()); await page.clock.runFor(100);
+  await page.evaluate(() => { const i = Object.values(WT.D.instances).find(x => x.templateId === 'bill_internet' && WT.instStatus(x).remaining > 0) || Object.values(WT.D.instances).find(x => WT.instStatus(x).remaining > 0); WT.markPaid(i.id); }); await settle(page); await page.clock.runFor(65000);
+  await page.evaluate(() => WTApp.refresh()); await page.clock.runFor(200);
+  ok(/No internet connection/.test(await row().textContent()) && !/Unable to resolve host/.test(await row().textContent()) && await row().locator('.neg').count() === 0, 'raw "Unable to resolve host" from an older build shows as waiting for internet');
+  const before5 = await page.evaluate(() => window.__gd.tries);
+  await page.evaluate(() => { window.__gd.mode = 'ok'; Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); document.dispatchEvent(new Event('visibilitychange')); }); await page.clock.runFor(4000);
+  ok(await page.evaluate(() => window.__gd.tries) === before5 + 1 && await page.evaluate(() => !JSON.parse(localStorage.getItem('wt.gd')).offline), 'returning to the app retries the waiting backup');
+  // "Back up now" after a real error; a manual tap while offline gives a calm toast
+  await page.evaluate(() => { window.__gd.mode = 'error'; }); await page.evaluate(() => WT.saveSettings({ tips: WT.settings().tips })); await settle(page); await page.clock.runFor(65000);
+  await page.evaluate(() => WTApp.refresh()); await page.clock.runFor(200);
+  ok(await row().locator('.neg', { hasText: 'Google Drive error 500' }).count() === 1 && await row().locator('[data-act=gdBackup]').count() === 1, 'a real Drive error stays red, with "Back up now"');
+  await page.evaluate(() => { window.__gd.mode = 'offline'; }); await row().locator('[data-act=gdBackup]').click(); await page.clock.runFor(300);
+  ok(await page.locator('#toasts .toast:not(.err)', { hasText: 'No internet connection' }).count() >= 1, 'tapping "Back up now" offline explains it will try again (not an error toast)');
+  await page.evaluate(() => { window.__gd.mode = 'ok'; }); await row().locator('[data-act=gdBackup]').click(); await page.clock.runFor(300);
+  ok(await row().locator('[data-act=gdBackup]').count() === 0 && /Last backup/.test(await row().textContent()), '"Back up now" works once online and the row goes back to normal');
   // signing out of Google (Personal info) stops backups
   await page.evaluate(() => { location.hash = '#/settings/personal'; WTApp.refresh(); }); await page.clock.runFor(200);
   await page.click('[data-act=signOut]'); await page.clock.runFor(200);

@@ -561,3 +561,93 @@ test('auto-pay: subscriptions upcoming until due date, then auto-paid once; excl
   WT.setSkipped(decMusic.id, true); WT.applyAutopay('2026-12-31');
   assert.equal(WT.paymentsFor(decMusic.id).length, 0);
 });
+
+test('date formats: every date shows the year in the picked format; old md/dm values still work', () => {
+  const want = { mdy: 'Nov 7, 2026', dmy: '7 Nov 2026', mdy_long: 'November 7, 2026', mdy_num: '11/07/2026', dmy_num: '07/11/2026', dmy_dot: '07.11.2026', ymd: '2026-11-07' };
+  assert.deepEqual(WT.DATE_FORMATS, Object.keys(want));
+  try {
+    for (const [k, v] of Object.entries(want)) {
+      assert.equal(WT.formatDate('2026-11-07', k), v);
+      WT.setDisplay({ dateFormat: k });
+      assert.equal(WT.shortDate('2026-11-07'), v, k);
+      assert.equal(WT.dateLabel('2026-11-07'), 'Sat, ' + v, k);
+      assert.equal(WT.dateLabel('2026-11-07', true), 'Sat, ' + v, k); // withYear still works
+    }
+    WT.setDisplay({ dateFormat: 'md' }); assert.equal(WT.shortDate('2026-11-07'), 'Nov 7, 2026'); assert.equal(WT.display().dateOrder, 'md');
+    WT.setDisplay({ dateOrder: 'dm' }); assert.equal(WT.shortDate('2026-11-07'), '7 Nov 2026'); assert.equal(WT.display().dateOrder, 'dm');
+    WT.setDisplay({ dateFormat: 'bogus' }); assert.equal(WT.display().dateFormat, 'dmy', 'unknown values are ignored');
+    assert.equal(WT.normDateFormat('md'), 'mdy'); assert.equal(WT.normDateFormat('dm'), 'dmy'); assert.equal(WT.normDateFormat('xx'), 'mdy');
+    // month-only labels stay month + year
+    assert.equal(WT.monthLabel('2026-11'), 'November 2026');
+    // chart ticks stay compact
+    WT.setDisplay({ dateFormat: 'mdy' }); assert.equal(WT.axisDate('2026-11-07'), 'Nov 7');
+    WT.setDisplay({ dateFormat: 'dmy_num' }); assert.equal(WT.axisDate('2026-11-07'), '7/11');
+    assert.equal(WT.shortDate(''), ''); assert.equal(WT.dateLabel(null), '');
+  } finally { WT.setDisplay({ dateFormat: 'mdy' }); }
+});
+
+test('zero-decimal currencies show whole amounts (still cents underneath)', () => {
+  try {
+    WT.setDisplay({ symbol: '¥', decimals: 0 });
+    assert.equal(WT.fmt(123456), '¥1,235'); // 1,234.56 rounds half up
+    assert.equal(WT.fmt(123449), '¥1,234');
+    assert.equal(WT.fmt(-150000), '-¥1,500');
+    assert.equal(WT.fmt(-20), '¥0');
+    assert.equal(WT.fmt(123456, { noCents: true }), '¥1,235');
+    WT.setDisplay({ symbol: 'kr ', decimals: 2 });
+    assert.equal(WT.fmt(123456), 'kr 1,234.56');
+  } finally { WT.setDisplay({ symbol: '$', decimals: 2 }); }
+  assert.equal(WT.fmt(123456), '$1,234.56');
+});
+
+test('data check: duplicate bills and orphan payments are listed and cleaned up without losing money records', () => {
+  const ctx = fresh();
+  assert.deepEqual(WT.integrityIssues(), []);
+  const nov = inst('bill_apartment', '2026-11'); const gym = inst('bill_gym', '2026-11'); const car = inst('bill_carloan', '2026-11');
+  // 1) a plain extra copy (no payments) next to a paid original
+  WT.markPaid(nov.id, '2026-11-01');
+  const dupA = Object.assign({}, nov, { id: 'i_dupA', createdAt: '2026-11-05' }); WT.save('instances', dupA);
+  // 2) the extra copy holds the only (partial) payment: it is kept, the original goes, and regeneration can't bring it back
+  const dupG = Object.assign({}, gym, { id: 'i_dupG' }); WT.save('instances', dupG);
+  const gp = WT.recordPayment('i_dupG', { amountCents: 100, date: '2026-11-02' });
+  // 3) both copies paid in full: may have paid twice, never merged without asking
+  const dupC = Object.assign({}, car, { id: 'i_dupC' }); WT.save('instances', dupC);
+  WT.markPaid(car.id, '2026-11-03'); WT.markPaid('i_dupC', '2026-11-03');
+  // 4) a payment whose bill is gone
+  WT.save('payments', { id: 'pay_orphan', instanceId: 'i_missing', templateId: 'bill_gym', amountCents: 4200, date: '2026-10-02', voided: false });
+  assert.equal(WT.integrity().length, 4, 'string version still works');
+  const iss = WT.integrityIssues();
+  const byTpl = t => iss.find(x => x.type === 'dupBill' && x.templateId === t);
+  assert.equal(byTpl('bill_apartment').keepId, nov.id); assert.deepEqual(byTpl('bill_apartment').removeIds, ['i_dupA']); assert.equal(byTpl('bill_apartment').conflict, false);
+  assert.equal(byTpl('bill_gym').keepId, 'i_dupG'); assert.equal(byTpl('bill_gym').conflict, false);
+  assert.equal(byTpl('bill_carloan').conflict, true);
+  const orphan = iss.find(x => x.type === 'orphanPayment');
+  assert.equal(orphan.paymentId, 'pay_orphan'); assert.equal(orphan.amountCents, 4200); assert.match(orphan.text, /\$42\.00/);
+  const paysBefore = Object.keys(WT.D.payments).length;
+  // Clean up (safe ones only): the conflict and the orphan stay
+  const r = WT.repairIntegrity(iss.filter(x => x.type === 'dupBill' && !x.conflict));
+  assert.equal(r.fixed, 2);
+  assert.ok(!WT.D.instances.i_dupA && WT.D.instances[nov.id]);
+  assert.ok(WT.D.instances.i_dupG && !WT.D.instances[gym.id] && WT.D.templates.bill_gym.removedKeys.includes(gym.periodKey));
+  assert.equal(WT.D.payments[gp.id].instanceId, 'i_dupG');
+  assert.equal(Object.keys(WT.D.payments).length, paysBefore, 'no payment deleted');
+  WT.ensureGenerated('2026-12'); assert.equal(WT.instancesForMonth('2026-11').filter(i => i.templateId === 'bill_gym').length, 1, 'the removed copy is not made again');
+  assert.equal(WT.integrityIssues().filter(x => x.type === 'dupBill').length, 1);
+  // a conflict is skipped unless merging was chosen; merging keeps both payments on one bill
+  assert.equal(WT.repairIntegrity([byTpl('bill_carloan')]).fixed, 0);
+  const m = WT.repairIntegrity([byTpl('bill_carloan')], { merge: true });
+  assert.equal(m.fixed, 1);
+  const kept = WT.D.instances[byTpl('bill_carloan').keepId];
+  assert.equal(WT.paymentsFor(kept.id).filter(p => !p.voided).length, 2); assert.equal(WT.paidFor(kept.id), 2 * kept.amountCents);
+  // undo puts every record back exactly
+  WT.undoRepair(m.snapshot);
+  assert.ok(WT.D.instances.i_dupC && WT.D.instances[car.id]);
+  assert.equal(WT.paidFor('i_dupC'), car.amountCents); assert.equal(WT.paidFor(car.id), car.amountCents);
+  // orphan payment: deleted only when passed in, undo brings it back; the persisted store follows
+  const o = WT.repairIntegrity([orphan]); assert.equal(o.fixed, 1); assert.ok(!WT.D.payments.pay_orphan && !ctx.store.payments.pay_orphan);
+  WT.undoRepair(o.snapshot); assert.equal(ctx.store.payments.pay_orphan.amountCents, 4200);
+  // everything survives a restart
+  reopen(ctx);
+  assert.ok(!WT.D.instances.i_dupA && WT.D.instances.i_dupG && WT.D.payments.pay_orphan && WT.D.instances.i_dupC);
+  assert.equal(WT.integrityIssues().length, 2);
+});

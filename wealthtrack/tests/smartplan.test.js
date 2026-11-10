@@ -52,8 +52,8 @@ test('carry-forward and reserve from earlier paychecks, to the cent', () => {
   assert.equal(c.carryIn, b.remaining);
   assert.equal(c.remaining, c.carryIn + NET - NET_BILL - short);
   assert.equal(d.remaining, c.remaining);
-  assert.ok(b.warnings.some(w => w.includes('Set aside $234.19 from the Nov 6 paycheck')), b.warnings.join('|'));
-  assert.ok(a.warnings.some(w => w.includes('Keep $234.19 of this paycheck for the Nov 20 paycheck')));
+  assert.ok(b.warnings.some(w => w.includes('Set aside $234.19 from the Nov 6, 2026 paycheck')), b.warnings.join('|'));
+  assert.ok(a.warnings.some(w => w.includes('Keep $234.19 of this paycheck for the Nov 20, 2026 paycheck')));
   assert.ok(p.warnings.some(w => w.includes('$234.19')));
   // money is conserved: everything in = bills + allocations + what's left at the end
   assert.equal(p.totals.net - p.totals.billsDue - p.totals.allocTotal, p.totals.remaining);
@@ -348,4 +348,34 @@ test('debt types: installment loans vs revolving cards on the sample data', () =
   assert.equal(by('debt_visa').revolving, true); assert.equal(by('debt_store').revolving, true);
   assert.equal(by('debt_car').revolving, false); assert.equal(by('debt_student').revolving, false);
   assert.equal(by('debt_car').type, 'auto');
+});
+
+// ---------------------------------------------------------------- mortgage (made up here; the fixture has none)
+test('mortgage: its bill is housing (needs) in the paycheck plan and payoff math uses principal + interest', () => {
+  fresh(true);
+  income(300000);
+  WT.addDebt({ id: 'debt_home', name: 'Home Mortgage', type: 'mortgage', startBalanceCents: 25000000, startDate: TODAY, aprCenti: 650, minCents: 200000, escrowCents: 45000, dueDay: 1, autoInterest: false });
+  bill('bill_home', 'Mortgage Payment', 200000, '2026-12-01', 'cat_mortgage', 'debt_home');
+  WT.addDebt({ id: 'debt_card', name: 'Card', type: 'credit_card', startBalanceCents: 300000, startDate: TODAY, aprCenti: 2299, minCents: 9000, dueDay: 5, autoInterest: false });
+  bill('bill_card', 'Card Payment', 9000, '2026-11-25', 'cat_credit_cards', 'debt_card');
+  WT.ensureGenerated('2027-02');
+  const before = snap();
+  const plan = P.paycheckPlan({ count: 4, strategy: NONE });
+  const hb = plan.paychecks.flatMap(p => p.bills).filter(b => b.templateId === 'bill_home');
+  assert.ok(hb.length >= 1);
+  hb.forEach(b => { assert.equal(b.kind, 'needs'); assert.equal(b.essential, true); assert.equal(b.mortgage, true); assert.equal(b.debtId, 'debt_home'); });
+  const cb = plan.paychecks.flatMap(p => p.bills).find(b => b.templateId === 'bill_card');
+  assert.equal(cb.kind, 'debt'); assert.equal(cb.mortgage, false);
+  // instance ids are unique across paychecks (each bill once)
+  const ids = plan.paychecks.flatMap(p => p.bills.map(b => b.instId)); assert.equal(new Set(ids).size, ids.length);
+  const L = P.debtList();
+  const m = L.debts.find(d => d.id === 'debt_home');
+  assert.equal(m.minimum, 155000); assert.equal(m.escrow, 45000); assert.equal(m.payment, 200000); assert.equal(m.housing, true);
+  const dp = P.debtPlans({ extra: 20000, method: 'avalanche' });
+  assert.equal(dp.minimums, 155000 + 9000); assert.equal(dp.housingMinimums, 155000); assert.equal(dp.debtMinimums, 9000);
+  assert.equal(dp.methods.avalanche.order[0].id, 'debt_card', 'higher APR card gets extra first');
+  assert.equal(dp.methods.avalanche.order.find(x => x.id === 'debt_home').housing, true);
+  const sn = P.debtPlans({ extra: 20000, method: 'snowball' });
+  assert.equal(sn.methods.snowball.order[0].id, 'debt_card', 'snowball: smallest balance first');
+  assert.equal(snap(), before, 'read-only');
 });

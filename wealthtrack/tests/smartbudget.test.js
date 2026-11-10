@@ -812,7 +812,7 @@ test('cashflow suggestions use WTPlan when it is ready', () => {
     // suggestions ask once without an analysis; the recommendation's cash-flow check passes its analysis
     assert.equal(calls.filter(c => !c.analysis).length, 1); assert.ok(calls.every(c => c.count === 4));
     const cf = sug.filter(x => x.kind === 'cashflow');
-    assert.ok(cf.some(x => x.amount === 12345 && x.urgency === 'soon' && /Hold back \$123 for the Nov 20 paycheck/.test(x.title)));
+    assert.ok(cf.some(x => x.amount === 12345 && x.urgency === 'soon' && /Hold back \$123 for the Nov 20, 2026 paycheck/.test(x.title)));
     assert.ok(cf.some(x => x.amount === 5000 && x.urgency === 'now'));
     // a broken WTPlan falls back to the built-in paycheck check
     global.WTPlan = { ready: true, paycheckPlan() { throw new Error('boom'); } };
@@ -1306,4 +1306,218 @@ test('v3 strategies are deterministic and serializable (no NaN / undefined)', ()
   const b = JSON.stringify([S.strategies(S.analyze()), S.compareAll(S.analyze(), 36), S.breakdown(S.analyze()), S.recommend()]);
   assert.equal(a, b);
   assert.ok(!/NaN|undefined|Infinity/.test(a));
+});
+
+// ---------------------------------------------------------------- mortgage (housing that is still a debt)
+// Made-up home owner, created here (the shared fixture has no mortgage):
+//   pay        $3,000 biweekly                     -> 650000/mo
+//   mortgage   $250,000 at 6.50%, payment $2,000 incl. $450 escrow -> P&I 155000, linked monthly bill $2,000
+//   property tax $3,600 a year (Apr)              -> 30000/mo set aside
+//   HOA        $150 a quarter                       -> 5000/mo set aside
+//   car loan   $12,000 at `carApr`, minimum $345 (linked bill); optional card at 22.99%
+const { ensureBuiltins } = require(path.join(__dirname, '../web/seed.js'));
+function mortgageHome(o) {
+  o = o || {};
+  fresh(true);
+  WT.addIncome({ id: 'inc_home', name: 'Job', kind: 'net', netCents: 300000, schedule: 'biweekly', anchor: '2026-11-06', startDate: '2026-10-01', accountId: 'acc_checking' });
+  WT.addDebt({ id: 'debt_home', name: 'Home Mortgage', type: 'mortgage', startBalanceCents: 25000000, startDate: TODAY, aprCenti: 650, minCents: 200000, escrowCents: 45000, dueDay: 1, autoInterest: false });
+  if (o.bill !== false) WT.addTemplate({ id: 'bill_home', name: 'Mortgage Payment', amountCents: 200000, category: 'cat_mortgage', anchor: '2026-12-01', frequency: 'monthly', debtId: 'debt_home', accountId: 'acc_checking' });
+  WT.addTemplate({ id: 'bill_ptax', name: 'Property Tax', amountCents: 360000, category: 'cat_property_tax', anchor: '2027-04-01', frequency: 'yearly', accountId: 'acc_checking' });
+  WT.addTemplate({ id: 'bill_hoa', name: 'HOA Dues', amountCents: 15000, category: 'cat_hoa', anchor: '2026-12-15', frequency: 'quarterly', accountId: 'acc_checking' });
+  if (o.car !== false) {
+    WT.addDebt({ id: 'debt_car2', name: 'Car Loan', type: 'auto', startBalanceCents: 1200000, startDate: TODAY, aprCenti: o.carApr != null ? o.carApr : 400, minCents: 34500, dueDay: 20, autoInterest: false });
+    WT.addTemplate({ id: 'bill_car2', name: 'Car Payment', amountCents: 34500, category: 'cat_loans', anchor: '2026-11-20', frequency: 'monthly', debtId: 'debt_car2', accountId: 'acc_checking' });
+  }
+  if (o.card) {
+    WT.addDebt({ id: 'debt_card2', name: 'Rewards Card', type: 'credit_card', startBalanceCents: 300000, startDate: TODAY, aprCenti: 2299, minCents: 9000, dueDay: 5, limitCents: 500000, autoInterest: false });
+    WT.addTemplate({ id: 'bill_card2', name: 'Card Payment', amountCents: 9000, category: 'cat_credit_cards', anchor: '2026-12-05', frequency: 'monthly', debtId: 'debt_card2', accountId: 'acc_checking' });
+  }
+  WT.ensureGenerated('2027-12');
+}
+const allItems = bd => B.flatMap(b => bd[b].items.map(it => Object.assign({ bucket: b }, it)));
+
+test('mortgage: the full payment is in Essentials once, never in the Debt minimums', () => {
+  mortgageHome();
+  const A = S.analyze();
+  assert.equal(A.income, 650000);
+  const home = A.essentialList.filter(b => b.debtId === 'debt_home');
+  assert.equal(home.length, 1, 'one mortgage line in Essentials');
+  assert.equal(home[0].monthly, 200000, 'the full payment (escrow included)');
+  assert.equal(A.essentials, 200000 + 30000 + 5000, 'mortgage + property tax set-aside + HOA set-aside');
+  assert.equal(A.debtMinimums, 34500, 'only the car loan is a Debt minimum');
+  assert.equal(A.required, A.living + A.debtMinimums);
+  assert.equal(A.annualSetAside, 35000, 'yearly property tax and quarterly HOA get the monthly sinking-fund treatment');
+  // the mortgage stays a debt: P&I minimum, housing flag, escrow kept
+  const m = A.debts.find(d => d.id === 'debt_home');
+  assert.ok(m && m.housing, 'mortgage is still in the debt list');
+  assert.equal(m.minCents, 155000, 'payoff math uses principal + interest only');
+  assert.equal(m.escrowCents, 45000);
+  assert.equal(A.housing.payment, 200000); assert.equal(A.housing.escrow, 45000); assert.equal(A.housing.principalInterest, 155000);
+  assert.equal(A.housing.otherCosts, 35000); assert.equal(A.housing.total, 235000);
+  assert.equal(A.housing.pct, Math.round(235000 * 1000 / 650000) / 10);
+  // every new home category is essential
+  ['cat_mortgage', 'cat_property_tax', 'cat_home_insurance', 'cat_pmi', 'cat_hoa', 'cat_home_maintenance'].forEach(c => assert.equal(A.essentialCategory(c, 'bill'), true, c));
+  assert.equal(A.essentialCategory('cat_home_maintenance', 'expense'), true, 'repairs count as needs spending too');
+});
+
+test('mortgage: breakdown lists the payment once under Essentials, no double counting, debt totals exclude it', () => {
+  mortgageHome();
+  const A = S.analyze();
+  S.STRATEGY_IDS.filter(id => id !== 'custom').forEach(id => {
+    const bd = S.breakdown(A, id);
+    const items = allItems(bd);
+    const home = items.filter(it => it.debtId === 'debt_home' && it.kind !== 'extra');
+    assert.equal(home.length, 1, id + ': mortgage listed once');
+    assert.equal(home[0].bucket, 'needs'); assert.equal(home[0].amount, 200000); assert.equal(home[0].mortgage, true); assert.equal(home[0].escrowCents, 45000);
+    assert.ok(!bd.debt.items.some(it => it.kind === 'minimum' && it.debtId === 'debt_home'), id + ': no mortgage minimum under Debt');
+    const tids = items.filter(it => it.templateId && it.kind !== 'extra').map(it => it.templateId);
+    assert.equal(new Set(tids).size, tids.length, id + ': each bill once');
+    assert.equal(bd.needs.items.filter(it => it.kind !== 'spending').reduce((t, it) => t + it.amount, 0), A.essentials, id + ': Essentials items = essentials');
+    assert.equal(bd.debt.items.filter(it => it.kind !== 'extra').reduce((t, it) => t + it.amount, 0), A.debtMinimums, id + ': Debt minimum items = debt minimums');
+    const s = S.strategies(A).find(x => x.id === id);
+    assert.ok(s.amounts.needs >= A.living, id + ': essentials funded'); assert.equal(sumC(s.amounts), A.income, id + ': sums to income');
+    assert.equal(s.debtSplit.minimum, A.debtMinimums, id + ': minimum split excludes the mortgage');
+  });
+  const bd = S.breakdown(A, 'avalanche');
+  const tax = bd.needs.items.find(it => it.templateId === 'bill_ptax'); const hoa = bd.needs.items.find(it => it.templateId === 'bill_hoa');
+  assert.equal(tax.kind, 'setaside'); assert.equal(tax.amount, 30000); assert.equal(tax.fullAmount, 360000); assert.equal(tax.frequency, 'yearly');
+  assert.equal(hoa.kind, 'setaside'); assert.equal(hoa.amount, 5000);
+});
+
+test('mortgage: no linked bill -> the set payment is still counted once in Essentials', () => {
+  mortgageHome({ bill: false });
+  const A = S.analyze();
+  const home = A.essentialList.filter(b => b.debtId === 'debt_home');
+  assert.equal(home.length, 1); assert.equal(home[0].monthly, 200000); assert.equal(home[0].id, null);
+  assert.equal(A.debtMinimums, 34500);
+  const bd = S.breakdown(A, 'balanced');
+  assert.equal(bd.needs.items.filter(it => it.debtId === 'debt_home').length, 1);
+});
+
+test('mortgage: amortization and forecasts use principal + interest only', () => {
+  mortgageHome({ car: false });
+  const A = S.analyze();
+  const piSim = WT.simulatePayoff([{ id: 'h', name: 'h', balanceCents: 25000000, aprCenti: 650, minCents: 155000 }], 0, 'minimum');
+  const fullSim = WT.simulatePayoff([{ id: 'h', name: 'h', balanceCents: 25000000, aprCenti: 650, minCents: 200000 }], 0, 'minimum');
+  assert.ok(piSim.months > fullSim.months, 'escrow would wrongly shorten the loan');
+  // core inputs, the engine's debt model and WTPlan all amortize on P&I
+  const inp = WT.debtInputs().find(d => d.id === 'debt_home');
+  assert.equal(inp.minCents, 155000); assert.equal(inp.paymentCents, 200000); assert.equal(inp.escrowCents, 45000);
+  const P = require(path.join(__dirname, '../web/smartplan.js'));
+  const dp = P.debtPlans({ extra: 0, method: 'avalanche' });
+  assert.equal(dp.methods.minimum.months, piSim.months, 'WTPlan payoff months match a P&I amortization');
+  assert.equal(dp.housingMinimums, 155000); assert.equal(dp.debtMinimums, 0);
+  // forecast: a plan with no Debt-bucket money still pays the mortgage's P&I from Essentials
+  const dollars = { needs: A.living, debt: 0, savings: A.income - A.living, wants: 0 };
+  const f = S.forecast(A, dollars, 12);
+  assert.equal(f.debtPaid, piSim.timeline[0] - piSim.timeline[12], '12-month principal paid = P&I amortization');
+  assert.equal(f.debtFreeWithin, false);
+  const p = S.strategies(A).find(s => s.id === 'pay-first').projection;
+  assert.ok(p.debtPaid12 > 0, 'strategy projections include mortgage principal');
+});
+
+test('mortgage: extra payments can go to it, but avalanche still pays higher-APR debt first', () => {
+  // all low rates: mortgage 6.50% beats the car at 4.00%, so avalanche extra goes to the mortgage
+  mortgageHome({ carApr: 400 });
+  let A = S.analyze();
+  let av = S.strategies(A).find(s => s.id === 'avalanche');
+  assert.ok(av.debtSplit.extra > 0);
+  let ex = S.breakdown(A, 'avalanche').debt.items.find(it => it.kind === 'extra');
+  assert.equal(ex.debtId, 'debt_home', 'extra goes to the highest APR: the mortgage');
+  const P = require(path.join(__dirname, '../web/smartplan.js'));
+  assert.ok(P.debtPlans({ extra: 10000, method: 'avalanche' }).methods.avalanche.notes.some(n => /Home Mortgage/.test(n)));
+  // snowball ranks by balance: the car first
+  assert.equal(S.breakdown(A, 'snowball').debt.items.find(it => it.kind === 'extra').debtId, 'debt_car2');
+  // with a 22.99% card the card gets the extra first, the mortgage last
+  mortgageHome({ carApr: 400, card: true });
+  A = S.analyze();
+  ex = S.breakdown(A, 'avalanche').debt.items.find(it => it.kind === 'extra');
+  assert.equal(ex.debtId, 'debt_card2');
+  const order = P.debtPlans({ extra: 20000, method: 'avalanche' }).methods.avalanche.order.map(x => x.id);
+  assert.equal(order[0], 'debt_card2');
+  assert.equal(A.debtMinimums, 34500 + 9000);
+});
+
+test('mortgage only + small savings: emergency fund before extra mortgage payments; text explains housing', () => {
+  mortgageHome({ car: false });
+  const A = S.analyze();
+  assert.equal(A.debtMinimums, 0);
+  const rec = S.recommend(A);
+  assert.notEqual(rec.id, 'aggressive');
+  const f = rec.factors.find(x => x.label === 'Housing (mortgage)');
+  assert.ok(f, 'housing factor shown');
+  assert.match(f.value, /36\.2% of take-home pay/);
+  assert.match(f.effect, /Essentials/); assert.match(f.effect, /emergency fund/);
+  assert.ok(rec.howCalculated.some(l => /Mortgage: the \$2,000\.00 monthly payment is housing/.test(l) && /\$450\.00 of it is escrow/.test(l)));
+  const zero = S.strategies(A).find(s => s.id === 'zero');
+  const iEf = zero.lines.findIndex(l => l.label === 'Emergency fund (3 months)'), iEx = zero.lines.findIndex(l => l.label === 'Extra debt payment');
+  assert.ok(iEf >= 0 && (iEx < 0 || iEf < iEx), 'zero-based funds the 3-month emergency fund before any extra mortgage payment');
+  ['avalanche', 'balanced', 'snowball'].forEach(id => { const s = S.strategies(A).find(x => x.id === id); assert.ok(s.lines.find(l => l.label === 'Starter emergency fund').amount === A.starter.gap, id + ': full starter fund first'); });
+});
+
+test('mortgage: paying the bill counts in Essentials (planned vs actual), extra payments in Debt', () => {
+  mortgageHome();
+  WT.setToday('2026-12-02');
+  try {
+    WT.recordPayment('i_bill_home_2026-12-01', { amountCents: 200000, date: '2026-12-01' });
+    WT.payDebtExtra('debt_home', 10000, '2026-12-01', 'acc_checking');
+    const A = S.analyze('2026-12');
+    const va = S.vsActual(A, 'avalanche', '2026-12');
+    assert.equal(va.needs.paid, 200000, 'mortgage bill payment is housing');
+    assert.equal(va.debt.paid, 0);
+    assert.equal(va.debt.extra, 10000, 'extra mortgage payment comes from the Debt bucket');
+  } finally { WT.setToday(TODAY); }
+});
+
+test('mortgage: net worth counts the balance as a liability', () => {
+  mortgageHome();
+  const NW = require(path.join(__dirname, '../web/wealth.js'));
+  const n = NW.netWorth();
+  const l = n.liabilities.find(x => x.id === 'debt_home');
+  assert.equal(l.amount, 25000000);
+  assert.equal(n.totalLiabilities, 25000000 + 1200000);
+});
+
+test('mortgage escrow: only payment minus escrow lowers the balance; other debts unchanged', () => {
+  mortgageHome();
+  const bal0 = WT.debtBalance('debt_home');
+  WT.recordPayment('i_bill_home_2026-12-01', { amountCents: 200000, date: '2026-12-01' });
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 155000, 'escrow ($450) is not principal');
+  assert.ok(WT.debtCharges('debt_home').some(x => x.type === 'payment' && x.amountCents === -155000 && x.escrowCents === 45000 && /\$450\.00 to escrow/.test(x.label)));
+  // two partial payments: the escrow comes out once, from the first
+  WT.recordPayment('i_bill_home_2027-01-01', { amountCents: 30000, date: '2027-01-01' });
+  WT.recordPayment('i_bill_home_2027-01-01', { amountCents: 170000, date: '2027-01-02' });
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 155000 * 2);
+  // extra payments are all principal
+  WT.payDebtExtra('debt_home', 10000, '2027-01-03', 'acc_checking');
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 155000 * 2 + 10000);
+  // a non-mortgage debt still drops by the full payment
+  const car0 = WT.debtBalance('debt_car2');
+  WT.recordPayment('i_bill_car2_2026-11-20', { amountCents: 34500, date: '2026-11-20' });
+  assert.equal(car0 - WT.debtBalance('debt_car2'), 34500);
+  // a mortgage without escrow drops by the full payment (unchanged behavior)
+  WT.updateDebt('debt_home', { escrowCents: 0 });
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 200000 * 2 + 10000);
+  assert.equal(WT.debtEscrow('debt_car2'), 0);
+  WT.updateDebt('debt_car2', { escrowCents: 5000 }); // escrow only applies to mortgages
+  assert.equal(WT.debtEscrow('debt_car2'), 0); assert.equal(car0 - WT.debtBalance('debt_car2'), 34500);
+});
+
+test('built-in category migration adds the home categories once and never touches user categories', () => {
+  // an older install: the 16 original categories (the fixture's list), one hidden, plus a user's own "HOA Fees"
+  WT.init(null, { put() { }, del() { } });
+  seed(WT, { today: TODAY, blank: true });
+  WT.D.categories.cat_other.archived = true; WT.save('categories', WT.D.categories.cat_other);
+  WT.save('categories', { id: 'cat_my_hoa', name: 'HOA Fees', color: '#123456' });
+  const before = JSON.parse(JSON.stringify(WT.D.categories));
+  const added = ensureBuiltins(WT);
+  assert.deepEqual(added.sort(), ['cat_home_insurance', 'cat_home_maintenance', 'cat_mortgage', 'cat_pmi', 'cat_property_tax']);
+  assert.ok(!WT.D.categories.cat_hoa, 'user already has an HOA category (same name)');
+  Object.keys(before).forEach(id => assert.deepEqual(WT.D.categories[id], before[id], id + ' unchanged'));
+  assert.deepEqual(ensureBuiltins(WT), [], 'second run adds nothing');
+  assert.equal(Object.keys(WT.D.categories).length, Object.keys(before).length + 5);
+  // a new install already has them all
+  fresh(true);
+  assert.deepEqual(ensureBuiltins(WT), []);
+  assert.ok(WT.D.categories.cat_mortgage && WT.D.categories.cat_hoa);
 });

@@ -14,7 +14,7 @@
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.2'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.3'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -106,6 +106,7 @@
     const oc = $('#navOverdue'); if (oc) { const n = W.overdue().length; oc.textContent = n ? n : ''; oc.title = n ? n + ' overdue' : ''; }
     $$('[data-nav-btn]').forEach(b => b.classList.toggle('active', b.dataset.navBtn === ui.route || (b.dataset.navBtn === 'more' && !MOBILE.includes(ui.route))));
     const y = window.scrollY;
+    const piFocus = piKeepFocus(); // Personal info: save pending typing first, keep the cursor where it was
     try { main.innerHTML = demoBar() + (VIEWS[ui.route] || VIEWS.dashboard)(); }
     catch (e) { console.error(e); main.innerHTML = `<div class="card"><h3>Something went wrong</h3><p class="muted">${esc(e.message)}</p></div>`; }
     // quick access to Settings, top right of every page
@@ -114,6 +115,7 @@
     // the lock screen can't read encrypted data, so only the first name is kept for its greeting
     try { const fn = (profile().first || '').slice(0, 40); if (fn !== render.greet) { render.greet = fn; S.setGreetName(fn); } } catch (e) { /* storage blocked */ }
     if (render.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
+    if (piFocus) piFocus();
     render.keepScroll = false;
     (AFTER[ui.route] || (() => { }))();
     saveUi();
@@ -340,7 +342,7 @@
     if (o.mark) { const i = o.mark.index; const v = o.series[0].values[i]; g += `<circle cx="${X(i)}" cy="${Y(v)}" r="4.5" fill="var(--surface)" stroke="${o.mark.color || o.series[0].color}" stroke-width="2"/><text x="${Math.min(Wd - 4, Math.max(pl + 4, X(i)))}" y="${Y(v) + (v < (max + min) / 2 ? -10 : 18)}" text-anchor="middle" style="fill:var(--ink);font-weight:650">${esc(o.mark.label)}</text>`; }
     // hover columns: one per point, tooltip lists every series
     const cw = (Wd - pl) / Math.max(1, n);
-    o.labels.forEach((l, i) => { const x0 = Math.max(pl, X(i) - cw / 2), x1 = Math.min(Wd, X(i) + cw / 2); g += `<rect x="${x0}" y="${pt}" width="${Math.max(1, x1 - x0)}" height="${H - pt - pb}" fill="transparent" data-tip="${esc(l + ' — ' + o.series.map(s => (o.series.length > 1 ? s.name + ' ' : '') + fmt(s.values[i])).join(' · '))}"/>`; });
+    o.labels.forEach((l, i) => { const x0 = Math.max(pl, X(i) - cw / 2), x1 = Math.min(Wd, X(i) + cw / 2); g += `<rect x="${x0}" y="${pt}" width="${Math.max(1, x1 - x0)}" height="${H - pt - pb}" fill="transparent" data-tip="${esc((o.tipLabels ? o.tipLabels[i] : l) + ' — ' + o.series.map(s => (o.series.length > 1 ? s.name + ' ' : '') + fmt(s.values[i])).join(' · '))}"/>`; });
     return `<svg class="chart" viewBox="0 0 ${Wd} ${H}" role="img" aria-label="${esc(o.title || 'Line chart')}">${g}</svg>${o.series.length > 1 ? `<div class="legend">${o.series.map(s => `<span><i class="dot" style="background:${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>` : ''}`;
   }
   // Ranked horizontal bars for nominal categories: one colour, sorted, direct values.
@@ -481,11 +483,11 @@
   }
   function dashProjection() {
     const pr = W.projection(60);
-    const labels = pr.series.map(p => W.shortDate(p.date));
+    const labels = pr.series.map(p => W.axisDate(p.date)), tipLabels = pr.series.map(p => W.shortDate(p.date)); // axis ticks stay short; the tooltip has the full date
     const li = pr.series.findIndex(p => p.date === pr.low.date);
     return `<section class="section">${sectionH('Cash forecast', 'Next 60 days')}
       <p class="small muted" style="margin:10px 0 4px">${pr.low.balance < 0 ? `<span class="neg"><b>Heads up:</b></span> at this pace checking dips to <b class="neg">${fmt(pr.low.balance)}</b> around ${W.dateLabel(pr.low.date)}.` : `Lowest point is <b>${fmt(pr.low.balance)}</b> around ${W.dateLabel(pr.low.date)}.`} Counts expected paychecks${W.settings().projectionIncludesSetAsides ? ', set-asides' : ''} and every unpaid bill on its due date.</p>
-      ${lineChart({ title: 'Projected checking balance', labels, series: [{ name: 'Projected balance', color: pr.low.balance < 0 ? 'var(--over)' : 'var(--brand)', values: pr.series.map(p => p.balance), fill: true }], maxLabels: 6, mark: { index: li, label: 'Low ' + short$(pr.low.balance) } })}</section>`;
+      ${lineChart({ title: 'Projected checking balance', labels, tipLabels, series: [{ name: 'Projected balance', color: pr.low.balance < 0 ? 'var(--over)' : 'var(--brand)', values: pr.series.map(p => p.balance), fill: true }], maxLabels: 6, mark: { index: li, label: 'Low ' + short$(pr.low.balance) } })}</section>`;
   }
   function dashDebt() {
     const total = W.totalDebt();
@@ -1119,15 +1121,17 @@
   const pad = (arr, n) => arr.concat(Array(Math.max(0, n - arr.length)).fill(0)).slice(0, n);
   function debtCard(d) {
     const bal = W.debtBalance(d.id); const util = d.limitCents ? Math.round(bal * 100 / d.limitCents) : null;
-    const one = W.simulatePayoff([{ id: d.id, name: d.name, balanceCents: bal, aprCenti: d.aprCenti, minCents: d.minCents }], 0, 'minimum');
-    const plus = W.simulatePayoff([{ id: d.id, name: d.name, balanceCents: bal, aprCenti: d.aprCenti, minCents: d.minCents }], 5000, 'avalanche');
+    // mortgages with escrow: only principal + interest pays the loan down
+    const pi = W.debtPI ? W.debtPI(d) : (d.minCents || 0), escrow = W.debtEscrow ? W.debtEscrow(d) : 0;
+    const one = W.simulatePayoff([{ id: d.id, name: d.name, balanceCents: bal, aprCenti: d.aprCenti, minCents: pi }], 0, 'minimum');
+    const plus = W.simulatePayoff([{ id: d.id, name: d.name, balanceCents: bal, aprCenti: d.aprCenti, minCents: pi }], 5000, 'avalanche');
     const bills = W.list('templates').filter(t => t.debtId === d.id && !t.deleted);
     const ord = n => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
     const payoff = bal <= 0 ? '<span class="pos">Paid off</span>' : one.months ? `${W.monthLabel(W.addMonthKey(curMonth(), one.months), true)}<div class="tiny faint">${fmt(one.totalInterest)} interest${plus.months && one.months - plus.months > 0 ? ` · +${fmt0(5000)}/mo saves ${fmt(one.totalInterest - plus.totalInterest)}` : ''}</div>` : '<span class="neg">Minimum doesn\'t cover interest</span>';
     return `<div class="debt-row ${d.closed ? 'closed' : ''}" data-debt="${d.id}">
       <div class="d-name"><b>${esc(d.name)}</b><div class="tiny muted">${esc(DEBT_TYPES[d.type] || d.type)} · ${esc(W.pctStr(d.aprCenti || 0))} APR · due the ${esc(ord(+d.dueDay || 1))}${bills.length ? '' : ' · <span class="warn">no linked bill</span>'}</div></div>
       <div class="d-bal r num"><b>${fmt(bal)}</b></div>
-      <div class="d-min r num">${fmt(d.minCents || 0)}<span class="tiny faint m-lbl"> min</span></div>
+      <div class="d-min r num">${fmt(d.minCents || 0)}<span class="tiny faint m-lbl"> min</span>${escrow ? `<div class="tiny faint">incl. ${fmt(escrow)} escrow</div>` : ''}</div>
       <div class="d-util">${util != null ? `<div class="util"><span class="progress thin ${util > 70 ? 'over' : util > 30 ? 'warn' : ''}"><i style="width:${Math.min(100, util)}%"></i></span><span class="num tiny ${util > 70 ? 'neg' : ''}">${util}%</span></div>` : '<span class="faint tiny">—</span>'}</div>
       <div class="d-pay small">${payoff}</div>
       <div class="d-act"><button class="btn sm" data-act="debtPay" data-id="${d.id}" title="Make an extra payment">Pay extra</button><button class="btn sm icon ghost" data-act="debtMenu" data-id="${d.id}" aria-label="More for ${esc(d.name)}">${ic('dots')}</button></div>
@@ -1137,12 +1141,16 @@
     const d = id ? W.D.debts[id] : null;
     modal({
       title: d ? 'Edit ' + esc(d.name) : 'Add debt', submit: d ? 'Save' : 'Add',
+      // the escrow field and its help text only show for a mortgage
+      onMount: form => { const sel = form.querySelector('[name=type]'); const sync = () => $$('.mort-only', form).forEach(el => { el.style.display = sel.value === 'mortgage' ? '' : 'none'; }); sel.addEventListener('change', sync); sync(); },
       body: `<div class="form-grid">
         ${field('Name', `<input class="input" name="name" value="${esc(d ? d.name : '')}" autofocus>`)}
         ${field('Type', `<select class="input" name="type">${Object.entries(DEBT_TYPES).map(([k, l]) => opt(k, l, d ? d.type : 'credit_card')).join('')}</select>`)}
         ${d ? '' : field('Current balance', moneyInput('balance', null))}
         ${field('Interest rate (APR %)', `<input class="input" name="apr" inputmode="decimal" value="${d ? W.centsToStr(d.aprCenti || 0) : ''}" placeholder="24.99">`)}
         ${field('Minimum monthly payment', moneyInput('min', d ? d.minCents : null))}
+        ${field('Escrow included in payment (monthly)', moneyInput('escrow', d && d.escrowCents ? d.escrowCents : null, 'aria-describedby="escrowHelp"'), 'mort-only')}
+        <p class="tiny muted full mort-only" id="escrowHelp">For a mortgage, enter the full monthly payment above. Property taxes and homeowners insurance are usually in escrow: enter that part here. Only the rest (principal and interest) pays down the loan. Leave it empty if you pay them yourself.</p>
         ${field('Payment due day', `<input class="input" type="number" min="1" max="31" name="dueDay" value="${d ? d.dueDay : 1}">`)}
         ${field('Credit limit (cards)', moneyInput('limit', d ? d.limitCents : null))}
         <label class="check full"><input type="checkbox" name="autoInterest" ${!d || d.autoInterest ? 'checked' : ''}> Add interest automatically each month on the due date</label>
@@ -1152,10 +1160,16 @@
         if (!f.name.trim()) throw new UserError('Enter a name');
         const apr = W.parsePct(f.apr || '0'); if (apr == null || apr < 0) throw new UserError('Enter a valid APR');
         const data = { name: f.name.trim(), type: f.type, aprCenti: apr, minCents: W.parseMoney(f.min) || 0, dueDay: Math.min(31, Math.max(1, +f.dueDay || 1)), limitCents: W.parseMoney(f.limit) || null, autoInterest: !!f.autoInterest };
+        if (f.type === 'mortgage') {
+          const e = (f.escrow || '').trim() ? W.parseMoney(f.escrow) : 0;
+          if (e == null || e < 0) throw new UserError('Enter a valid escrow amount');
+          if (e > 0 && e >= data.minCents) throw new UserError('Escrow must be less than the monthly payment');
+          data.escrowCents = e;
+        } else if (d && d.escrowCents) data.escrowCents = 0;
         if (d) { data.closed = !!f.closed; W.updateDebt(id, data); }
         else {
           const nd = W.addDebt(Object.assign(data, { startBalanceCents: needMoney(f.balance || '0', 'balance', true), startDate: today() }));
-          if (f.mkBill && data.minCents > 0) { const mk = W.dateInMonthClamped(curMonth(), data.dueDay); W.addTemplate({ name: data.name, amountCents: data.minCents, anchor: mk >= today() ? mk : W.addMonthsClamp(mk, 1), frequency: 'monthly', category: data.type === 'credit_card' ? 'cat_credit_cards' : 'cat_loans', debtId: nd.id }); }
+          if (f.mkBill && data.minCents > 0) { const mk = W.dateInMonthClamped(curMonth(), data.dueDay); W.addTemplate({ name: data.name, amountCents: data.minCents, anchor: mk >= today() ? mk : W.addMonthsClamp(mk, 1), frequency: 'monthly', category: data.type === 'credit_card' ? 'cat_credit_cards' : data.type === 'mortgage' ? (W.D.categories.cat_mortgage ? 'cat_mortgage' : 'cat_housing') : 'cat_loans', debtId: nd.id }); }
         }
         toast('Saved'); refresh();
       },
@@ -1440,6 +1454,37 @@
   const SB_SAVED_MAX = 20;
   const sbSavedList = () => (Array.isArray(sbCfg().saved) ? sbCfg().saved : []).filter(x => x && typeof x.id === 'string' && typeof x.name === 'string' && sbCentsOk(x.dollars));
 
+  // ---- page sections: the "Section" dropdown picks which part of Smart Budget shows. Every card is still rendered
+  // (inactive sections are hidden, not removed), so switching is instant and unsaved editor changes are never lost.
+  // Remembered per device (ui.sbSec) and with your data (settings.sbSection), like billView / upRange.
+  // Deep links: #/smart/plan | compare | customize, or #/smart/<card id> (e.g. #/smart/sbEdit) to open a card's section.
+  const SB_SECS = [['plan', 'My plan'], ['compare', 'Strategies & compare'], ['customize', 'Customize & paychecks']];
+  const SB_CARD_SEC = { sbPlans: 'plan', sbRecSum: 'plan', sbVa: 'plan', sbSug: 'plan', sbHist: 'plan', sbWhy: 'compare', sbStrats: 'compare', sbCmp: 'compare', sbEdit: 'customize', sbSaved: 'customize', sbVs: 'customize', sbPrev: 'customize', sbPlanSec: 'customize', spPaychecks: 'customize', spDebt: 'customize' };
+  const sbSecOk = v => SB_SECS.some(x => x[0] === v);
+  const sbSecOf = () => sbSecOk(ui.sbSec) ? ui.sbSec : W.D && sbSecOk(W.settings().sbSection) ? W.settings().sbSection : 'plan';
+  const sbSecName = v => (SB_SECS.find(x => x[0] === v) || SB_SECS[0])[1];
+  const sbHashSub = () => { const m = /^#\/?smart\/([A-Za-z-]{1,40})/.exec(location.hash || ''); return m ? m[1] : ''; };
+  const sbSetHash = v => { try { const h = '#/smart/' + v; if (location.hash !== h && history.replaceState) history.replaceState(null, '', h); } catch (e) { /* ignore */ } };
+  function sbSetSec(v) { if (!sbSecOk(v)) return; ui.sbSec = v; saveUi(); if (W.settings().sbSection !== v) W.saveSettings({ sbSection: v }); }
+  // unsaved changes anywhere in "Customize & paychecks" (budget editor, paycheck plan, debt plan)
+  const sbDirtyAny = () => !!(sbDraft && sbDraft.dirty) || sbTry(() => { const PU = window.WTPlanUI; return !!(PU && typeof PU.dirty === 'function' && PU.dirty()); }, false);
+  const sbSecNoteHtml = v => v !== 'customize' && sbDirtyAny() ? `<div class="callout small">${ic('info')}<div>You have unsaved changes in <b>Customize &amp; paychecks</b>. They’re kept until you Save or Cancel. <button type="button" class="link" data-act="sbGo" data-sec="customize">Go to them</button></div></div>` : '';
+  // switch section in place (no re-render), then scroll to a card (`to` = element id) or back up to the dropdown
+  function sbShowSec(v, to) {
+    if (!sbSecOk(v)) return;
+    const was = sbSecOf();
+    sbSetSec(v); sbSetHash(v);
+    if (!$('#main [data-sbsec]')) { refresh(); } else {
+      $$('#main [data-sbsec]').forEach(p => { p.hidden = p.dataset.sbsec !== v; });
+      const sel = $('#sbSec'); if (sel && sel.value !== v) sel.value = v;
+      const note = $('#sbSecNote'); if (note) note.innerHTML = sbSecNoteHtml(v);
+    }
+    if (was === 'customize' && v !== 'customize' && sbDirtyAny()) toast('Unsaved changes kept. Save or Cancel them in Customize & paychecks.');
+    const tgt = to && /^[A-Za-z-]{1,40}$/.test(to) ? document.getElementById(to) : null;
+    if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: 'start' });
+    else { const bar = $('#sbSecBar'); if (bar && bar.getBoundingClientRect().top < 0) bar.scrollIntoView({ block: 'start' }); }
+  }
+
   const sbStack = pct => `<div class="sb-stack" aria-hidden="true">${SB_BUCKETS.map(([k, , c]) => `<i style="width:${Math.max(0, +pct[k] || 0)}%;background:${c}"></i>`).join('')}</div>`;
   function sbDonut(s, income, sub) {
     let off = 25, g = '';
@@ -1480,16 +1525,36 @@
     const plan = planUi
       ? sec(() => PU.renderPaychecks(ctx) || '', 'Paycheck by paycheck') + (typeof PU.renderDebt === 'function' ? sec(() => PU.renderDebt(ctx) || '', 'Debt payoff') : '')
       : sec(() => sbPaychecks(st), 'Paycheck by paycheck');
-    return sbHead(st.chosen && st.chosen.id !== st.rec.id ? `Using <b>${esc(sbName(st.chosen))}</b>. ${intro}` : intro) + `<div class="fade-in sb">
-      ${sec(() => sbHero(st), 'Personalized Plans for You')}
-      ${sec(() => sbWhy(st), 'Why this recommendation')}
-      ${sec(() => sbCompare(st), 'Budget strategies')}
-      ${sec(() => sbForecast(st), 'Compare over time')}
-      ${sec(() => sbCustom(st), 'Customize')}
-      <div class="split" style="margin-top:30px"><div>${sec(() => sbVsActual(st), 'Planned vs actual')}</div><div>${sec(() => sbSuggest(st), 'Suggestions')}</div></div>
-      <div class="sb-plan">${plan}</div>
-      ${sec(() => sbHistory(st), 'History')}
+    // which section shows: a deep link (#/smart/compare or #/smart/sbEdit) wins over the remembered choice
+    let cur = sbSecOf(); const sub = sbHashSub(); let jump = '';
+    if (sbSecOk(sub)) cur = sub; else if (SB_CARD_SEC[sub]) { cur = SB_CARD_SEC[sub]; jump = sub; }
+    if (sub && (sbSecOk(sub) || jump)) { ui.sbSec = cur; Promise.resolve().then(() => { sbSetSec(cur); if (jump) { sbSetHash(cur); const n = document.getElementById(jump); if (n && n.scrollIntoView) n.scrollIntoView({ block: 'start' }); } }); }
+    const panel = (k, html) => `<div class="sb-panel" id="sbSec-${k}" data-sbsec="${k}" role="region" aria-label="${esc(sbSecName(k))}"${k === cur ? '' : ' hidden'}>${html}</div>`;
+    const bar = `<div class="sb-secbar" id="sbSecBar"><label class="sb-sec-l" for="sbSec">Section</label><select id="sbSec" class="input sb-sec" data-act-change="sbSection" aria-controls="${SB_SECS.map(([k]) => 'sbSec-' + k).join(' ')}">${SB_SECS.map(([k, n]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select><div class="sb-secnote" id="sbSecNote" aria-live="polite">${sbSecNoteHtml(cur)}</div></div>`;
+    return sbHead(st.chosen && st.chosen.id !== st.rec.id ? `Using <b>${esc(sbName(st.chosen))}</b>. ${intro}` : intro) + `<div class="fade-in sb">${bar}
+      ${panel('plan', `${sec(() => sbHero(st), 'Personalized Plans for You')}
+        ${sec(() => sbRecSum(st), 'Recommended strategy')}
+        <div class="split sb-plan-split"><div>${sec(() => sbVsActual(st), 'Planned vs actual')}</div><div>${sec(() => sbSuggest(st), 'Suggestions')}</div></div>
+        ${sec(() => sbHistory(st), 'History')}`)}
+      ${panel('compare', `${sec(() => sbWhy(st), 'Why this recommendation')}
+        ${sec(() => sbCompare(st), 'Budget strategies')}
+        ${sec(() => sbForecast(st), 'Compare over time')}`)}
+      ${panel('customize', `${sec(() => sbCustom(st), 'Customize')}
+        <div class="sb-plan" id="sbPlanSec">${plan}</div>`)}
     </div>`;
+  }
+  // ---- My plan: a short summary of the recommendation; the full reasoning lives in "Strategies & compare"
+  function sbRecSum(st) {
+    const R = st.R; if (!R) return '';
+    const s = st.list.find(x => x.id === R.id), name = s ? sbName(s) : SB_NAMES[R.id] || 'Personalized';
+    const confTxt = { high: 'High confidence', medium: 'Medium confidence', low: 'Not enough information' }[R.confidence];
+    const reason = R.reason ? R.reason.replace(/^Recommended Strategy:\s*[^.]+\.\s*/, '') : '';
+    const inUse = st.chosen && (st.chosen.id === R.id || (st.chosen.id === st.rec.id && R.id === sbId(st.rec.basedOn || '')));
+    return `<section class="section" id="sbRecSum"><div class="card sb-recsum" data-rec="${esc(R.id)}" data-confidence="${R.confidence}">
+      <div class="row between wrap" style="gap:6px 10px"><span class="grow" style="min-width:0"><span class="eyebrow">Recommended strategy</span><b class="sb-recsum-n">${esc(name)}</b>${inUse ? ' <span class="pill paid">In use</span>' : ''}</span><span class="pill sb-conf c-${R.confidence}">${confTxt}</span></div>
+      ${reason ? `<p class="small muted sb-recsum-r">${esc(reason)}</p>` : ''}
+      <div class="row wrap sb-recsum-a"><button type="button" class="btn sm" data-act="sbGo" data-sec="compare" data-to="sbWhy">Why this plan</button><button type="button" class="btn sm ghost" data-act="sbGo" data-sec="compare" data-to="sbStrats">Compare all ${SB_NAMED.length} strategies</button></div>
+    </div></section>`;
   }
 
   // ---- Personalized Plans for You: the plan in use, each category expandable to its bills and set-asides
@@ -1813,7 +1878,7 @@
   function sbCustomize(id) {
     if (!sbLoad(id)) return;
     sbRedraw();
-    const sec = $('#sbEdit'); if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    sbShowSec('customize', 'sbEdit'); // the editor lives in "Customize & paychecks": switch there first, then scroll
     const s = sbLive.list.find(x => x.id === id);
     toast(sbName(s) + ' loaded. Change it, then tap Save.');
   }
@@ -1923,7 +1988,7 @@
     if (!va) return '';
     const good = { debt: 1, savings: 1 };
     const n0 = v => Number.isFinite(+v) ? +v : null;
-    return `<section class="section">${sectionH('Planned vs actual', W.monthLabel(curMonth()))}
+    return `<section class="section" id="sbVa">${sectionH('Planned vs actual', W.monthLabel(curMonth()))}
       <p class="tiny faint" style="margin:8px 0 0">Actual = bills paid + money spent. Scheduled bills are reserved, not spent yet. Future payments don’t count as spending.</p>
       <div class="sb-va-list">${SB_BUCKETS.map(([k, n, c]) => { const v = va[k] || {}; const planned = +v.planned || 0, actual = +v.actual || 0, rem = v.remaining != null ? +v.remaining : planned - actual;
         const pctU = n0(v.pctUsed) != null ? Math.round(+v.pctUsed) : planned > 0 ? Math.round(actual * 100 / planned) : actual > 0 ? 100 : 0;
@@ -1962,13 +2027,13 @@
     const item = x => { const k = SB_SUG_IC[x.kind] ? x.kind : 'priority'; const opt = x.kind === 'scenario' || x.optional === true; const title = opt ? String(x.title).replace(/^Optional:\s*/i, '') : x.title; const amt = Number.isFinite(x.amount) && x.amount ? x.amount : Number.isFinite(x.impact) && x.impact && opt ? x.impact : 0;
       return `<div class="sb-sug-i k-${esc(k)}${opt ? ' opt' : ''}" data-kind="${esc(x.kind || '')}"${opt ? ' data-optional="1"' : ''}>${ic(SB_SUG_IC[k])}<div class="grow" style="min-width:0">${opt ? '<span class="pill sb-optional">Optional</span> ' : ''}<b>${esc(title)}</b>${x.detail ? `<div class="small muted">${esc(x.detail)}</div>` : ''}${Array.isArray(x.options) && x.options.length ? `<ul class="sb-opts small muted">${x.options.filter(o => typeof o === 'string').map(o => `<li>${esc(o)}</li>`).join('')}</ul>` : ''}${opt ? '<div class="tiny faint">Only an idea. Nothing is cancelled unless you do it.</div>' : ''}</div>${amt ? `<b class="num">${fmt(amt)}</b>` : ''}</div>`; };
     const groups = SB_URG.map(([u, label]) => { const g = list.filter(x => sbUrg(x) === u); return g.length ? `<div class="sb-sug-g" data-urgency="${u}"><div class="eyebrow sb-sug-h">${label}</div>${g.map(item).join('')}</div>` : ''; }).join('');
-    return `<section class="section">${sectionH('Suggestions', list.length ? list.length + ' idea' + (list.length === 1 ? '' : 's') : '')}
+    return `<section class="section" id="sbSug">${sectionH('Suggestions', list.length ? list.length + ' idea' + (list.length === 1 ? '' : 's') : '')}
       ${list.length ? `<div class="sb-sug">${groups}</div>` : `<p class="small muted" style="margin:10px 0 0">Nothing to change right now. Nice work.</p>`}
     </section>`;
   }
   function sbHistory(st) {
     const hist = (Array.isArray(st.cfg.history) ? st.cfg.history : []).filter(h => h && /^\d{4}-\d{2}$/.test(h.month || '') && sbValid(h)).slice().reverse();
-    return `<section class="section">${sectionH('History', hist.length ? hist.length + ' month' + (hist.length === 1 ? '' : 's') : '')}
+    return `<section class="section" id="sbHist">${sectionH('History', hist.length ? hist.length + ' month' + (hist.length === 1 ? '' : 's') : '')}
       ${hist.length ? `<div class="sb-hist">${hist.map(h => { const ci = h.rollover && typeof h.rollover === 'object' ? sbSum(h.rollover) : 0; return `<div class="sb-h" data-month="${h.month}"><div class="row between"><span><b>${W.monthLabel(h.month)}</b>${h.month === curMonth() ? ' <span class="pill">This month</span>' : ''}</span><b class="num">${fmt(+h.income || 0)}</b></div>
         <div class="tiny faint">${esc(SB_NAMES[h.strategyId] || (h.strategyId === 'custom' ? 'Custom' : 'Budget'))}${h.savedAt ? ' · saved ' + W.shortDate(h.savedAt) : ''}${ci > 0 ? ' · ' + fmt(ci) + ' carried in' : ''}</div>${sbStack(h.pct)}
         <div class="sb-mini">${SB_BUCKETS.map(([k, n, c]) => `<span><i class="dot" style="background:${c}"></i>${n} <b class="num">${sbPct(h.pct[k])}</b> <span class="faint">${fmt0(+h.amounts[k] || 0)}</span></span>`).join('')}</div></div>`; }).join('')}</div>` : `<p class="small muted" style="margin:10px 0 0">Each month you save a budget, it's kept here so you can look back.</p>`}
@@ -1997,7 +2062,7 @@
     if (ui.route === 'smart') refresh();
   }
   function dashSmart() {
-    const head = sectionH('Smart Budget', 'Open', 'href="#/smart"');
+    const head = sectionH('Smart Budget', 'Open', 'href="#/smart/plan"'); // the widget summarizes the plan: open "My plan"
     let st = null; try { st = sbState(); } catch (e) { console.error(e); }
     if (!st || !st.a || !(st.a.income > 0) || !st.eff) return `<section class="section">${head}<p class="small muted" style="margin:10px 0 0">See how to split your take-home pay between needs, debt, savings and wants.</p></section>`;
     const s = st.eff;
@@ -2214,8 +2279,25 @@
       ${tx.length > shown.length ? `<div class="small muted" style="padding:12px 0">Showing the first 400 of ${tx.length}. Narrow the dates to see the rest.</div>` : ''}`;
   }
   // ------------------------------------------------------------ SETTINGS
-  const CURRENCIES = { USD: ['$', 'US dollar'], CAD: ['$', 'Canadian dollar'], AUD: ['$', 'Australian dollar'], MXN: ['$', 'Mexican peso'], EUR: ['€', 'Euro'], GBP: ['£', 'British pound'], INR: ['₹', 'Indian rupee'], PHP: ['₱', 'Philippine peso'] };
-  function applyDisplay() { const s = W.settings(); W.setDisplay({ symbol: (CURRENCIES[s.currency] || CURRENCIES.USD)[0], dateOrder: s.dateFormat === 'dm' ? 'dm' : 'md' }); }
+  // code: [symbol, name, decimals]. Only the symbol changes; nothing is converted. Letter symbols carry a
+  // trailing space ("kr 1,234.00"). decimals 0 = ISO 4217 has no minor unit: shown without ".00".
+  // Keep the codes in sync with the allowed list in store.js (sanitizeSettings).
+  const CURRENCIES = {
+    USD: ['$', 'US dollar'], ARS: ['$', 'Argentine peso'], AUD: ['$', 'Australian dollar'], BDT: ['৳', 'Bangladeshi taka'], BRL: ['R$', 'Brazilian real'],
+    GBP: ['£', 'British pound'], CAD: ['$', 'Canadian dollar'], CLP: ['$', 'Chilean peso', 0], CNY: ['¥', 'Chinese yuan'], COP: ['$', 'Colombian peso'],
+    CZK: ['Kč ', 'Czech koruna'], DKK: ['kr ', 'Danish krone'], EGP: ['E£', 'Egyptian pound'], EUR: ['€', 'Euro'], GHS: ['₵', 'Ghanaian cedi'],
+    HKD: ['HK$', 'Hong Kong dollar'], HUF: ['Ft ', 'Hungarian forint'], INR: ['₹', 'Indian rupee'], IDR: ['Rp ', 'Indonesian rupiah'], ILS: ['₪', 'Israeli shekel'],
+    JPY: ['¥', 'Japanese yen', 0], KES: ['KSh ', 'Kenyan shilling'], MYR: ['RM ', 'Malaysian ringgit'], MXN: ['$', 'Mexican peso'], MAD: ['DH ', 'Moroccan dirham'],
+    TWD: ['NT$', 'New Taiwan dollar'], NZD: ['$', 'New Zealand dollar'], NGN: ['₦', 'Nigerian naira'], NOK: ['kr ', 'Norwegian krone'], PKR: ['Rs ', 'Pakistani rupee'],
+    PEN: ['S/ ', 'Peruvian sol'], PHP: ['₱', 'Philippine peso'], PLN: ['zł ', 'Polish złoty'], QAR: ['QR ', 'Qatari riyal'], RON: ['lei ', 'Romanian leu'],
+    SAR: ['SR ', 'Saudi riyal'], SGD: ['S$', 'Singapore dollar'], ZAR: ['R ', 'South African rand'], KRW: ['₩', 'South Korean won', 0], LKR: ['Rs ', 'Sri Lankan rupee'],
+    SEK: ['kr ', 'Swedish krona'], CHF: ['CHF ', 'Swiss franc'], THB: ['฿', 'Thai baht'], TRY: ['₺', 'Turkish lira'], AED: ['AED ', 'UAE dirham'],
+    UAH: ['₴', 'Ukrainian hryvnia'], VND: ['₫', 'Vietnamese dong', 0],
+  };
+  const CURRENCY_ORDER = ['USD'].concat(Object.keys(CURRENCIES).filter(k => k !== 'USD').sort((a, b) => CURRENCIES[a][1].localeCompare(CURRENCIES[b][1])));
+  // Settings > Personal info > Date format: every date shows the year in the picked format
+  const DATE_FORMAT_NAMES = { mdy: 'Month day, year', dmy: 'Day month year', mdy_long: 'Full month', mdy_num: 'MM/DD/YYYY', dmy_num: 'DD/MM/YYYY', dmy_dot: 'DD.MM.YYYY', ymd: 'YYYY-MM-DD' };
+  function applyDisplay() { const s = W.settings(); const c = CURRENCIES[s.currency] || CURRENCIES.USD; W.setDisplay({ symbol: c[0], decimals: c[2] === 0 ? 0 : 2, dateFormat: W.normDateFormat(s.dateFormat) }); }
   // name/email/address from Settings > Personal info. While signed in with Google, the email is the Google one (locked).
   function profile() {
     const s = W.settings(), p = s.profile || {};
@@ -2230,6 +2312,57 @@
     const pf = profile();
     const ini = pf.full ? (pf.first.slice(0, 1) + pf.last.slice(0, 1)).toUpperCase() : pf.email ? pf.email[0].toUpperCase() : '';
     return `<span class="avatar" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px">${ini ? esc(ini) : ic('user')}</span>`;
+  }
+  // Personal info saves by itself: while typing (after a short pause), when a field loses focus, and right
+  // after an address suggestion is picked. It saves without redrawing the page, so the cursor stays put.
+  // An email or ZIP that doesn't look right yet isn't saved (the last good one is kept) and a hint shows.
+  const PI_FIELDS = [['first', 40], ['last', 40], ['street', 100], ['unit', 30], ['city', 60], ['state', 40]];
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/, ZIP_RE = /^[A-Za-z0-9 -]{3,12}$/;
+  function piSave(why) {
+    clearTimeout(piSave.t); piSave.t = 0;
+    const f = $('[data-pi]'); if (!f) return null;
+    const v = n => String((f.querySelector('[name="' + n + '"]') || {}).value || '').replace(/[\u0000-\u001f<>]/g, '').trim();
+    const pf = profile(), old = W.settings().profile || {};
+    let email = pf.emailLocked ? old.email || '' : v('email').slice(0, 200);
+    if (pf.emailLocked) { const ei = f.querySelector('[name="email"]'); if (ei && ei.value !== pf.email) ei.value = pf.email; } // the Google email can't be edited here
+    const emailBad = !pf.emailLocked && !!email && !EMAIL_RE.test(email); if (emailBad) email = old.email || '';
+    let zip = v('zip'); const zipBad = !!zip && !ZIP_RE.test(zip); if (zipBad) zip = old.zip || '';
+    const p = Object.assign({}, old); delete p.name;
+    PI_FIELDS.forEach(([k, n]) => { p[k] = v(k).slice(0, n); });
+    Object.assign(p, { email, zip });
+    Object.keys(p).forEach(k => { if (p[k] === '') delete p[k]; });
+    // hints show once you leave the field (not on every key), and go away as soon as it's right
+    const hint = (k, bad) => { const h = f.querySelector('[data-pi-hint="' + k + '"]'); if (!h) return; if (!bad) h.hidden = true; else if (why !== 'typing') h.hidden = false; };
+    hint('email', emailBad); hint('zip', zipBad);
+    const same = JSON.stringify(Object.keys(p).sort().map(k => [k, p[k]])) === JSON.stringify(Object.keys(old).filter(k => k !== 'name').sort().map(k => [k, old[k]]));
+    if (!same) {
+      W.saveSettings({ profile: p });
+      const st = $('#piStatus');
+      if (st) { st.textContent = 'Saved'; st.classList.add('pos'); clearTimeout(piSave.s); piSave.s = setTimeout(() => { const e = $('#piStatus'); if (e) { e.textContent = 'Changes save automatically.'; e.classList.remove('pos'); } }, 2500); }
+      const av = document.querySelector('#set-personal .set-row .avatar'); if (av) av.outerHTML = avatar(48); // initials follow the name
+    }
+    return { saved: !same, emailBad, zipBad };
+  }
+  function piAutosave() {
+    const inPi = el => el && el.closest && el.closest('[data-pi]') && el.matches('input[name]');
+    document.addEventListener('input', e => { if (!inPi(e.target)) return; clearTimeout(piSave.t); piSave.t = setTimeout(() => piSave('typing'), 600); });
+    document.addEventListener('change', e => { if (inPi(e.target)) piSave('change'); });
+    document.addEventListener('focusout', e => { if (inPi(e.target)) piSave('blur'); });
+  }
+  // Called by render(): saves anything still waiting to be saved and, after the page is redrawn,
+  // puts the cursor back in the Personal info field you were typing in.
+  function piKeepFocus() {
+    const a = document.activeElement;
+    if (piSave.t) piSave('typing');
+    if (!a || !a.closest || !a.closest('[data-pi]') || !a.name) return null;
+    // what's typed but not saved yet (an email that isn't complete) stays in the boxes too
+    const typed = {}; document.querySelectorAll('[data-pi] input[name]:not([readonly])').forEach(i => { typed[i.name] = i.value; });
+    const name = a.name; let s0 = null, s1 = null; try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (e) { /* not supported */ }
+    return () => {
+      document.querySelectorAll('[data-pi] input[name]:not([readonly])').forEach(i => { if (i.name in typed && i.value !== typed[i.name]) i.value = typed[i.name]; });
+      const el = document.querySelector('[data-pi] input[name="' + name + '"]'); if (!el) return;
+      try { el.focus({ preventScroll: true }); if (s0 != null) el.setSelectionRange(s0, s1); } catch (e) { /* email inputs don't support selection */ }
+    };
   }
   const SET_SECTIONS = [
     ['personal', 'Personal info', 'user', 'Name, email, address, photo'],
@@ -2274,15 +2407,16 @@
         `<div class="set-row"><div class="set-k"><div>Photo</div><div class="tiny muted">Shown at the top of Settings. Initials are used if there's no photo.</div></div><div class="set-v">${avatar(48)}<label class="btn sm">${ic('upload')}${s.profile && s.profile.photo ? 'Change' : 'Add photo'}<input type="file" accept="image/*" data-act-change="profilePhoto" hidden></label>${s.profile && s.profile.photo ? '<button class="btn sm ghost" data-act="removePhoto">Remove</button>' : ''}</div></div>` +
         `<div class="set-row col pi-form" data-pi><div class="pi-grid">
           ${[['first', 'First name', 'given-name', 40], ['last', 'Last name', 'family-name', 40]].map(([k, l, ac, n]) => `<label class="field"><span>${l}</span><input class="input" name="${k}" maxlength="${n}" autocomplete="${ac}" value="${esc(profile()[k])}"></label>`).join('')}
-          <label class="field span2"><span>Email address${profile().emailLocked ? ' <span class="pill">From Google</span>' : ''}</span><input class="input" type="email" name="email" maxlength="200" autocomplete="email" value="${esc(profile().email)}" ${profile().emailLocked ? 'readonly aria-readonly="true" title="Comes from your Google account. Sign out of Google to change it."' : ''}>${profile().emailLocked ? '<div class="tiny muted pi-note">Comes from your Google account. Sign out of Google to change it.</div>' : ''}</label>
+          <label class="field span2"><span>Email address${profile().emailLocked ? ' <span class="pill">From Google</span>' : ''}</span><input class="input" type="email" name="email" maxlength="200" autocomplete="email" value="${esc(profile().email)}" ${profile().emailLocked ? 'readonly aria-readonly="true" title="Comes from your Google account. Sign out of Google to change it."' : ''}>${profile().emailLocked ? '<div class="tiny muted pi-note">Comes from your Google account. Sign out of Google to change it.</div>' : '<div class="tiny warn pi-note" data-pi-hint="email" hidden>That doesn\'t look like an email address yet. It saves once it does.</div>'}</label>
           <label class="field span2 addr-field"><span>Street address</span><input class="input" name="street" maxlength="100" autocomplete="address-line1" role="combobox" aria-autocomplete="list" aria-controls="addrSug" aria-expanded="false" value="${esc(profile().street)}"></label>
           <label class="field span2"><span>Apt, suite or unit <span class="faint">(optional)</span></span><input class="input" name="unit" maxlength="30" autocomplete="address-line2" value="${esc(profile().unit)}"></label>
           <label class="field"><span>City</span><input class="input" name="city" maxlength="60" autocomplete="address-level2" value="${esc(profile().city)}"></label>
           <div class="pi-pair"><label class="field"><span>State</span><input class="input" name="state" maxlength="40" autocomplete="address-level1" value="${esc(profile().state)}"></label><label class="field"><span>ZIP code</span><input class="input" name="zip" maxlength="12" inputmode="numeric" autocomplete="postal-code" value="${esc(profile().zip)}"></label></div>
-        </div><div class="row" style="justify-content:flex-end"><button type="button" class="btn primary" data-act="saveProfile">Save</button></div></div>` +
+          <div class="tiny warn span2" data-pi-hint="zip" hidden>Check the ZIP code. It saves once it looks right.</div>
+        </div><div class="tiny muted pi-status" id="piStatus" role="status" aria-live="polite">Changes save automatically.</div></div>` +
         (GD.supported() ? (GD.supported() ? srow('Google account', s.account && s.account.email ? 'Signed in as <b>' + esc(s.account.email) + '</b>' : s.guest ? '<span class="warn"><b>Guest: your data is not backed up.</b></span> It only exists on this phone. Sign in to back it up to Google Drive.' : '<span class="warn">Not signed in.</span> Sign in to back up to Google Drive.', s.account && s.account.email ? `<button class="btn sm" data-act="signOut">Sign out</button>` : `<button class="btn sm primary" data-act="gdSignIn">Sign in with Google</button>`) : '') : srow('Google account', 'Sign in with Google is in the Android app.', '<span class="faint small">Android app only</span>')) +
-        srow('Currency', 'Changes the symbol shown on amounts. It doesn\'t convert anything.', `<select class="input" style="width:auto" data-act-change="currency" aria-label="Currency">${Object.entries(CURRENCIES).map(([k, [sym, n]]) => opt(k, sym + ' ' + n + ' (' + k + ')', cur)).join('')}</select>`) +
-        srow('Date format', '', `<div class="seg boxed">${[['md', W.MONTHS[10].slice(0, 3) + ' 7'], ['dm', '7 ' + W.MONTHS[10].slice(0, 3)]].map(([k, l]) => `<button class="${(s.dateFormat || 'md') === k ? 'on' : ''}" data-act="dateFormat" data-v="${k}">${l}</button>`).join('')}</div>`)),
+        srow('Currency', 'Changes the symbol shown on amounts. It doesn\'t convert anything.', `<select class="input" style="width:auto;max-width:100%" data-act-change="currency" aria-label="Currency">${CURRENCY_ORDER.map(k => opt(k, CURRENCIES[k][0].trim() + ' ' + CURRENCIES[k][1] + ' (' + k + ')', CURRENCIES[cur] ? cur : 'USD')).join('')}</select>`) +
+        srow('Date format', 'Used for every date in the app.', `<select class="input" style="width:auto;max-width:100%" data-act-change="dateFormat" aria-label="Date format">${W.DATE_FORMATS.map(k => opt(k, W.formatDate(today(), k) + (/_num|_dot|ymd/.test(k) ? ' (' + DATE_FORMAT_NAMES[k] + ')' : ''), W.normDateFormat(s.dateFormat))).join('')}</select>`)),
       security: () => group('security', 'Security', S.cryptoAvailable ? 'WealthTrack asks for your PIN' + (AUTH.bio() === 'enabled' ? ' or fingerprint' : '') + ' when you open it and after 2 minutes away. Your data is encrypted with the PIN (AES-256).' : 'Encryption needs the Android app or a secure (https) page.',
         (S.cryptoAvailable ? srow('PIN', lockOn ? '<span class="pos">On</span>. A forgotten PIN can\'t be recovered' + (GD.supported() ? ', but you can restore from your Drive backup.' : '; keep a backup.') : '<span class="warn">No PIN yet.</span>', lockOn ? `<button class="btn sm" data-act="changePin">${ic('lock')}Change PIN</button>` : `<button class="btn sm primary" data-act="setPinNow">${ic('lock')}Create PIN</button>`) : '') +
         (AUTH.bio() !== 'none' ? srow('Fingerprint', AUTH.bio() === 'enabled' ? '<span class="pos">On</span>. Unlock with a touch.' : 'Unlock with your fingerprint instead of typing your PIN.', AUTH.bio() === 'enabled' ? `<button class="btn sm" data-act="bioOff">Turn off</button>` : `<button class="btn sm" data-act="bioOn" ${lockOn ? '' : 'disabled'}>Turn on</button>`) : '') || '<div class="set-row"><div class="set-k muted">Nothing to set here.</div></div>'),
@@ -2417,6 +2551,41 @@
         }
       } });
   }
+  // Settings > Your data > Check data: lists duplicate bill entries and payments that lost their bill, and
+  // cleans them up. Every fix asks first and can be undone (the touched records are copied before changing).
+  // Duplicates keep the copy with the payments/edits; payments on the extra copy move onto it (nothing is lost).
+  // A bill paid on two copies is never merged silently: it's flagged and only merged when you choose to.
+  function dataCheck() {
+    const iss = W.integrityIssues();
+    if (!iss.length) return modal({ title: 'Data check', footer: false, body: `<div class="callout green">${ic('check')}<div>No duplicates or problems found. ${Object.keys(W.D.instances).length} monthly bill entries, ${Object.keys(W.D.payments).length} payments.</div></div>` });
+    const dups = iss.filter(x => x.type === 'dupBill'), safe = dups.filter(x => !x.conflict), orphans = iss.filter(x => x.type === 'orphanPayment');
+    const item = x => `<li class="dc-it${x.conflict ? ' warn-it' : ''}"><div class="grow small">${x.conflict ? `<b class="warn">Check this one.</b> ` : ''}${esc(x.text)}${x.type === 'dupBill' && !x.conflict && x.paidCents ? ' <span class="faint">Its payments stay on the one that\'s kept.</span>' : ''}</div>
+      <button type="button" class="btn sm ${x.type === 'orphanPayment' ? 'danger' : ''}" data-ix="one" data-key="${esc(x.key)}">${x.type === 'orphanPayment' ? 'Delete' : x.conflict ? 'Merge' : 'Remove extra'}</button></li>`;
+    const body = `<p class="small muted" style="margin-top:0">Found ${iss.length} thing${iss.length === 1 ? '' : 's'} to look at. Each fix asks first and can be undone.</p>
+      ${dups.length ? `<div class="section-title">Bills listed more than once</div><ul class="dc-list">${dups.map(item).join('')}</ul>` : ''}
+      ${orphans.length ? `<div class="section-title">Payments with no bill</div><p class="tiny muted" style="margin:0 0 6px">These still count in your account balances. Delete one only if you know it's a mistake.</p><ul class="dc-list">${orphans.map(item).join('')}</ul>` : ''}
+      <div class="row wrap" style="gap:8px;justify-content:flex-end;margin-top:12px">${orphans.length > 1 ? `<button type="button" class="btn sm danger" data-ix="orphans">Delete all ${orphans.length} payments</button>` : ''}${safe.length ? `<button type="button" class="btn primary" data-ix="all">Clean up${safe.length > 1 ? ' ' + safe.length + ' duplicates' : ''}</button>` : ''}</div>`;
+    modal({ title: 'Data check', footer: false, wide: true, body, onMount: (form, close) => form.addEventListener('click', async e => {
+      const b = e.target.closest('[data-ix]'); if (!b) return; e.preventDefault();
+      const cur = W.integrityIssues(); let pick = [], title = '', msg = '', okL = '', opts = {}, danger = false;
+      if (b.dataset.ix === 'all') { pick = cur.filter(x => x.type === 'dupBill' && !x.conflict); title = 'Clean up duplicates?'; msg = `Removes the extra copy of ${pick.length} bill${pick.length === 1 ? '' : 's'}. Payments on an extra copy move to the one that's kept, so no payment is lost. Payments with no bill are left alone.`; okL = 'Clean up'; }
+      else if (b.dataset.ix === 'orphans') { pick = cur.filter(x => x.type === 'orphanPayment'); title = `Delete ${pick.length} payments?`; msg = `These payments aren't linked to any bill. Deleting them changes your account balances by <b>${fmt(pick.filter(x => !x.voided).reduce((a, x) => a + x.amountCents, 0))}</b>.`; okL = 'Delete'; danger = true; }
+      else {
+        const x = cur.find(y => y.key === b.dataset.key); if (!x) { close(); return dataCheck(); }
+        pick = [x];
+        if (x.type === 'orphanPayment') { title = 'Delete this payment?'; msg = esc(x.text) + (x.voided ? '' : ` Deleting it changes your account balance by <b>${fmt(x.amountCents)}</b>.`); okL = 'Delete'; danger = true; }
+        else if (x.conflict) { title = 'Merge these copies?'; msg = `${esc(x.text)} Merging keeps <b>every</b> payment on one bill, so it shows as overpaid. Then you can void the extra payment from the bill if it was a mistake.`; okL = 'Merge'; opts.merge = true; }
+        else { title = 'Remove the extra copy?'; msg = esc(x.text) + ' The copy that has payments or changes is kept.'; okL = 'Remove'; }
+      }
+      if (!pick.length) return;
+      if (!(await confirmBox(title, msg, okL, danger))) return;
+      const r = W.repairIntegrity(pick, opts);
+      close(); refresh();
+      if (r.fixed) toast(`Fixed ${r.fixed} item${r.fixed === 1 ? '' : 's'}`, { undo: () => { W.undoRepair(r.snapshot); refresh(); toast('Put back the way it was'); } });
+      else toast('Nothing changed. The data had already changed, so check again.');
+      if (W.integrityIssues().length) dataCheck();
+    }) });
+  }
   function askText(title, msg, type) {
     return new Promise(res => { let v = null; const m = modal({ title, submit: 'OK', body: `<p class="muted small" style="margin-top:0">${msg}</p><input class="input" name="v" type="${type || 'text'}" autofocus>`, onSubmit: f => { v = f.v; res(v); } }); const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { obs.disconnect(); if (v == null) res(null); } }); obs.observe(document.body, { childList: true }); });
   }
@@ -2431,13 +2600,21 @@
     on: () => !!(W.settings().gdrive && W.settings().gdrive.on),
     state() { try { return JSON.parse(localStorage.getItem('wt.gd') || '{}'); } catch (e) { return {}; } },
     setState(p) { try { localStorage.setItem('wt.gd', JSON.stringify(Object.assign(GD.state(), p))); } catch (e) { /* storage blocked */ } },
-    dirty: false, timer: null, busy: false, manual: false,
+    dirty: false, timer: null, busy: false, manual: false, retries: 0,
     schedule(ms) { if (!GD.on() || !GD.supported()) return; clearTimeout(GD.timer); GD.timer = setTimeout(() => GD.backup(false), ms == null ? 60000 : ms); },
+    // the phone couldn't reach Google (no internet / DNS, Private DNS, VPN or ad-blocker): a wait, not a failure.
+    // The Android side sends {offline:true}; the pattern also catches the raw Java messages from older builds.
+    OFFLINE_RE: /unable to resolve host|no address associated|failed to connect|network is unreachable|timed? ?out|no internet|connection (reset|refused|abort)/i,
+    isOffline: st => !!(st && (st.offline || (st.err && GD.OFFLINE_RE.test(st.err)))),
+    failed: () => { const st = GD.state(); return !st.needsSignIn && !!(st.offline || st.err); },
+    // try a failed backup again (coming back online, returning to the app); waits a moment for the network to settle
+    retrySoon(ms) { if (GD.failed() && !GD.busy && GD.on() && GD.supported()) GD.schedule(ms == null ? 3000 : ms); },
     backup(manual) {
       if (!GD.supported() || !GD.on() || GD.busy || DEMO.on) return; // demo data is never backed up
       if (AUTH.resetMode()) return; // never overwrite the Drive backup with a freshly reset phone before it's restored
+      clearTimeout(GD.timer);
       GD.busy = true; GD.manual = !!manual; GD.dirty = false;
-      try { Bridge.googleBackup(backupJson()); } catch (e) { GD.busy = false; GD.setState({ err: e.message || String(e) }); }
+      try { Bridge.googleBackup(backupJson()); } catch (e) { GD.busy = false; GD.dirty = true; GD.setState({ err: e.message || String(e) }); }
     },
     onEvent(d) {
       if (!d || typeof d !== 'object') return;
@@ -2451,9 +2628,16 @@
         else if (d.error !== 'cancelled') { GD.setState({ err: d.error }); if (!document.querySelector('.auth')) toast(d.error, { error: true }); } // the sign-in page shows it inline
       } else if (d.op === 'backup') {
         GD.busy = false;
-        if (d.ok) { GD.setState({ last: d.time || Date.now(), err: '', needsSignIn: false }); if (GD.manual) toast('Backed up to Google Drive'); }
-        else if (d.error === 'signin-required') { GD.setState({ needsSignIn: true }); if (GD.manual) toast('Sign in with Google again to keep backing up', { error: true }); }
-        else { GD.setState({ err: d.error }); if (GD.manual) toast('Backup failed: ' + d.error, { error: true }); }
+        if (d.ok) { GD.retries = 0; GD.setState({ last: d.time || Date.now(), err: '', offline: false, needsSignIn: false }); if (GD.manual) toast('Backed up to Google Drive'); }
+        else if (d.error === 'signin-required') { GD.setState({ needsSignIn: true, offline: false }); if (GD.manual) toast('Sign in with Google again to keep backing up', { error: true }); }
+        else if (d.offline || GD.OFFLINE_RE.test(d.error || '')) {
+          // keep the changes marked as not backed up and try again: when the phone is back online, when the
+          // app comes back to the front, and on a backoff timer (30 s, 1, 2, 4... up to 15 minutes)
+          GD.dirty = true; GD.setState({ offline: true, err: '' });
+          if (GD.manual) toast('No internet connection. Backup will try again when you\'re back online.');
+          GD.schedule(Math.min(15 * 60000, 30000 * Math.pow(2, GD.retries++)));
+        }
+        else { GD.dirty = true; GD.setState({ err: d.error || 'Backup failed', offline: false }); if (GD.manual) toast('Backup failed: ' + (d.error || 'unknown error'), { error: true }); }
         GD.manual = false;
       } else if (d.op === 'restore') {
         if (d.ok) { const text = Bridge.googleRestoreData && Bridge.googleRestoreData(); if (text) restoreFile({ text: async () => text }); else toast('The backup came back empty', { error: true }); }
@@ -2462,17 +2646,24 @@
       }
       if (ui.route === 'settings') refresh();
     },
-    lastText() { const s = GD.state(); if (!s.last) return 'No backup yet'; const d = new Date(s.last); return 'Last backup ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); },
+    lastText() { const s = GD.state(); if (!s.last) return 'No backup yet'; const d = new Date(s.last); return 'Last backup ' + W.shortDate(W.mkDate(d.getFullYear(), d.getMonth() + 1, d.getDate())) + ' at ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); },
   };
   window.addEventListener('googledrive', e => GD.onEvent(e.detail));
+  window.addEventListener('online', () => GD.retrySoon());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') GD.retrySoon(); });
   function gdRow(srow) {
     if (!GD.supported()) return srow('Google Drive backup', 'Sign in with Google to back up automatically. Available in the Android app.', '<span class="faint small">Android app only</span>');
     const st = GD.state();
     if (!GD.on()) return srow('Google Drive backup', 'Sign in with Google and your data is backed up to your own Google Drive automatically. WealthTrack can only see the backup file it creates.', `<button class="btn sm primary" data-act="gdSignIn">${ic('upload')}Sign in with Google</button>`);
     const email = esc((W.settings().gdrive || {}).email || 'your Google account');
     if (AUTH.resetMode()) return srow('Google Drive backup', '<span class="warn">Waiting to restore your Drive backup.</span> Backups are paused so the old backup isn\'t replaced.', `<div class="row wrap" style="gap:6px"><button class="btn sm primary" data-act="gdRestore">${ic('download')}Restore from Drive</button><button class="btn sm ghost" data-act="gdFresh">Start fresh instead</button></div>`);
-    const note = st.needsSignIn ? '<span class="warn">Google needs you to sign in again.</span>' : st.err ? '<span class="neg">' + esc(st.err) + '</span>' : esc(GD.lastText());
-    return srow('Google Drive backup', `Backing up to ${email} automatically. ${note}`, st.needsSignIn ? `<button class="btn sm primary" data-act="gdSignIn">Sign in again</button>` : `<span class="pill paid">${ic('check')}On</span>`);
+    const offline = !st.needsSignIn && GD.isOffline(st);
+    const note = st.needsSignIn ? '<span class="warn">Google needs you to sign in again.</span>'
+      : offline ? '<span class="warn gd-wait">No internet connection. Backup will try again when you\'re back online.</span> ' + esc(GD.lastText()) + '.'
+      : st.err ? '<span class="neg">' + esc(st.err) + '</span>' : esc(GD.lastText());
+    const pill = `<span class="pill paid">${ic('check')}On</span>`;
+    return srow('Google Drive backup', `Backing up to ${email} automatically. ${note}`, st.needsSignIn ? `<button class="btn sm primary" data-act="gdSignIn">Sign in again</button>`
+      : offline || st.err ? `<div class="row wrap" style="gap:6px;justify-content:flex-end"><button class="btn sm" data-act="gdBackup">${ic('upload')}Back up now</button>${pill}</div>` : pill);
   }
 
   // ------------------------------------------------------------ reminders
@@ -2588,7 +2779,7 @@
     gdSignIn: () => { if (!GD.supported()) return; toast('Opening Google sign-in…'); Bridge.googleSignIn(); },
     gdBackup: () => GD.backup(true),
     gdRestore: () => { if (!GD.supported()) return; toast('Getting your backup from Google Drive…'); Bridge.googleRestore(); },
-    gdOff: async () => { if (await confirmBox('Turn off Google Drive backup?', 'New changes stop being backed up. The backup already in your Drive stays there. To remove WealthTrack\'s access completely, go to myaccount.google.com/permissions.', 'Turn off', true)) { W.saveSettings({ gdrive: { on: false, email: '' } }); GD.setState({ needsSignIn: false, err: '' }); toast('Google Drive backup is off'); refresh(); } },
+    gdOff: async () => { if (await confirmBox('Turn off Google Drive backup?', 'New changes stop being backed up. The backup already in your Drive stays there. To remove WealthTrack\'s access completely, go to myaccount.google.com/permissions.', 'Turn off', true)) { W.saveSettings({ gdrive: { on: false, email: '' } }); GD.setState({ needsSignIn: false, err: '', offline: false }); toast('Google Drive backup is off'); refresh(); } },
     theme: d => { if (!['system', 'light', 'blue', 'dark', 'seasonal', 'random'].includes(d.v)) return; W.saveSettings({ theme: d.v }); applyTheme(); refresh(); },
     shuffleMonthColors: () => { W.saveSettings({ monthColorSeed: 1 + Math.floor(Math.random() * 2147483646) }); toast('Month colors shuffled'); refresh(); },
     widgetMove: d => { const s = W.settings().dashboard; const order = s.order.filter(k => WIDGETS[k]).concat(Object.keys(WIDGETS).filter(k => !s.order.includes(k))); const i = order.indexOf(d.k), j = i + +d.n; if (j < 0 || j >= order.length) return; [order[i], order[j]] = [order[j], order[i]]; W.saveSettings({ dashboard: { order, hidden: s.hidden } }); refresh(); },
@@ -2610,21 +2801,16 @@
     }),
     bioOn: () => requirePinThen('Turn on fingerprint', async (page, pin) => { await stepFingerprint(page, pin); page.close(); refresh(); }),
     bioOff: () => { if (Bridge && Bridge.biometricDisable) Bridge.biometricDisable(); toast('Fingerprint unlock is off'); refresh(); },
+    // Personal info saves by itself (piSave); this stays for anything that still asks for an explicit save
     saveProfile: () => {
-      const f = $('[data-pi]'); if (!f) return;
-      const v = n => String((f.querySelector('[name="' + n + '"]') || {}).value || '').replace(/[\u0000-\u001f<>]/g, '').trim();
-      const pf = profile(), email = pf.emailLocked ? (W.settings().profile || {}).email || '' : v('email');
-      if (!pf.emailLocked && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('Check the email address', { error: true });
-      const zip = v('zip'); if (zip && !/^[A-Za-z0-9 -]{3,12}$/.test(zip)) return toast('Check the ZIP code', { error: true });
-      const p = Object.assign({}, W.settings().profile); delete p.name;
-      Object.assign(p, { first: v('first').slice(0, 40), last: v('last').slice(0, 40), email: email.slice(0, 200), street: v('street').slice(0, 100), unit: v('unit').slice(0, 30), city: v('city').slice(0, 60), state: v('state').slice(0, 40), zip });
-      Object.keys(p).forEach(k => { if (p[k] === '') delete p[k]; });
-      W.saveSettings({ profile: p }); toast('Personal info saved'); refresh();
+      const r = piSave('button'); if (!r) return;
+      if (r.emailBad) return toast('Check the email address', { error: true });
+      if (r.zipBad) return toast('Check the ZIP code', { error: true });
     },
     removePhoto: () => { const p = Object.assign({}, W.settings().profile); delete p.photo; W.saveSettings({ profile: p }); refresh(); },
-    dateFormat: d => { W.saveSettings({ dateFormat: d.v === 'dm' ? 'dm' : 'md' }); applyDisplay(); refresh(); },
+    dateFormat: d => { W.saveSettings({ dateFormat: W.normDateFormat(d.v) }); applyDisplay(); refresh(); },
     gdFresh: async () => { if (await confirmBox('Start fresh?', 'Backups resume, and the next one replaces the old backup in your Google Drive with what\'s on this phone now.', 'Start fresh', true)) { try { localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ } GD.backup(true); refresh(); } },
-    integrity: () => { const iss = W.integrity(); modal({ title: 'Data check', footer: false, body: iss.length ? `<ul>${iss.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : `<div class="callout green">${ic('check')}<div>No duplicates or problems found. ${Object.keys(W.D.instances).length} monthly bill entries, ${Object.keys(W.D.payments).length} payments.</div></div>` }); },
+    integrity: () => dataCheck(),
     startOver: () => {
       modal({ title: 'Erase everything?', submit: 'Erase and start blank', body: `<div class="callout red">${ic('alert')}<div>This deletes <b>all</b> WealthTrack data on this device, including payment history. A backup will be downloaded first.</div></div><label class="field" style="margin-top:12px"><span>Type ERASE to confirm</span><input class="input" name="c" autocomplete="off"></label>`,
         onSubmit: async f => { if ((f.c || '').trim().toUpperCase() !== 'ERASE') { toast('Type ERASE to confirm', { error: true }); return false; } saveFile('WealthTrack-before-erase-' + today() + '.json', 'application/json', backupJson()); const data = W.emptyData(); await S.replaceAll(data); W.init(data, S); WTSeed.seed(W, { blank: true }); await S.flush(); toast('Started fresh'); go('dashboard'); refresh(); } });
@@ -2643,7 +2829,8 @@
     sbSpread: () => { if (!sbLive) return; const dr = sbGetDraft(sbLive); const nx = sbDistribute(sbLive.a, dr.dollars, dr.locks); SB_KEYS.forEach(k => { if (nx[k] !== dr.dollars[k]) delete dr.pctTyped[k]; }); dr.dollars = nx; dr.dirty = true; sbRedraw(); },
     sbCustomize: d => sbCustomize(d.id),
     sbToggle: (d, el) => sbToggle(d.k, el),
-    sbHorizon: d => { const m = +d.m; if (!SB_HZ.some(h => h[0] === m)) return; sbHz = m; sbRedrawCmp(); const b = $(`#sbCmp [data-act=sbHorizon][data-m="${m}"]`); if (b) try { b.focus({ preventScroll: true }); } catch (e) { /* ignore */ } },
+    sbHorizon: (d, el) => { const m = +d.m; if (!SB_HZ.some(h => h[0] === m)) return; const box = el && el.closest && el.closest('#sbPrev') ? '#sbPrev' : '#sbCmp'; sbHz = m; sbRedrawCmp(); const b = $(`${box} [data-act=sbHorizon][data-m="${m}"]`); if (b) try { b.focus({ preventScroll: true }); } catch (e) { /* ignore */ } },
+    sbGo: d => sbShowSec(d.sec, d.to),
     sbFill: () => sbFill(),
     sbSaveAs: () => sbSaveAs(),
     sbRestore: d => sbRestore(d.id),
@@ -2661,6 +2848,7 @@
     movePc: (el) => { W.assignInstance(el.dataset.id, el.value); toast('Moved to the ' + W.shortDate(el.value.split('|')[1]) + ' paycheck'); refresh(); },
     sbInto: el => { const k = el.value; el.value = ''; if (!sbLive || !SB_KEYS.includes(k)) return; const dr = sbGetDraft(sbLive); if (dr.locks[k]) return; const nx = sbDistribute(sbLive.a, dr.dollars, dr.locks, k); SB_KEYS.forEach(x => { if (nx[x] !== dr.dollars[x]) delete dr.pctTyped[x]; }); dr.dollars = nx; dr.dirty = true; sbRedraw(); },
     sbFrom: el => { const id = el.value; el.value = ''; if (id) sbCustomize(id); },
+    sbSection: el => sbShowSec(el.value),
     sbSavApr: el => {
       const v = el.value.trim().replace(/\s*%$/, '');
       const p = v === '' ? 0 : /^\d*\.?\d*$/.test(v) && v !== '.' ? parseFloat(v) : NaN;
@@ -2681,7 +2869,8 @@
       if (!/^image\//.test(f.type)) return toast('Choose a photo', { error: true });
       try { const url = await squareImage(f, 192); W.saveSettings({ profile: Object.assign({}, W.settings().profile, { photo: url }) }); toast('Photo saved'); refresh(); } catch (e) { toast('Couldn\'t read that photo', { error: true }); }
     },
-    currency: el => { W.saveSettings({ currency: el.value }); applyDisplay(); toast('Currency set to ' + el.value); refresh(); },
+    currency: el => { if (!CURRENCIES[el.value]) return; W.saveSettings({ currency: el.value }); applyDisplay(); toast('Currency set to ' + el.value); refresh(); },
+    dateFormat: el => { W.saveSettings({ dateFormat: W.normDateFormat(el.value) }); applyDisplay(); toast('Dates now look like ' + W.shortDate(today())); refresh(); },
     remHour: el => { const r = W.settings().reminders; r.hour = +el.value; W.saveSettings({ reminders: r }); scheduleReminders(); },
     dueSoon: el => { W.saveSettings({ dueSoonDays: Math.max(1, Math.min(30, +el.value || 7)) }); },
     restoreFile: el => { restoreFile(el.files[0]); el.value = ''; },
@@ -3103,7 +3292,8 @@
       const set = (name, v) => { const el = f.querySelector(`[name="${name}"]`); if (el && typeof v === 'string') el.value = v.slice(0, +el.maxLength > 0 ? +el.maxLength : 100); };
       set('street', x.street); set('city', x.city || ''); set('state', state || ''); set('zip', x.zip || '');
       lastQ = x.street;
-      toast(x.zip ? 'Address filled in. Tap Save to keep it.' : 'Address filled in. Add the ZIP code, then tap Save.');
+      piSave('pick'); // saved right away, no Save button
+      toast(x.zip ? 'Address filled in and saved.' : 'Address filled in and saved. Add the ZIP code.');
     };
     document.addEventListener('input', e => {
       if (e.target !== input() || !on()) return;
@@ -3152,6 +3342,8 @@
         // fresh install on a phone: check Google Drive for a backup before anything is backed up over it
         if (AUTH.android()) { try { localStorage.setItem('wt.restoreAfterReset', '1'); } catch (e) { /* ignore */ } }
       }
+      // older installs: add built-in categories that came later (Mortgage, Property tax...). Never touches the user's own.
+      try { if (WTSeed.ensureBuiltins && WTSeed.ensureBuiltins(W).length) await S.flush(); } catch (e) { console.error(e); }
       // New user with nothing entered yet: show the demo (memory only). Real records are never touched.
       const realBlank = () => !Object.keys(W.D.templates).length && !Object.keys(W.D.incomes).length && !Object.keys(W.D.debts).length && !Object.keys(W.D.expenses).length && !Object.keys(W.D.payments).length;
       let demoDone = !!W.settings().demoDone; try { demoDone = demoDone || localStorage.getItem('wt.demoDone') === '1'; } catch (e) { /* storage blocked */ }
@@ -3161,7 +3353,7 @@
         WTSeed.seed(W, { blank: true }); WTDemo.load(W);
         // device/account choices made while the demo is showing (sign-in, guest, PIN-free choice, name, theme...)
         // are real: save them to the real settings too. Budget and plan settings stay demo-only.
-        const DEVICE_KEYS = ['guest', 'account', 'gdrive', 'profile', 'theme', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange'];
+        const DEVICE_KEYS = ['guest', 'account', 'gdrive', 'profile', 'theme', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange', 'sbSection'];
         const demoSave = W.saveSettings;
         W.saveSettings = patch => {
           demoSave(patch);
@@ -3179,7 +3371,7 @@
       W.runMaintenance();
       { const st = W.settings(); if (!(st.account && st.account.email) && st.gdrive && st.gdrive.on && st.gdrive.email) W.saveSettings({ account: { email: st.gdrive.email } }); } // signed in on 1.2.1
       if (W.settings().monthColors === 'random' && !['seasonal', 'random'].includes(W.settings().theme)) W.saveSettings({ theme: 'random', monthColors: null });
-      applyTheme(); shell(); bindGlobal(); billDrag(); render(); scheduleReminders(); addressAutocomplete();
+      applyTheme(); shell(); bindGlobal(); billDrag(); render(); scheduleReminders(); addressAutocomplete(); piAutosave();
       onboarding().catch(err => { console.error(err); toast(err.message || String(err), { error: true }); });
       // lock again after 2 minutes away (reload drops the decrypted data from memory)
       let hiddenAt = 0;
