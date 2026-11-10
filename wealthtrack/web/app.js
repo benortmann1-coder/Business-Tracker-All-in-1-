@@ -14,7 +14,7 @@
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.3'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.4'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -100,7 +100,7 @@
     readRoute(); applyDisplay();
     const main = $('#main'); if (!main) return;
     $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === ui.route));
-    const viewedMonth = ui.route === 'bills' && (ui.billsTab || 'month') === 'month' && /^\d{4}-\d{2}$/.test(ui.month || '') ? ui.month : curMonth();
+    const viewedMonth = ui.route === 'bills' && billsTabOf() === 'upcoming' && upRangeOf() === 'month' && /^\d{4}-\d{2}$/.test(ui.month || '') ? ui.month : curMonth();
     const monthTint = monthColorSlot(viewedMonth);
     if (monthTint) document.body.dataset.month = monthTint; else delete document.body.dataset.month;
     const oc = $('#navOverdue'); if (oc) { const n = W.overdue().length; oc.textContent = n ? n : ''; oc.title = n ? n + ' overdue' : ''; }
@@ -520,11 +520,16 @@
   }
   // ------------------------------------------------------------ BILLS
   function viewBills() {
-    const tabs = `<div class="seg" style="margin-bottom:6px">${[['month', 'This month'], ['upcoming', 'Upcoming'], ['manage', 'All bills'], ['subs', 'Subscriptions']].map(([k, l]) => `<button class="${ui.billsTab === k ? 'on' : ''}" data-act="billsTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
+    const tabs = `<div class="seg" style="margin-bottom:6px">${[['upcoming', 'Upcoming'], ['manage', 'All bills'], ['subs', 'Subscriptions']].map(([k, l]) => `<button class="${billsTabOf() === k ? 'on' : ''}" data-act="billsTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
     const head = `<div class="topbar"><div><h1>Bills</h1><div class="sub">Tap the circle to mark a bill paid. Each month keeps its own record.</div></div><div class="row wrap desk-only"><button class="btn primary" data-act="addBill">${ic('plus')}New bill</button></div></div>${tabs}`;
-    if (ui.billsTab === 'manage') return head + `<div style="margin-top:16px">${viewManageBills()}</div>`;
-    if (ui.billsTab === 'subs') return head + `<div style="margin-top:16px">${viewSubs()}</div>`;
-    if (ui.billsTab === 'upcoming') return head + viewUpcoming();
+    const tab = billsTabOf();
+    if (tab === 'manage') return head + `<div style="margin-top:16px">${viewManageBills()}</div>`;
+    if (tab === 'subs') return head + `<div style="margin-top:16px">${viewSubs()}</div>`;
+    return head + viewUpcoming();
+  }
+  // "This month" (Upcoming's default choice): the whole month, paid and unpaid, with month-to-month browsing.
+  // For the current month it also shows the cash outlook (paychecks, available, projected after).
+  function viewBillMonth(rangeSeg) {
     const mk = ui.month; const sm = W.billsSummary(mk); const pct = sm.total ? Math.round(sm.paid * 100 / sm.total) : 0;
     let items = W.instancesForMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
     items = applyBillSearch(items);
@@ -533,15 +538,30 @@
     items.sort(viewSorter());
     const prevOver = mk === curMonth() ? W.overdue().filter(x => W.monthOf(x.i.dueDate) < mk) : [];
     const group = viewGroup(false);
-    return head + `
-      <div class="toolbar" style="padding-top:16px">${monthSel('month', mk)}<span class="grow"></span><span class="small muted">${sm.paidCount} of ${sm.count} paid</span></div>
-      <div class="mob-only m-sum"><b>${fmt(sm.paid)}</b> paid of ${fmt(sm.total)}${sm.overdue ? ` · <span class="neg"><b>${fmt(sm.overdue)}</b> overdue</span>` : ''}</div>
-      <div class="figures desk-only" style="--n:4;margin-bottom:6px">
+    let cash = '';
+    if (mk === curMonth()) {
+      const t = today(), end = W.monthEnd(mk);
+      const pays = W.paychecksBetween(t, end).filter(p => !p.received);
+      const incoming = pays.reduce((a, p) => a + p.amountCents, 0);
+      const left = W.instancesBetween(t, end).concat(W.overdue().map(x => x.i)).filter((i, n, a) => a.findIndex(j => j.id === i.id) === n)
+        .reduce((a, i) => { const st = W.instStatus(i); return a + (st.status === 'skipped' ? 0 : st.remaining); }, 0);
+      const avail = W.availableBalance(t); const after = avail + incoming - left;
+      cash = `<div class="figures" style="--n:4;margin-top:12px">
+        ${fig('Left to pay this month', fmt(left), sm.overdue ? fmt(sm.overdue) + ' overdue' : (sm.count - sm.paidCount) + ' bills to go', sm.overdue ? 'neg' : '')}
+        ${fig('Paychecks coming', fmt(incoming), pays.length ? pays.map(p => W.shortDate(p.date)).join(', ') : 'none before ' + W.shortDate(end))}
+        ${fig('Available now', fmt(avail), 'checking + cash')}
+        ${fig('Projected after', fmt(after), after < 0 ? 'short, plan ahead' : 'if everything clears', after < 0 ? 'neg' : 'pos')}
+      </div>`;
+    }
+    return rangeSeg + `
+      <div class="toolbar" style="padding-top:12px">${monthSel('month', mk)}<span class="grow"></span><span class="small muted">${sm.paidCount} of ${sm.count} paid</span></div>
+      ${cash}<div class="mob-only m-sum"><b>${fmt(sm.paid)}</b> paid of ${fmt(sm.total)}${sm.overdue ? ` · <span class="neg"><b>${fmt(sm.overdue)}</b> overdue</span>` : ''}</div>
+      ${cash ? '' : `<div class="figures desk-only" style="--n:4;margin-bottom:6px">
         ${fig('Total', fmt(sm.total), sm.count + ' bills')}
         ${fig('Paid', fmt(sm.paid), pct + '% done', 'pos')}
         ${fig('Left to pay', fmt(sm.remaining), sm.count - sm.paidCount + ' to go')}
         ${fig('Overdue', fmt(sm.overdue), sm.overdue ? 'pay these first' : 'none', sm.overdue ? 'neg' : '')}
-      </div>
+      </div>`}
       <div class="meter" style="margin:12px 0 4px"><div class="bar"><i style="width:${pct}%"></i></div></div>
       ${prevOver.length ? `<div class="group-h" style="padding-top:18px"><span class="t over">Still unpaid from earlier months</span><span class="s"><b>${fmt(prevOver.reduce((a, x) => a + x.s.remaining, 0))}</b></span></div><div class="list">${prevOver.map(x => billRow(x.i)).join('')}</div>` : ''}
       ${billToolbar(counts, true)}
@@ -616,13 +636,17 @@
     }[group];
     return groupedList(items.slice().sort(sorter), fn, { order: ord, row: { showPaycheck: group !== 'paycheck' } });
   }
-  const UP_RANGES = [['date', 'Through a date'], ['month', 'End of month'], ['30', '30 days'], ['60', '60 days']];
+  const UP_RANGES = [['date', 'Through a date'], ['month', 'This month'], ['30', '30 days'], ['60', '60 days']];
+  // the old separate "This month" tab is now Upcoming > This month
+  const billsTabOf = () => ['manage', 'subs'].includes(ui.billsTab) ? ui.billsTab : 'upcoming';
   // remembered per device (ui) and with your data (settings.upRange); older saved choices fall back to End of month
   const upRangeOf = () => { const v = UP_RANGES.some(x => x[0] === ui.upRange) ? ui.upRange : (W.D && W.settings().upRange) || ''; return UP_RANGES.some(x => x[0] === v) ? v : 'month'; };
   // default "through" date: the 1st of next month, so bills due on the 1st can be paid the month before
   const upDateOf = t => (ui.upDate && /^\d{4}-\d{2}-\d{2}$/.test(ui.upDate) && ui.upDate >= t) ? ui.upDate : W.addMonthKey(W.monthOf(t), 1) + '-01';
   function viewUpcoming() {
     const t = today(); const r = upRangeOf();
+    const rangeSeg = `<div class="seg boxed up-range" role="group" aria-label="Show bills" style="margin:16px 0 4px">${UP_RANGES.map(([k, l]) => `<button class="${r === k ? 'on' : ''}" data-act="upRange" data-r="${k}" aria-pressed="${r === k}">${l}</button>`).join('')}</div>`;
+    if (r === 'month') return viewBillMonth(rangeSeg);
     const nxt = W.nextPaycheck(W.addDays(t, 1));
     const end = r === 'date' ? upDateOf(t) : r === 'month' ? W.monthEnd(W.monthOf(t)) : W.addDays(t, +r);
     W.ensureGenerated(W.monthOf(end) > curMonth() ? W.monthOf(end) : undefined);
@@ -638,9 +662,8 @@
     const incoming = pays.reduce((a, p) => a + p.amountCents, 0);
     const avail = W.availableBalance(t);
     const after = avail + incoming - needed;
-    const rangeLabel = r === 'month' ? 'through ' + W.shortDate(end) : 'through ' + W.dateLabel(end);
-    return `
-      <div class="seg boxed up-range" role="group" aria-label="Show bills through" style="margin:16px 0 4px">${UP_RANGES.map(([k, l]) => `<button class="${r === k ? 'on' : ''}" data-act="upRange" data-r="${k}" aria-pressed="${r === k}">${l}</button>`).join('')}</div>
+    const rangeLabel = 'through ' + W.dateLabel(end);
+    return rangeSeg + `
       ${r === 'date' ? `<label class="row wrap small" style="gap:8px;margin:10px 0 2px"><span class="muted">Show bills due up to the end of</span><input class="input" type="date" style="width:auto" min="${t}" value="${end}" data-bind="upDate" aria-label="Show bills due through this date"></label>` : ''}
       <div class="figures" style="--n:4;margin-top:12px">
         ${fig('Due ' + rangeLabel, fmt(needed), items.length + ' bills' + (autoAmt ? ' · ' + fmt(autoAmt) + ' on auto-pay' : ''))}
@@ -2744,12 +2767,12 @@
     },
     editTpl: d => { const t = W.D.templates[d.id]; if (t && !t.deleted) editTemplate(d.id); },
     addBill: () => addBill(), addBillOn: d => { closeAllModals(); addBill(d.date); },
-    billsTab: d => { ui.billsTab = d.tab; refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
-    upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
+    billsTab: d => { if (d.tab === 'month') { ui.billsTab = 'upcoming'; ui.upRange = 'month'; } else ui.billsTab = d.tab; refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
+    upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; if (v === 'month' && ui.upRange !== 'month') ui.month = curMonth(); ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
     billTools: () => { ui.billTools = !ui.billTools; refresh(); },
     openUpcoming: () => { ui.billsTab = 'upcoming'; go('bills'); },
     monthStep: d => setMonth(d.key, W.addMonthKey(ui[d.key], +d.n)), monthToday: d => setMonth(d.key, curMonth()),
-    openMonth: d => { ui.month = d.month; ui.billsTab = 'month'; W.ensureGenerated(W.addMonthKey(d.month > curMonth() ? d.month : curMonth(), 1)); go('bills'); },
+    openMonth: d => { ui.month = d.month; ui.billsTab = 'upcoming'; ui.upRange = 'month'; W.ensureGenerated(W.addMonthKey(d.month > curMonth() ? d.month : curMonth(), 1)); go('bills'); },
     catDrill: d => { ui.expCat = d.cat; if (ui.route === 'expenses') refresh(); else go('expenses'); },
     expAllCats: () => { ui.expCat = ''; refresh(); },
     genNext: () => { const next = W.addMonthKey(ui.month, 1); const n = W.ensureGenerated(next); toast(n ? `${n} bills created for ${W.monthLabel(next)}` : `${W.monthLabel(next)} bills already exist. Nothing duplicated.`); ui.month = next; refresh(); },

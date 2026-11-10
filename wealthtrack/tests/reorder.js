@@ -24,6 +24,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fa
   const order = sel => page.evaluate(sel => [...document.querySelectorAll(sel)].map(r => r.dataset.tpl), sel);
   // drag the row at index `from` down by `rows` rows (holding first)
   const dragRow = async (sel, from, rows, hold = 650) => {
+    await page.locator(sel).nth(from).evaluate(el => el.scrollIntoView({ block: 'center' })); await page.waitForTimeout(200);
     const box = await page.locator(sel).nth(from).boundingBox();
     const h = box.height, x = box.x + box.width / 2, y = box.y + h / 2;
     await touch('touchStart', x, y); await page.waitForTimeout(hold);
@@ -53,7 +54,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fa
   ok(await page.evaluate(() => !document.body.classList.contains('reordering') && !document.querySelector('.dragging')), 'drag state cleared');
 
   // ---- This month uses the same order
-  await page.click('[data-act=billsTab][data-tab=month]'); await page.waitForTimeout(250);
+  await page.click('[data-act=billsTab][data-tab=upcoming]'); await page.click('.up-range button[data-r=month]'); await page.waitForTimeout(250);
   const mSel = '#main .list .bill[data-tpl]';
   const m1 = await order(mSel);
   ok(m1.length > 3, 'This month list in My order (' + m1.length + ' bills)');

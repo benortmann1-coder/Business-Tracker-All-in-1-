@@ -178,7 +178,7 @@ function serve() {
   ok(await W(() => WT.currentRule(WT.D.templates.bill_video).amountCents) === 1699, 'edit template from manage tab');
   await page.click('[data-act=billsTab][data-tab=subs]');
   ok(await page.locator('#main tr', { hasText: 'News App' }).count() === 1, 'subscriptions tab lists News App (cancelled)');
-  await page.click('[data-act=billsTab][data-tab=month]');
+  await page.click('[data-act=billsTab][data-tab=upcoming]'); await page.click('.up-range button[data-r=month]');
 
   // ---------------- Paychecks
   await go('paychecks');
