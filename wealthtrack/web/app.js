@@ -14,7 +14,7 @@
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.1'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.2'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {

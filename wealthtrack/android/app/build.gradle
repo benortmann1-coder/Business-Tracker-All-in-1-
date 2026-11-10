@@ -8,14 +8,14 @@ def webDir = file("${rootDir}/../web")
 
 android {
     namespace 'com.wealthtrack.app'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.wealthtrack.app'
         minSdk 24
-        targetSdk 34
-        versionCode 28
-        versionName '1.5.1'
+        targetSdk 36
+        versionCode 29
+        versionName '1.5.2'
     }
 
     buildFeatures {

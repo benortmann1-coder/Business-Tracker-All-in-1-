@@ -47,7 +47,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Build APK (${{ github.event.inputs.build-mode || 'release' }})
         working-directory: wealthtrack/android
@@ -66,7 +66,7 @@ jobs:
           fi
           MODE="${{ github.event.inputs.build-mode || 'release' }}"
           if [ "$MODE" = "release" ]; then
-            ./gradlew --no-daemon assembleRelease
+            ./gradlew --no-daemon assembleRelease bundleRelease
           else
             ./gradlew --no-daemon assembleDebug
           fi
@@ -97,6 +97,16 @@ jobs:
           path: ${{ steps.locate.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
+
+      # Google Play needs an Android App Bundle (.aab), not an APK. See wealthtrack/PLAY-STORE.md.
+      - name: Upload AAB artifact (for Google Play)
+        if: (github.event.inputs.build-mode || 'release') == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wealthtrack-release-aab
+          path: wealthtrack/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Build single-file web app
         run: node wealthtrack/build.js

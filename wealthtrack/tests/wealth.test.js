@@ -13,6 +13,7 @@ const Demo = require(path.join(__dirname, '../web/demo.js'));
 
 const TODAY = '2026-11-09';
 WT.setToday(TODAY);
+globalThis.WT = WT; // tips.js reads the app clock from the global WT, as in the browser
 
 function fresh(kind) {
   WT.init(null, { put() { }, del() { } });

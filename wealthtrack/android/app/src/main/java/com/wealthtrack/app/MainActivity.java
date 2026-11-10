@@ -12,6 +12,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.window.OnBackInvokedDispatcher;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -22,6 +24,9 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
@@ -63,9 +68,24 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
-        webView.setLayoutParams(new ViewGroup.LayoutParams(
+        webView.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        setContentView(webView);
+        // Android 15+ draws apps edge to edge: keep the page clear of the status bar, navigation bar,
+        // display cutout and keyboard by padding a container (its background shows behind the bars).
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(getResources().getColor(R.color.bg, getTheme()));
+        root.addView(webView);
+        setContentView(root);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+            return WindowInsetsCompat.CONSUMED;
+        });
+        // Android 13+ back gesture (required behaviour when targeting Android 16): same handling as onBackPressed
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
+        }
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -341,6 +361,11 @@ public class MainActivity extends Activity {
             super.onBackPressed();
             return;
         }
+        handleBack();
+    }
+
+    private void handleBack() {
+        if (webView == null) { finish(); return; }
         // Give the web app first refusal (e.g. to close a modal): if it defines
         // window.onAndroidBack and that returns true, the press is consumed.
         webView.evaluateJavascript(
