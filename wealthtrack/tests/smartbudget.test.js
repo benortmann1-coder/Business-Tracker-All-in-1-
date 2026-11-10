@@ -1503,6 +1503,28 @@ test('mortgage escrow: only payment minus escrow lowers the balance; other debts
   assert.equal(WT.debtEscrow('debt_car2'), 0); assert.equal(car0 - WT.debtBalance('debt_car2'), 34500);
 });
 
+test('mortgage escrow changes apply going forward: earlier bills keep the escrow they had', () => {
+  mortgageHome();
+  const bal0 = WT.debtBalance('debt_home');
+  WT.recordPayment('i_bill_home_2026-12-01', { amountCents: 200000, date: '2026-12-01' }); // escrow $450 -> 155000 principal
+  // the lender raises escrow to $500 starting Jan 1 (payment rises to $2,050)
+  WT.updateDebt('debt_home', { escrowCents: 50000, minCents: 205000, escrowFrom: '2027-01-01' });
+  assert.equal(WT.D.debts.debt_home.escrowFrom, undefined, 'the start date is not stored on the debt itself');
+  assert.deepEqual(WT.D.debts.debt_home.escrowHistory, [{ from: '0000-01-01', cents: 45000 }, { from: '2027-01-01', cents: 50000 }]);
+  assert.equal(WT.debtEscrow('debt_home', '2026-12-01'), 45000); assert.equal(WT.debtEscrow('debt_home', '2027-01-01'), 50000);
+  assert.equal(WT.debtEscrow('debt_home'), 50000, 'no date: the current escrow');
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 155000, 'the December payment still counts $450 escrow');
+  WT.recordPayment('i_bill_home_2027-01-01', { amountCents: 205000, date: '2027-01-01' });
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 155000 + 155000, 'January: $2,050 minus the new $500 escrow');
+  // changing it again on the same start date replaces that step, never the past
+  WT.updateDebt('debt_home', { escrowCents: 48000, escrowFrom: '2027-01-01' });
+  assert.deepEqual(WT.D.debts.debt_home.escrowHistory, [{ from: '0000-01-01', cents: 45000 }, { from: '2027-01-01', cents: 48000 }]);
+  assert.equal(bal0 - WT.debtBalance('debt_home'), 155000 + 157000);
+  // saving the same escrow adds no history
+  WT.updateDebt('debt_home', { escrowCents: 48000, name: 'Home Mortgage' });
+  assert.equal(WT.D.debts.debt_home.escrowHistory.length, 2);
+});
+
 test('built-in category migration adds the home categories once and never touches user categories', () => {
   // an older install: the 16 original categories (the fixture's list), one hidden, plus a user's own "HOA Fees"
   WT.init(null, { put() { }, del() { } });

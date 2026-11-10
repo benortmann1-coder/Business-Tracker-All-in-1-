@@ -14,7 +14,7 @@
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.5'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.6'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -1165,7 +1165,14 @@
     modal({
       title: d ? 'Edit ' + esc(d.name) : 'Add debt', submit: d ? 'Save' : 'Add',
       // the escrow field and its help text only show for a mortgage
-      onMount: form => { const sel = form.querySelector('[name=type]'); const sync = () => $$('.mort-only', form).forEach(el => { el.style.display = sel.value === 'mortgage' ? '' : 'none'; }); sel.addEventListener('change', sync); sync(); },
+      // for a mortgage the payment label says it includes escrow; a changed escrow asks when it starts
+      onMount: form => {
+        const sel = form.querySelector('[name=type]'); const minLbl = form.querySelector('[name=min]').closest('.field').querySelector('span');
+        const escIn = form.querySelector('[name=escrow]'); const fromF = form.querySelector('.esc-from');
+        const showFrom = () => { if (fromF) { const v = (escIn.value || '').trim() ? W.parseMoney(escIn.value) : 0; fromF.style.display = sel.value === 'mortgage' && v != null && v !== ((d && d.escrowCents) || 0) ? '' : 'none'; } };
+        const sync = () => { const m = sel.value === 'mortgage'; $$('.mort-only', form).forEach(el => { el.style.display = m ? '' : 'none'; }); minLbl.textContent = m ? 'Monthly payment (incl. escrow)' : 'Minimum monthly payment'; showFrom(); };
+        sel.addEventListener('change', sync); escIn.addEventListener('input', showFrom); sync();
+      },
       body: `<div class="form-grid">
         ${field('Name', `<input class="input" name="name" value="${esc(d ? d.name : '')}" autofocus>`)}
         ${field('Type', `<select class="input" name="type">${Object.entries(DEBT_TYPES).map(([k, l]) => opt(k, l, d ? d.type : 'credit_card')).join('')}</select>`)}
@@ -1173,6 +1180,7 @@
         ${field('Interest rate (APR %)', `<input class="input" name="apr" inputmode="decimal" value="${d ? W.centsToStr(d.aprCenti || 0) : ''}" placeholder="24.99">`)}
         ${field('Minimum monthly payment', moneyInput('min', d ? d.minCents : null))}
         ${field('Escrow included in payment (monthly)', moneyInput('escrow', d && d.escrowCents ? d.escrowCents : null, 'aria-describedby="escrowHelp"'), 'mort-only')}
+${d ? field('New escrow starts on', `<input class="input" type="date" name="escrowFrom" value="${today()}" aria-describedby="escFromHelp"><div class="tiny muted" id="escFromHelp">Bills due before this date keep the old escrow amount.</div>`, 'esc-from') : ''}
         <p class="tiny muted full mort-only" id="escrowHelp">For a mortgage, enter the full monthly payment above. Property taxes and homeowners insurance are usually in escrow: enter that part here. Only the rest (principal and interest) pays down the loan. Leave it empty if you pay them yourself.</p>
         ${field('Payment due day', `<input class="input" type="number" min="1" max="31" name="dueDay" value="${d ? d.dueDay : 1}">`)}
         ${field('Credit limit (cards)', moneyInput('limit', d ? d.limitCents : null))}
@@ -1188,6 +1196,7 @@
           if (e == null || e < 0) throw new UserError('Enter a valid escrow amount');
           if (e > 0 && e >= data.minCents) throw new UserError('Escrow must be less than the monthly payment');
           data.escrowCents = e;
+          if (d && /^\d{4}-\d{2}-\d{2}$/.test(f.escrowFrom || '')) data.escrowFrom = f.escrowFrom;
         } else if (d && d.escrowCents) data.escrowCents = 0;
         if (d) { data.closed = !!f.closed; W.updateDebt(id, data); }
         else {

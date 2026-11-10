@@ -282,7 +282,9 @@
       debts: d => str(d, 'name', 200, true) && str(d, 'type', 50) && int(d, 'startBalanceCents', true) && date(d, 'startDate', true) && intDef(d, 'aprCenti', 0, 0, 100000) &&
         intDef(d, 'minCents', 0, 0) && intDef(d, 'dueDay', 1, 1, 31) && int(d, 'limitCents', false, 0) && bool(d, 'autoInterest') && bool(d, 'closed') && bool(d, 'deleted') &&
         // mortgage escrow part of the monthly payment (cents, optional): a bad value is dropped, never the debt
-        (d.escrowCents == null || (Number.isInteger(d.escrowCents) && d.escrowCents >= 0 && d.escrowCents <= 1e11) || ((delete d.escrowCents), report.fixed++, true)),
+        (d.escrowCents == null || (Number.isInteger(d.escrowCents) && d.escrowCents >= 0 && d.escrowCents <= 1e11) || ((delete d.escrowCents), report.fixed++, true)) &&
+        // escrow changes by start date: [{from:'YYYY-MM-DD', cents}]; bad entries are dropped
+        (d.escrowHistory == null || (Array.isArray(d.escrowHistory) && ((d.escrowHistory = d.escrowHistory.filter(x => x && typeof x.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.from) && Number.isInteger(x.cents) && x.cents >= 0 && x.cents <= 1e11).slice(-120)), true)) || ((delete d.escrowHistory), report.fixed++, true)),
       debtTxns: x => ref(x, 'debtId', true) && int(x, 'amountCents', true) && date(x, 'date', true) && ['payment', 'interest', 'charge', 'adjust', 'fee'].includes(x.type) && src(x, 'sourceId') &&
         str(x, 'note', 500) && bool(x, 'voided') && ((x.key = typeof x.key === 'string' && x.key.length < 200 ? x.key : null), true),
       budgets: b => b.category === b.id && int(b, 'limitCents', true, 0) && bool(b, 'rollover') && ((b.startMonth = typeof b.startMonth === 'string' && MONTH.test(b.startMonth) ? b.startMonth : new Date().toISOString().slice(0, 7)), true),

@@ -1894,9 +1894,18 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   // ---------------------------------------------------------------- debts
   // Mortgage escrow: the part of a mortgage payment the lender holds for property tax and homeowners insurance.
   // Only debts of type 'mortgage' with escrowCents > 0 have one; for every other debt this is 0.
-  WT.debtEscrow = function (d) {
+  // With a date, the escrow in effect on that date: escrow changes apply going forward (escrowHistory keeps
+  // [{from:'YYYY-MM-DD', cents}]), so past payments keep the escrow they had when they were made.
+  WT.debtEscrow = function (d, date) {
     if (typeof d === 'string') d = WT.D.debts[d];
-    return d && d.type === 'mortgage' && Number.isInteger(d.escrowCents) && d.escrowCents > 0 ? d.escrowCents : 0;
+    if (!d || d.type !== 'mortgage') return 0;
+    let c = d.escrowCents;
+    if (date && Array.isArray(d.escrowHistory) && d.escrowHistory.length) {
+      const h = d.escrowHistory.slice().sort((a, b) => a.from < b.from ? -1 : a.from > b.from ? 1 : 0);
+      const on = h.filter(x => x.from <= date);
+      c = on.length ? on[on.length - 1].cents : h[0].cents;
+    }
+    return Number.isInteger(c) && c > 0 ? c : 0;
   };
   // principal + interest part of a debt's monthly payment (minCents minus escrow; unchanged for non-mortgages)
   WT.debtPI = function (d, paymentCents) {
@@ -1910,11 +1919,11 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     const out = new Map(); const byInst = new Map();
     for (const p of vals('payments')) {
       if (p.voided || !(p.amountCents > 0)) continue;
-      const i = WT.D.instances[p.instanceId]; if (!i || !i.debtId || !WT.debtEscrow(WT.D.debts[i.debtId])) continue;
+      const i = WT.D.instances[p.instanceId]; if (!i || !i.debtId || !WT.debtEscrow(WT.D.debts[i.debtId], i.dueDate)) continue;
       if (!byInst.has(i.id)) byInst.set(i.id, []); byInst.get(i.id).push(p);
     }
     for (const [instId, ps] of byInst) {
-      let left = WT.debtEscrow(WT.D.debts[WT.D.instances[instId].debtId]);
+      const inst = WT.D.instances[instId]; let left = WT.debtEscrow(WT.D.debts[inst.debtId], inst.dueDate);
       ps.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       for (const p of ps) { const e = Math.min(left, p.amountCents); if (e > 0) { out.set(p.id, e); left -= e; } }
     }
@@ -1948,7 +1957,16 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   WT.debts = () => vals('debts').filter(d => !d.deleted).sort((a, b) => a.name.localeCompare(b.name));
   WT.totalDebt = asOf => WT.debts().reduce((a, d) => a + Math.max(0, WT.debtBalance(d.id, asOf)), 0);
   WT.addDebt = function (f) { const r = Object.assign({ id: WT.uid('debt'), type: 'credit_card', startBalanceCents: 0, startDate: todayStr(), aprCenti: 0, minCents: 0, dueDay: 1, limitCents: null, autoInterest: true, closed: false }, f); save('debts', r); return r; };
-  WT.updateDebt = function (id, f) { const r = Object.assign(WT.D.debts[id], f); save('debts', r); return r; };
+  // A changed mortgage escrow starts on f.escrowFrom (default today); bills due earlier keep the old escrow.
+  WT.updateDebt = function (id, f) {
+    const cur = WT.D.debts[id]; f = Object.assign({}, f); const from = f.escrowFrom || todayStr(); f.escrowFrom = undefined;
+    if (cur && f.escrowCents != null && (cur.escrowCents || 0) !== f.escrowCents) {
+      let h = Array.isArray(cur.escrowHistory) ? cur.escrowHistory.slice() : [{ from: '0000-01-01', cents: cur.escrowCents || 0 }];
+      h = h.filter(x => x.from < from); h.push({ from, cents: f.escrowCents });
+      f.escrowHistory = h.slice(-120);
+    }
+    const r = Object.assign(cur, f); if ('escrowFrom' in r) Reflect.deleteProperty(r, 'escrowFrom'); save('debts', r); return r;
+  };
   WT.addDebtTxn = function (f) { const r = Object.assign({ id: WT.uid('dtx'), date: todayStr(), note: '', voided: false }, f); save('debtTxns', r); return r; };
   WT.setDebtBalance = function (debtId, cents, date) {
     date = date || todayStr(); const cur = WT.debtBalance(debtId, date);
@@ -5645,7 +5663,9 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
       debts: d => str(d, 'name', 200, true) && str(d, 'type', 50) && int(d, 'startBalanceCents', true) && date(d, 'startDate', true) && intDef(d, 'aprCenti', 0, 0, 100000) &&
         intDef(d, 'minCents', 0, 0) && intDef(d, 'dueDay', 1, 1, 31) && int(d, 'limitCents', false, 0) && bool(d, 'autoInterest') && bool(d, 'closed') && bool(d, 'deleted') &&
         // mortgage escrow part of the monthly payment (cents, optional): a bad value is dropped, never the debt
-        (d.escrowCents == null || (Number.isInteger(d.escrowCents) && d.escrowCents >= 0 && d.escrowCents <= 1e11) || ((delete d.escrowCents), report.fixed++, true)),
+        (d.escrowCents == null || (Number.isInteger(d.escrowCents) && d.escrowCents >= 0 && d.escrowCents <= 1e11) || ((delete d.escrowCents), report.fixed++, true)) &&
+        // escrow changes by start date: [{from:'YYYY-MM-DD', cents}]; bad entries are dropped
+        (d.escrowHistory == null || (Array.isArray(d.escrowHistory) && ((d.escrowHistory = d.escrowHistory.filter(x => x && typeof x.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.from) && Number.isInteger(x.cents) && x.cents >= 0 && x.cents <= 1e11).slice(-120)), true)) || ((delete d.escrowHistory), report.fixed++, true)),
       debtTxns: x => ref(x, 'debtId', true) && int(x, 'amountCents', true) && date(x, 'date', true) && ['payment', 'interest', 'charge', 'adjust', 'fee'].includes(x.type) && src(x, 'sourceId') &&
         str(x, 'note', 500) && bool(x, 'voided') && ((x.key = typeof x.key === 'string' && x.key.length < 200 ? x.key : null), true),
       budgets: b => b.category === b.id && int(b, 'limitCents', true, 0) && bool(b, 'rollover') && ((b.startMonth = typeof b.startMonth === 'string' && MONTH.test(b.startMonth) ? b.startMonth : new Date().toISOString().slice(0, 7)), true),
@@ -5909,7 +5929,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
-  const APP_VERSION = '1.5.5'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.5.6'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -7060,7 +7080,14 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     modal({
       title: d ? 'Edit ' + esc(d.name) : 'Add debt', submit: d ? 'Save' : 'Add',
       // the escrow field and its help text only show for a mortgage
-      onMount: form => { const sel = form.querySelector('[name=type]'); const sync = () => $$('.mort-only', form).forEach(el => { el.style.display = sel.value === 'mortgage' ? '' : 'none'; }); sel.addEventListener('change', sync); sync(); },
+      // for a mortgage the payment label says it includes escrow; a changed escrow asks when it starts
+      onMount: form => {
+        const sel = form.querySelector('[name=type]'); const minLbl = form.querySelector('[name=min]').closest('.field').querySelector('span');
+        const escIn = form.querySelector('[name=escrow]'); const fromF = form.querySelector('.esc-from');
+        const showFrom = () => { if (fromF) { const v = (escIn.value || '').trim() ? W.parseMoney(escIn.value) : 0; fromF.style.display = sel.value === 'mortgage' && v != null && v !== ((d && d.escrowCents) || 0) ? '' : 'none'; } };
+        const sync = () => { const m = sel.value === 'mortgage'; $$('.mort-only', form).forEach(el => { el.style.display = m ? '' : 'none'; }); minLbl.textContent = m ? 'Monthly payment (incl. escrow)' : 'Minimum monthly payment'; showFrom(); };
+        sel.addEventListener('change', sync); escIn.addEventListener('input', showFrom); sync();
+      },
       body: `<div class="form-grid">
         ${field('Name', `<input class="input" name="name" value="${esc(d ? d.name : '')}" autofocus>`)}
         ${field('Type', `<select class="input" name="type">${Object.entries(DEBT_TYPES).map(([k, l]) => opt(k, l, d ? d.type : 'credit_card')).join('')}</select>`)}
@@ -7068,6 +7095,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
         ${field('Interest rate (APR %)', `<input class="input" name="apr" inputmode="decimal" value="${d ? W.centsToStr(d.aprCenti || 0) : ''}" placeholder="24.99">`)}
         ${field('Minimum monthly payment', moneyInput('min', d ? d.minCents : null))}
         ${field('Escrow included in payment (monthly)', moneyInput('escrow', d && d.escrowCents ? d.escrowCents : null, 'aria-describedby="escrowHelp"'), 'mort-only')}
+${d ? field('New escrow starts on', `<input class="input" type="date" name="escrowFrom" value="${today()}" aria-describedby="escFromHelp"><div class="tiny muted" id="escFromHelp">Bills due before this date keep the old escrow amount.</div>`, 'esc-from') : ''}
         <p class="tiny muted full mort-only" id="escrowHelp">For a mortgage, enter the full monthly payment above. Property taxes and homeowners insurance are usually in escrow: enter that part here. Only the rest (principal and interest) pays down the loan. Leave it empty if you pay them yourself.</p>
         ${field('Payment due day', `<input class="input" type="number" min="1" max="31" name="dueDay" value="${d ? d.dueDay : 1}">`)}
         ${field('Credit limit (cards)', moneyInput('limit', d ? d.limitCents : null))}
@@ -7083,6 +7111,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
           if (e == null || e < 0) throw new UserError('Enter a valid escrow amount');
           if (e > 0 && e >= data.minCents) throw new UserError('Escrow must be less than the monthly payment');
           data.escrowCents = e;
+          if (d && /^\d{4}-\d{2}-\d{2}$/.test(f.escrowFrom || '')) data.escrowFrom = f.escrowFrom;
         } else if (d && d.escrowCents) data.escrowCents = 0;
         if (d) { data.closed = !!f.closed; W.updateDebt(id, data); }
         else {

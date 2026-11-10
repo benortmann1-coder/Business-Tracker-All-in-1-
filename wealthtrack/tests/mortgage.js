@@ -29,6 +29,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fa
   ok(!(await vis()), 'escrow field hidden for a credit card');
   await page.selectOption('.overlay [name=type]', 'mortgage');
   ok(await vis(), 'escrow field shown for a mortgage');
+  const minLbl = () => page.evaluate(() => document.querySelector('.overlay [name=min]').closest('.field').querySelector('span').textContent);
+  ok(await minLbl() === 'Monthly payment (incl. escrow)', 'mortgage: payment label says it includes escrow');
+  ok(await page.locator('.overlay .esc-from').count() === 0, 'a new mortgage has no escrow start date');
   ok(/Property taxes and homeowners insurance are usually in escrow/.test(await page.locator('.overlay #escrowHelp').textContent()), 'escrow helper text');
   const inp = await page.evaluate(() => { const el = document.querySelector('.overlay [name=escrow]'); const r = el.closest('label').getBoundingClientRect(); return { mode: el.getAttribute('inputmode'), fs: parseFloat(getComputedStyle(el).fontSize), h: r.height, sw: document.documentElement.scrollWidth, vw: innerWidth }; });
   ok(inp.mode === 'decimal' && inp.fs >= 16 && inp.h >= 40, `escrow input: decimal keypad, ${inp.fs}px text, ${Math.round(inp.h)}px tap area`);
@@ -50,6 +53,16 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); c ? pass++ : fa
   ok(rec && rec.cat === 'cat_mortgage' && rec.amt === 200000, 'its monthly bill is in the Mortgage category for the full payment');
   ok(rec && rec.pi === 155000, 'payoff math uses principal + interest ($1,550)');
   ok(/incl\. \$450\.00 escrow/.test(await page.locator(`.debt-row[data-debt="${rec.id}"]`).textContent()), 'debt list shows the escrow part');
+  // edit: a changed escrow asks when it starts; bills due earlier keep the old amount
+  await page.click(`.debt-row[data-debt="${rec.id}"] [data-act=debtMenu]`); await page.click('#menu button[data-k="0"]'); await page.waitForSelector('.overlay form');
+  const fromVis = () => page.evaluate(() => { const el = document.querySelector('.overlay .esc-from'); return !!el && el.style.display !== 'none'; });
+  ok(!(await fromVis()), 'start date hidden until the escrow changes');
+  await page.fill('.overlay [name=escrow]', '500');
+  ok(await fromVis(), 'changing the escrow shows "New escrow starts on"');
+  await page.fill('.overlay [name=escrowFrom]', await page.evaluate(() => WT.addMonthKey(WT.monthOf(WT.todayStr()), 1) + '-01'));
+  await page.click('.overlay [type=submit]'); await page.waitForTimeout(300);
+  const eh = await page.evaluate(id => { const d = WT.D.debts[id]; const nx = WT.addMonthKey(WT.monthOf(WT.todayStr()), 1) + '-01'; return { h: d.escrowHistory, now: WT.debtEscrow(id, WT.todayStr()), next: WT.debtEscrow(id, nx), stray: 'escrowFrom' in d }; }, rec.id);
+  ok(eh.now === 45000 && eh.next === 50000 && !eh.stray && eh.h.length === 2, 'escrow $450 until next month, $500 from then on');
 
   // Smart Budget: under Essentials once, not in Debt minimums
   await go('smart');

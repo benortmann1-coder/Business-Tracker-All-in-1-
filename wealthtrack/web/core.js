@@ -671,9 +671,18 @@
   // ---------------------------------------------------------------- debts
   // Mortgage escrow: the part of a mortgage payment the lender holds for property tax and homeowners insurance.
   // Only debts of type 'mortgage' with escrowCents > 0 have one; for every other debt this is 0.
-  WT.debtEscrow = function (d) {
+  // With a date, the escrow in effect on that date: escrow changes apply going forward (escrowHistory keeps
+  // [{from:'YYYY-MM-DD', cents}]), so past payments keep the escrow they had when they were made.
+  WT.debtEscrow = function (d, date) {
     if (typeof d === 'string') d = WT.D.debts[d];
-    return d && d.type === 'mortgage' && Number.isInteger(d.escrowCents) && d.escrowCents > 0 ? d.escrowCents : 0;
+    if (!d || d.type !== 'mortgage') return 0;
+    let c = d.escrowCents;
+    if (date && Array.isArray(d.escrowHistory) && d.escrowHistory.length) {
+      const h = d.escrowHistory.slice().sort((a, b) => a.from < b.from ? -1 : a.from > b.from ? 1 : 0);
+      const on = h.filter(x => x.from <= date);
+      c = on.length ? on[on.length - 1].cents : h[0].cents;
+    }
+    return Number.isInteger(c) && c > 0 ? c : 0;
   };
   // principal + interest part of a debt's monthly payment (minCents minus escrow; unchanged for non-mortgages)
   WT.debtPI = function (d, paymentCents) {
@@ -687,11 +696,11 @@
     const out = new Map(); const byInst = new Map();
     for (const p of vals('payments')) {
       if (p.voided || !(p.amountCents > 0)) continue;
-      const i = WT.D.instances[p.instanceId]; if (!i || !i.debtId || !WT.debtEscrow(WT.D.debts[i.debtId])) continue;
+      const i = WT.D.instances[p.instanceId]; if (!i || !i.debtId || !WT.debtEscrow(WT.D.debts[i.debtId], i.dueDate)) continue;
       if (!byInst.has(i.id)) byInst.set(i.id, []); byInst.get(i.id).push(p);
     }
     for (const [instId, ps] of byInst) {
-      let left = WT.debtEscrow(WT.D.debts[WT.D.instances[instId].debtId]);
+      const inst = WT.D.instances[instId]; let left = WT.debtEscrow(WT.D.debts[inst.debtId], inst.dueDate);
       ps.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       for (const p of ps) { const e = Math.min(left, p.amountCents); if (e > 0) { out.set(p.id, e); left -= e; } }
     }
@@ -725,7 +734,16 @@
   WT.debts = () => vals('debts').filter(d => !d.deleted).sort((a, b) => a.name.localeCompare(b.name));
   WT.totalDebt = asOf => WT.debts().reduce((a, d) => a + Math.max(0, WT.debtBalance(d.id, asOf)), 0);
   WT.addDebt = function (f) { const r = Object.assign({ id: WT.uid('debt'), type: 'credit_card', startBalanceCents: 0, startDate: todayStr(), aprCenti: 0, minCents: 0, dueDay: 1, limitCents: null, autoInterest: true, closed: false }, f); save('debts', r); return r; };
-  WT.updateDebt = function (id, f) { const r = Object.assign(WT.D.debts[id], f); save('debts', r); return r; };
+  // A changed mortgage escrow starts on f.escrowFrom (default today); bills due earlier keep the old escrow.
+  WT.updateDebt = function (id, f) {
+    const cur = WT.D.debts[id]; f = Object.assign({}, f); const from = f.escrowFrom || todayStr(); f.escrowFrom = undefined;
+    if (cur && f.escrowCents != null && (cur.escrowCents || 0) !== f.escrowCents) {
+      let h = Array.isArray(cur.escrowHistory) ? cur.escrowHistory.slice() : [{ from: '0000-01-01', cents: cur.escrowCents || 0 }];
+      h = h.filter(x => x.from < from); h.push({ from, cents: f.escrowCents });
+      f.escrowHistory = h.slice(-120);
+    }
+    const r = Object.assign(cur, f); if ('escrowFrom' in r) Reflect.deleteProperty(r, 'escrowFrom'); save('debts', r); return r;
+  };
   WT.addDebtTxn = function (f) { const r = Object.assign({ id: WT.uid('dtx'), date: todayStr(), note: '', voided: false }, f); save('debtTxns', r); return r; };
   WT.setDebtBalance = function (debtId, cents, date) {
     date = date || todayStr(); const cur = WT.debtBalance(debtId, date);
