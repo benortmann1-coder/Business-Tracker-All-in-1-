@@ -1199,3 +1199,18 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
 .side-logout { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px; padding: 8px 10px; border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 13px; cursor: pointer; border-radius: 8px; }
 .side-logout:hover { background: var(--hover); color: var(--ink); }
 .side-logout svg { width: 16px; height: 16px; }
+
+/* ---------- WealthTrack Pro ---------- */
+.pro-lock { padding: 18px; }
+.pro-page { max-width: 560px; margin: 10px auto 0; text-align: center; padding: 30px 22px; }
+.pro-page h2 { margin: 12px 0 6px; }
+.pro-page .btn { margin-top: 6px; }
+.pro-badge { width: 48px; height: 48px; border-radius: 14px; margin: 0 auto; display: grid; place-items: center; background: var(--paid-soft); color: var(--paid); }
+.pro-badge svg { width: 24px; height: 24px; }
+.pill.pro-pill { background: var(--paid-soft); color: var(--paid); }
+.pill.pro-pill svg { width: 11px; height: 11px; }
+.pro-list { list-style: none; padding: 0; margin: 12px 0 4px; display: grid; gap: 10px; font-size: 14px; color: var(--ink-2); }
+.pro-list li { display: flex; gap: 10px; align-items: flex-start; }
+.pro-list li span b { display: block; color: var(--ink); font-weight: 650; }
+.pro-list svg { width: 16px; height: 16px; color: var(--paid); flex: none; margin-top: 2px; stroke-width: 2.4; }
+.modal-f .btn.ghost[data-act="proRestore"] { margin-right: auto; }

@@ -242,6 +242,36 @@ public class WebAppBridge {
         return activity.drive.takeRestoreData();
     }
 
+    // ---- WealthTrack Pro (Google Play Billing; see ProBilling) ----
+    // Outside the Play build (PRO_ENFORCED false) everything is unlocked and these report so.
+
+    @JavascriptInterface
+    public boolean proEnforced() { return BuildConfig.PRO_ENFORCED; }
+
+    @JavascriptInterface
+    public boolean proOwned() { return activity.isTrustedPage() && activity.pro != null && activity.pro.owned(); }
+
+    @JavascriptInterface
+    public boolean proPending() { return activity.isTrustedPage() && activity.pro != null && activity.pro.pending(); }
+
+    @JavascriptInterface
+    public boolean proAvailable() { return activity.isTrustedPage() && activity.pro != null && activity.pro.available(); }
+
+    @JavascriptInterface
+    public String proPrice() { return activity.isTrustedPage() && activity.pro != null ? activity.pro.price() : ""; }
+
+    @JavascriptInterface
+    public void proPurchase() {
+        if (!activity.isTrustedPage() || activity.pro == null) return;
+        activity.pro.purchase();
+    }
+
+    @JavascriptInterface
+    public void proRestore() {
+        if (!activity.isTrustedPage() || activity.pro == null) return;
+        activity.pro.restore(true);
+    }
+
     @JavascriptInterface
     public String appVersion() {
         try {

@@ -56,6 +56,12 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
   - Optional PIN lock that encrypts data on the device with AES-256-GCM.
   - Android bill reminders work even when the app is closed.
 
+- **WealthTrack Pro** (one-time Google Play purchase, product ID `wealthtrack_pro`).
+  - Pro adds: automatic Google Drive backup, Reports, Excel/CSV export, the debt payoff planner and Smart Budget. Bills, paychecks, expenses, debts, goals, calendar, history and file backup/restore stay free.
+  - Locked features never hide or delete data. Restoring an existing Drive backup is always free.
+  - Only the Google Play build enforces Pro (`./gradlew bundleRelease -PplayBuild=true`, which CI uses for the `.aab`). The Drive APK and the browser version have everything unlocked, because Play Billing only works for apps installed from Google Play.
+  - Code: `web/pro.js` (the single `isPro()` answer), `android/.../ProBilling.java` (Play Billing Library 8). Settings → WealthTrack Pro has Upgrade and Restore purchase.
+
 ### Not double counting
 
 - Credit-card bill payments are **not** counted as spending, because the purchases on the card already were (when you enter them as expenses paid with that card).
@@ -79,7 +85,7 @@ Full audit results: [AUDIT-REPORT.md](AUDIT-REPORT.md). Publishing on Google Pla
 wealthtrack/
   web/        the app: index.html, styles.css, core.js (logic), store.js (IndexedDB+crypto), seed.js, xlsx.js, app.js (UI), setup-wizard.js (first-run setup)
   android/    native WebView wrapper (see android/README.md)
-  tests/      core.test.js (node:test), e2e.js (Playwright)
+  tests/      core.test.js, pro.test.js (node:test), e2e.js, pro-ui.js (Playwright)
   build.js    bundles web/ into dist/WealthTrack.html
 ```
 

@@ -35,7 +35,7 @@ jobs:
           node-version: '22'
 
       - name: Core logic tests
-        run: node --test wealthtrack/tests/core.test.js wealthtrack/tests/security.test.js wealthtrack/tests/smartbudget.test.js wealthtrack/tests/smartplan.test.js wealthtrack/tests/wealth.test.js wealthtrack/tests/setup-wizard.test.js
+        run: node --test wealthtrack/tests/*.test.js
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -66,7 +66,10 @@ jobs:
           fi
           MODE="${{ github.event.inputs.build-mode || 'release' }}"
           if [ "$MODE" = "release" ]; then
-            ./gradlew --no-daemon assembleRelease bundleRelease
+            # Drive/sideload APK: Pro not enforced (Play Billing only works for Play installs)
+            ./gradlew --no-daemon assembleRelease
+            # Google Play bundle: Pro enforced through Play Billing (BuildConfig.PRO_ENFORCED)
+            ./gradlew --no-daemon bundleRelease -PplayBuild=true
           else
             ./gradlew --no-daemon assembleDebug
           fi

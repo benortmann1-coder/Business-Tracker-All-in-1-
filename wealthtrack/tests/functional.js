@@ -322,7 +322,7 @@ function serve() {
 
   // ---------------- Settings
   await go('settings');
-  ok(await page.locator('.set-item').count() === 8 && await page.locator('.set-profile').count() === 1, 'settings menu lists sections');
+  ok(await page.locator('.set-item').count() === 9 && await page.locator('.set-profile').count() === 1, 'settings menu lists sections');
   await page.click('.set-item[data-sec=theme]'); await page.waitForTimeout(150);
   ok(/App theme/.test(await page.locator('#main h1').textContent()), 'opens App theme page');
   await page.click('[data-act=theme][data-v=dark]'); ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'dark', 'dark theme');
