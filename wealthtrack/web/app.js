@@ -749,10 +749,12 @@
       <label class="field sched"><span>Pay from paycheck</span><select class="input" name="payFrom">${incomeOptions(v.payFrom)}</select></label>
       <label class="check sched full"><input type="checkbox" name="autopay" ${v.autopay ? 'checked' : ''}> Auto-pay: deducted automatically, marked paid on the due date</label>
       <label class="check sched full"><input type="checkbox" name="sub" ${v.sub ? 'checked' : ''}> Subscription</label>
+      ${billReminderField(t)}
       ${field('Notes', `<textarea class="input" name="notes" placeholder="Optional">${esc(v.notes)}</textarea>`, 'full')}
     </div>`;
   }
   function mountBillForm(form) {
+    if (form.remMode) { const rs = () => { const box = $('.rem-custom', form); if (box) box.style.display = form.remMode.value === 'custom' ? '' : 'none'; }; form.remMode.addEventListener('change', rs); rs(); }
     const freq = form.frequency; const sync = () => { $$('.custom-only', form).forEach(e => e.style.display = freq.value === 'custom' ? '' : 'none'); };
     freq.addEventListener('change', sync); sync();
     if (form.sub && form.autopay) form.sub.addEventListener('change', () => { if (form.sub.checked) form.autopay.checked = true; });
@@ -785,7 +787,7 @@
     // "last day of each month": only for schedules that repeat by months; the due date moves to its month's last day
     const eom = !!f.eom && MONTHLY_FREQ(f) && f.scope !== 'this';
     const anchor = eom && /^\d{4}-\d{2}$/.test(f.eomMonth || '') ? W.monthEnd(f.eomMonth) : needDate(f.anchor, 'due date');
-    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, notes: f.notes || '' };
+    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
   }
   function addBill(anchor) {
     modal({ title: 'Add bill', body: billForm({ mode: 'add', anchor }), submit: 'Add bill', onMount: mountBillForm, onSubmit: f => { const d = readBillForm(f); W.addTemplate(d); W.ensureGenerated(W.addMonthKey(ui.month > curMonth() ? ui.month : curMonth(), 1)); toast(d.name + ' added'); refresh(); } });
@@ -2457,8 +2459,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         `<div class="set-row col"><div class="set-k"><div>Dashboard sections</div><div class="tiny muted">Turn sections on or off and set their order.</div></div><div class="widget-list">${order.map((k, idx) => `<div class="widget-row"><label class="check grow"><input type="checkbox" data-act-change="widgetToggle" data-k="${k}" ${dash.hidden.includes(k) ? '' : 'checked'}> ${WIDGETS[k].name}</label><button class="btn sm icon ghost" data-act="widgetMove" data-k="${k}" data-n="-1" ${idx === 0 ? 'disabled' : ''} aria-label="Move up">${ic('up')}</button><button class="btn sm icon ghost" data-act="widgetMove" data-k="${k}" data-n="1" ${idx === order.length - 1 ? 'disabled' : ''} aria-label="Move down">${ic('down')}</button></div>`).join('')}</div></div>`),
       notifications: () => group('reminders', 'Notifications', Bridge ? 'Scheduled on your phone, even when the app is closed.' : 'Shown while WealthTrack is open. The Android app can remind you in the background.',
         srow('Bill reminders', 'Auto-pay bills are skipped. They pay themselves.', `<label class="switch"><input type="checkbox" data-act-change="remEnabled" ${r.enabled ? 'checked' : ''}><span></span></label>`) +
-        srow('Remind me', '', `<div class="row wrap" style="gap:6px 14px">${[[7, '1 week before'], [3, '3 days before'], [1, 'The day before'], [0, 'On the day']].map(([d, l]) => `<label class="check small"><input type="checkbox" data-act-change="remDay" data-d="${d}" ${r.daysBefore.includes(d) ? 'checked' : ''}> ${l}</label>`).join('')}</div>`) +
-        srow('At', '', `<select class="input" style="width:auto" data-act-change="remHour" aria-label="Reminder time">${Array.from({ length: 24 }, (_, h) => opt(h, (h % 12 || 12) + ':00 ' + (h < 12 ? 'AM' : 'PM'), r.hour)).join('')}</select>`) +
+        remSettingsRows(r, srow) +
         srow('Notifications', '', `<button class="btn sm" data-act="notifPerm">${ic('bell')}${notifStatus()}</button>`) +
         srow('"Due soon" window', 'Bills due within this many days turn yellow.', `<label class="row" style="gap:8px"><input class="input" type="number" min="1" max="30" style="width:76px" value="${s.dueSoonDays}" data-act-change="dueSoon" aria-label="Due soon days"><span class="small muted">days</span></label>`)),
       accounts: () => group('accounts', 'Accounts', 'Where your money sits. "Available" accounts make up the balance on the dashboard.',
@@ -2700,6 +2701,41 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   }
 
   // ------------------------------------------------------------ reminders
+  // Custom reminders (more lead days, minutes, daily overdue, per-bill rules) are Pro: W.remindersPro() is the one gate.
+  const REM_DAY_LABEL = d => d === 0 ? 'On the day' : d === 1 ? 'The day before' : d === 7 ? '1 week before' : d === 14 ? '2 weeks before' : d + ' days before';
+  const remDayOpts = pro => (pro ? [14, 10, 7, 5, 3, 2, 1, 0] : [7, 3, 1, 0]);
+  const remTimeLabel = (h, m) => (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM');
+  function remTimeSelect(name, h, m, pro, attrs) {
+    const cur = h + ':' + (pro ? (m || 0) : 0); const opts = [];
+    for (let hh = 0; hh < 24; hh++) for (const mm of pro ? [0, 15, 30, 45] : [0]) opts.push(opt(hh + ':' + mm, remTimeLabel(hh, mm), cur));
+    return `<select class="input" style="width:auto" ${name ? `name="${name}"` : ''} ${attrs || ''} aria-label="Reminder time">${opts.join('')}</select>`;
+  }
+  const proTag = () => `<button class="btn sm" data-act="remPro">${ic('lock')}Get Pro</button>`;
+  function remSettingsRows(r, srow) {
+    const pro = W.remindersPro(); const days = r.daysBefore || [];
+    return srow('Remind me', pro ? 'Bills can also have their own reminders: edit a bill and open Reminders.' : '', `<div class="row wrap" style="gap:6px 14px">${remDayOpts(pro).map(d => `<label class="check small"><input type="checkbox" data-act-change="remDay" data-d="${d}" ${days.includes(d) ? 'checked' : ''}> ${REM_DAY_LABEL(d)}</label>`).join('')}</div>`) +
+      srow('At', '', remTimeSelect('', r.hour, r.minute, pro, 'data-act-change="remTime"')) +
+      srow('Overdue bills', pro ? 'A reminder every day, for up to 2 weeks, until the bill is paid.' : 'Daily reminders for overdue bills, custom times and per-bill reminders.',
+        pro ? `<label class="switch"><input type="checkbox" data-act-change="remOverdue" ${r.overdueDaily ? 'checked' : ''} aria-label="Remind daily while overdue"><span></span></label>` : proTag());
+  }
+  // bill form: Reminders (template-level, so hidden for "only this month" edits)
+  function billReminderField(t) {
+    if (!W.remindersPro()) return '';
+    const g = W.settings().reminders; const rr = (t && t.reminder) || { mode: 'default' };
+    const c = rr.mode === 'custom' ? rr : { daysBefore: g.daysBefore || [], hour: g.hour, minute: g.minute || 0 };
+    return `<label class="field sched full"><span>Reminders</span><select class="input" name="remMode">${[['default', 'Use my reminder settings'], ['custom', 'Custom for this bill'], ['off', 'No reminders']].map(([k, l]) => opt(k, l, rr.mode)).join('')}</select></label>
+      <div class="sched full"><div class="rem-custom"><div class="row wrap" style="gap:6px 14px">${remDayOpts(true).map(d => `<label class="check small"><input type="checkbox" name="remD_${d}" ${(c.daysBefore || []).includes(d) ? 'checked' : ''}> ${REM_DAY_LABEL(d)}</label>`).join('')}</div>
+      <div class="row" style="gap:8px;margin-top:8px"><span class="small muted">at</span>${remTimeSelect('remTime', c.hour ?? 9, c.minute || 0, true)}</div></div></div>`;
+  }
+  function readBillReminder(f) {
+    if (!f.remMode || !W.remindersPro()) return undefined; // not shown: leave the bill's rule alone
+    if (f.remMode === 'off') return { mode: 'off' };
+    if (f.remMode !== 'custom') return null;
+    const daysBefore = remDayOpts(true).filter(d => f['remD_' + d]);
+    if (!daysBefore.length) throw new UserError('Pick at least one reminder day, or choose No reminders');
+    const [h, m] = String(f.remTime || '9:0').split(':').map(Number);
+    return { mode: 'custom', daysBefore, hour: h, minute: m };
+  }
   let remTimer = null;
   function scheduleReminders() {
     clearTimeout(remTimer);
@@ -2707,16 +2743,16 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     remTimer = setTimeout(() => {
       const list = W.reminderList(today(), 45);
       if (Bridge && Bridge.setReminders) {
-        const items = list.map(r => { const p = W.parts(r.date); return { id: r.id, at: new Date(p.y, p.m - 1, p.d, r.hour, 0, 0).getTime(), title: r.title, body: r.body }; }).filter(r => r.at > Date.now());
+        const items = list.map(r => { const p = W.parts(r.date); return { id: r.id, at: new Date(p.y, p.m - 1, p.d, r.hour, r.minute || 0, 0).getTime(), title: r.title, body: r.body }; }).filter(r => r.at > Date.now());
         try { Bridge.setReminders(JSON.stringify(items)); } catch (e) { console.warn(e); }
         return;
       }
       // browser: show reminders that are due now (once per reminder per device)
       let shown = {}; try { shown = JSON.parse(localStorage.getItem('wt.rem') || '{}'); } catch (e) { /* ignore */ }
       const now = new Date();
-      const due = list.filter(r => r.date === today() && now.getHours() >= r.hour && !shown[r.id]);
+      const due = list.filter(r => r.date === today() && now.getHours() * 60 + now.getMinutes() >= r.hour * 60 + (r.minute || 0) && !shown[r.id]);
       due.forEach(r => { shown[r.id] = 1; if ('Notification' in window && Notification.permission === 'granted') { try { new Notification(r.title, { body: r.body }); } catch (e) { /* ignore */ } } });
-      if (due.length && !('Notification' in window && Notification.permission === 'granted')) toast(due.length === 1 ? due[0].title + ' · ' + due[0].body : due.length + ' bill reminders: ' + due.map(r => r.title.replace(/ is due today| due in .*/, '')).join(', '));
+      if (due.length && !('Notification' in window && Notification.permission === 'granted')) toast(due.length === 1 ? due[0].title + ' · ' + due[0].body : due.length + ' bill reminders: ' + due.map(r => r.title.replace(/ is due today| is overdue| due in .*/, '')).join(', '));
       try { localStorage.setItem('wt.rem', JSON.stringify(shown)); } catch (e) { /* ignore */ }
     }, 400);
   }
@@ -2776,6 +2812,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       refresh();
     },
     editTpl: d => { const t = W.D.templates[d.id]; if (t && !t.deleted) editTemplate(d.id); },
+    remPro: () => { if (typeof WT_proDialog === 'function') WT_proDialog('reminders'); else toast('Custom reminders are part of WealthTrack Pro'); },
     addBill: () => addBill(), addBillOn: d => { closeAllModals(); addBill(d.date); },
     billsTab: d => { if (d.tab === 'month') { ui.billsTab = 'upcoming'; ui.upRange = 'month'; } else ui.billsTab = d.tab; refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
     upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; if (v === 'month' && ui.upRange !== 'month') ui.month = curMonth(); ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
@@ -2905,6 +2942,8 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     currency: el => { if (!CURRENCIES[el.value]) return; W.saveSettings({ currency: el.value }); applyDisplay(); toast('Currency set to ' + el.value); refresh(); },
     dateFormat: el => { W.saveSettings({ dateFormat: W.normDateFormat(el.value) }); applyDisplay(); toast('Dates now look like ' + W.shortDate(today())); refresh(); },
     remHour: el => { const r = W.settings().reminders; r.hour = +el.value; W.saveSettings({ reminders: r }); scheduleReminders(); },
+    remTime: el => { const r = W.settings().reminders; const [h, m] = el.value.split(':').map(Number); r.hour = h; r.minute = W.remindersPro() ? m : 0; W.saveSettings({ reminders: r }); scheduleReminders(); },
+    remOverdue: el => { const r = W.settings().reminders; r.overdueDaily = el.checked && W.remindersPro(); W.saveSettings({ reminders: r }); scheduleReminders(); },
     dueSoon: el => { W.saveSettings({ dueSoonDays: Math.max(1, Math.min(30, +el.value || 7)) }); },
     restoreFile: el => { restoreFile(el.files[0]); el.value = ''; },
     upPaid: el => { ui.upPaid = el.checked; refresh(); },

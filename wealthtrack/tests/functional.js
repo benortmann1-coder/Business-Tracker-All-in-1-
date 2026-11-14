@@ -353,8 +353,10 @@ function serve() {
   ok(await W(() => !!WT.D.categories.cat_kids), 'add category');
   await go('settings/notifications'); await page.locator('[data-act-change=remDay][data-d="7"]').check();
   ok(await W(() => WT.settings().reminders.daysBefore.includes(7)), 'reminder days setting');
-  await page.locator('[data-act-change=remHour]').selectOption('18');
-  ok(await W(() => WT.settings().reminders.hour) === 18, 'reminder hour');
+  await page.locator('[data-act-change=remTime]').selectOption('18:30');
+  ok(await W(() => { const r = WT.settings().reminders; return r.hour === 18 && r.minute === 30; }), 'reminder time (hour and minute)');
+  await page.locator('[data-act-change=remOverdue]').check();
+  ok(await W(() => WT.settings().reminders.overdueDaily === true), 'daily overdue reminders setting');
   await go('settings/data'); const x = await download(() => page.click('#main [data-act=exportXlsx]'));
   ok(fs.statSync(x).size > 2000 && fs.readFileSync(x).slice(0, 2).toString() === 'PK', 'excel export downloads valid zip');
   await page.click('#main [data-act=exportCsvMenu]');

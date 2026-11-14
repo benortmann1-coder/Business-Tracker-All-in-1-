@@ -55,6 +55,7 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
   - JSON backup, optionally encrypted with a password; restore asks before replacing anything.
   - Optional PIN lock that encrypts data on the device with AES-256-GCM.
   - Android bill reminders work even when the app is closed.
+  - **Custom reminders (Pro):** lead days from 2 weeks to the day of, any time in 15-minute steps, a daily reminder for up to 2 weeks while a bill is overdue, and per-bill rules (Edit bill → Reminders: your settings, custom, or none). Free keeps the standard choices.
 
 ### Not double counting
 
