@@ -68,12 +68,12 @@ const ROUTES = ['dashboard', 'bills', 'paychecks', 'debts', 'reports', 'settings
   ok(await page.evaluate(() => WT.settings().palette) === 'espresso', 'last pick kept in settings'); // restore whitelist: tests/themes.test.js
 
   // Pro lock: when WT_isPro() says no, colored themes are locked and fall back to Default
-  await page.evaluate(() => { window.WT_isPro = () => false; WTApp.refresh(); });
+  await page.evaluate(() => { window.WT_isPro = () => false; window.WT_proDialog = f => { window.__proAsked = f; }; WTApp.refresh(); });
   await go('settings/theme'); await page.waitForTimeout(150);
   ok(await page.locator('.pal-btn .pal-lock').count() === 5, 'free: 5 themes show a lock');
   await page.click('.pal-btn[data-v=ocean]'); await page.waitForTimeout(200);
   ok(await page.evaluate(() => WT.settings().palette) === 'espresso', 'free: tapping a locked theme does not change it');
-  ok(/Pro/.test(await page.locator('#toasts').textContent()), 'free: says color themes are Pro');
+  ok(await page.evaluate(() => window.__proAsked) === 'themes', 'free: opens the Pro upgrade for themes');
   await page.click('[data-act=theme][data-v=light]'); await page.waitForTimeout(150);
   ok(!(await page.evaluate(() => document.documentElement.dataset.palette)), 'free: a saved Pro theme falls back to Default (setting kept)');
   await page.click('.pal-btn[data-v=default]'); await page.waitForTimeout(150);
