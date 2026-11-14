@@ -254,6 +254,7 @@
       obs.disconnect(); open = null;
       try { if (!st.finished && (W().settings() || {}).setupWizard !== 'done') markDone(W(), 'dismissed'); } catch (e) { console.error(e); }
       try { U().refresh && U().refresh(); } catch (e) { console.error(e); }
+      if (window.WTTour) setTimeout(() => window.WTTour.maybeStart(), 400); // new users get the quick tour next
     });
     obs.observe(document.body, { childList: true });
     form.querySelector('[data-wz=back]').onclick = () => { err(''); if (st.step > 0) { st.step--; draw(); } };

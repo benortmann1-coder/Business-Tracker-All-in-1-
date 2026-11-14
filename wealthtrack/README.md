@@ -59,6 +59,7 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
   - **Home-screen widgets (Android, Pro):** a small "money left + next bill" widget and an "upcoming bills" list. They show only what the app last sent (web/widget.js → WidgetData.java); with the PIN lock on they show no amounts.
   - **Custom reminders (Pro):** lead days from 2 weeks to the day of, any time in 15-minute steps, a daily reminder for up to 2 weeks while a bill is overdue, and per-bill rules (Edit bill → Reminders: your settings, custom, or none). Free keeps the standard choices.
 
+- **Quick tour.** New users get a one-minute guided tour: a card walks through every page (opening each one) and spotlights where to find it, with Pro features labelled for free users. It runs once per account (over the demo, or after the setup wizard closes); Settings → Your data → App tour replays it. Code: `web/tour.js`.
 - **Accounts.** Several separate accounts on one device (Settings → Personal info → WealthTrack account). Each has its own data, PIN, reminders, widgets and Google Drive backup file (`WealthTrack-backup-<id>.json`; the first account keeps `WealthTrack-backup.json`). Sign out to get the account picker; a new account opens blank, like a fresh install. Fingerprint unlock stays with the first account. Code: `web/accounts.js`.
   - **Preview as a free user** (Settings → WealthTrack Pro, only in the Drive APK and browser): locks the Pro features in that account so you can see what a free Google Play user gets.
 

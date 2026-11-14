@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.6.1'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.6.2'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -2487,6 +2487,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         srow('Restore', 'Always asks before replacing anything.', `<label class="btn sm">${ic('upload')}Choose backup file<input type="file" accept="application/json,.json" data-act-change="restoreFile" hidden></label>`) +
         gdRow(srow) +
         srow('Setup wizard', 'Walks you through your balance, paychecks, bills and debts. Adds to what you have; nothing is replaced.', `<button class="btn sm" data-act="setupWizard">${ic('check')}Run setup</button>`) +
+        srow('App tour', 'A one-minute walk through every part of WealthTrack. It only shows you around; nothing is changed.', `<button class="btn sm" data-act="appTour">${ic('info')}Take the tour</button>`) +
         srow('Check data', 'Looks for duplicate bills and broken links.', `<button class="btn sm ghost" data-act="integrity">Run check</button>`) +
         srow('Start over', 'Erases everything on this device. A backup downloads first.', `<button class="btn sm danger" data-act="startOver">Erase all data…</button>`)),
       pro: () => proSettings(group, srow),
@@ -2917,6 +2918,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     addGoal: () => goalModal(), contribute: d => contributeModal(d.id), withdraw: d => contributeModal(d.id, true),
     goalMenu: (d, el) => menu(el, [{ label: 'Edit goal', icon: 'edit', run: () => goalModal(d.id) }, { label: 'Archive goal', icon: 'trash', danger: true, run: () => { W.updateGoal(d.id, { archived: true }); refresh(); } }]),
     exportXlsx: () => PRO.allows('export') ? exportXlsx() : proDialog('export'), exportCsvMenu: () => PRO.allows('export') ? exportCsvMenu() : proDialog('export'),
+    appTour: () => { if (window.WTTour) WTTour.start(); },
     proUpgrade: d => proDialog(d.f), proRestore: () => proRestore(), backup: () => backup(),
     gdSignIn: () => { if (!GD.supported()) return; toast('Opening Google sign-in…'); Bridge.googleSignIn(); },
     gdBackup: () => GD.backup(true),
@@ -3612,7 +3614,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       { const st = W.settings(); if (!(st.account && st.account.email) && st.gdrive && st.gdrive.on && st.gdrive.email) W.saveSettings({ account: { email: st.gdrive.email } }); } // signed in on 1.2.1
       if (W.settings().monthColors === 'random' && !['seasonal', 'random'].includes(W.settings().theme)) W.saveSettings({ theme: 'random', monthColors: null });
       applyTheme(); shell(); bindGlobal(); billDrag(); render(); scheduleReminders(); addressAutocomplete(); piAutosave();
-      onboarding().then(() => { if (!DEMO.on && window.WTSetupUI) WTSetupUI.maybeStart(); }).catch(err => { console.error(err); toast(err.message || String(err), { error: true }); });
+      onboarding().then(() => { if (!DEMO.on && window.WTSetupUI && WTSetupUI.maybeStart()) return; /* the tour follows the wizard when it closes */ if (window.WTTour) setTimeout(() => WTTour.maybeStart(), 400); }).catch(err => { console.error(err); toast(err.message || String(err), { error: true }); });
       // lock again after 2 minutes away (reload drops the decrypted data from memory)
       let hiddenAt = 0;
       document.addEventListener('click', e => { if (e.target.closest('input[type=file], label')) { const l = e.target.closest('label'); if (!l || l.querySelector('input[type=file]')) AUTH.external = Date.now(); } }, true);

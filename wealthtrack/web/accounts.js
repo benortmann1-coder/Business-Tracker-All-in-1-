@@ -14,7 +14,7 @@
   const MAIN = 'main';
   const ID_RE = /^[a-z0-9]{1,24}$/;
   // per-account switches kept in localStorage (everything else is in the account's own database)
-  const PER_ACCOUNT = ['wt.demoDone', 'wt.restoreAfterReset', 'wt.gd', 'wt.rem', 'wt.previewFree'];
+  const PER_ACCOUNT = ['wt.demoDone', 'wt.restoreAfterReset', 'wt.gd', 'wt.rem', 'wt.previewFree', 'wt.tourDone'];
 
   const ls = {
     get(k) { try { return root.localStorage.getItem(k); } catch (e) { return null; } },
