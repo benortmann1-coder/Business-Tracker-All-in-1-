@@ -42,7 +42,7 @@ const fakeBridge = () => {
   const mk = async (opts, android, sample) => {
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 860 } }, opts || {}));
     if (android) await ctx.addInitScript(fakeBridge);
-    await ctx.addInitScript(() => { try { localStorage.setItem('wt.demoDone', '1'); } catch (e) { } }); // sign-in tests: no demo (tests/demo.js covers it)
+    await ctx.addInitScript(() => { try { localStorage.setItem('wt.demoDone', '1'); localStorage.setItem('wt.setupWizard', '0'); } catch (e) { } }); // sign-in tests: no demo or setup wizard (their own tests cover them)
     if (sample) {
       await ctx.addInitScript({ path: SAMPLE });
       await ctx.addInitScript(() => { try { if (JSON.parse(window.name || '{}').noSample) delete window.WTSampleSeed; } catch (e) { } }); // set by noSample() below

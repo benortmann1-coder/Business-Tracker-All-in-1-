@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const W = window.WT, S = window.WTStore;
+  const ACC = window.WTAccounts; // several accounts on one device; see accounts.js
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -20,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.6.0'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.6.1'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -2458,6 +2459,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
           <div class="pi-pair"><label class="field"><span>State</span><input class="input" name="state" maxlength="40" autocomplete="address-level1" value="${esc(profile().state)}"></label><label class="field"><span>ZIP code</span><input class="input" name="zip" maxlength="12" inputmode="numeric" autocomplete="postal-code" value="${esc(profile().zip)}"></label></div>
           <div class="tiny warn span2" data-pi-hint="zip" hidden>Check the ZIP code. It saves once it looks right.</div>
         </div><div class="tiny muted pi-status" id="piStatus" role="status" aria-live="polite">Changes save automatically.</div></div>` +
+        acctRows(srow) +
         (GD.supported() ? (GD.supported() ? srow('Google account', s.account && s.account.email ? 'Signed in as <b>' + esc(s.account.email) + '</b>' : s.guest ? '<span class="warn"><b>Guest: your data is not backed up.</b></span> It only exists on this phone. Sign in to back it up to Google Drive.' : '<span class="warn">Not signed in.</span> Sign in to back up to Google Drive.', s.account && s.account.email ? `<button class="btn sm" data-act="signOut">Sign out</button>` : `<button class="btn sm primary" data-act="gdSignIn">Sign in with Google</button>`) : '') : srow('Google account', 'Sign in with Google is in the Android app.', '<span class="faint small">Android app only</span>')) +
         srow('Currency', 'Changes the symbol shown on amounts. It doesn\'t convert anything.', `<select class="input" style="width:auto;max-width:100%" data-act-change="currency" aria-label="Currency">${CURRENCY_ORDER.map(k => opt(k, CURRENCIES[k][0].trim() + ' ' + CURRENCIES[k][1] + ' (' + k + ')', CURRENCIES[cur] ? cur : 'USD')).join('')}</select>`) +
         srow('Date format', 'Used for every date in the app.', `<select class="input" style="width:auto;max-width:100%" data-act-change="dateFormat" aria-label="Date format">${W.DATE_FORMATS.map(k => opt(k, W.formatDate(today(), k) + (/_num|_dot|ymd/.test(k) ? ' (' + DATE_FORMAT_NAMES[k] + ')' : ''), W.normDateFormat(s.dateFormat))).join('')}</select>`)),
@@ -2588,7 +2590,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         if (f.pre) saveFile('WealthTrack-before-restore-' + today() + '.json', 'application/json', backupJson());
         const before = backupJson();
         try {
-          DEMO.on = false; DEMO.real = null; if (DEMO.restoreSave) DEMO.restoreSave(); await S.replaceAll(data); W.init(data, S); W.runMaintenance(); applyTheme(); toast('Backup restored'); try { localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ } refresh();
+          DEMO.on = false; DEMO.real = null; if (DEMO.restoreSave) DEMO.restoreSave(); await S.replaceAll(data); W.init(data, S); W.runMaintenance(); applyTheme(); toast('Backup restored'); try { localStorage.removeItem(ACC.key('wt.restoreAfterReset')); } catch (e) { /* ignore */ } refresh();
         } catch (err) {
           console.error(err);
           // put the previous data back so a bad file can never leave the app empty or broken
@@ -2661,21 +2663,23 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       submit: pending ? 'Purchase pending…' : 'Upgrade' + (price ? ' for ' + esc(price) : ''),
       body: `${x ? `<p class="muted" style="margin-top:0"><b>${esc(x[1])}</b> is part of Pro.</p>` : ''}<p class="small muted" style="margin-top:0">One purchase, yours for good. No subscription, no ads, and your data still never leaves your phone.</p>${proList()}
         ${pending ? '<div class="callout">Google Play is still processing your payment. Pro turns on by itself once it goes through.</div>' : ''}
-        ${!PRO.canBuy() ? '<p class="tiny warn">Can\'t reach Google Play right now. Check your connection, then tap Upgrade to try again.</p>' : ''}`,
+        ${PRO.status() === 'preview' ? '<p class="tiny warn">Preview only: this copy isn\'t from Google Play, so it can\'t take payments. Turn off "Preview as a free user" in Settings → WealthTrack Pro to unlock everything again.</p>' : !PRO.canBuy() ? '<p class="tiny warn">Can\'t reach Google Play right now. Check your connection, then tap Upgrade to try again.</p>' : ''}`,
       footer: `<button type="button" class="btn ghost" data-act="proRestore">Restore purchase</button><button type="button" class="btn" data-close>Not now</button><button class="btn primary" type="submit" ${pending ? 'disabled' : ''}>${pending ? 'Purchase pending…' : 'Upgrade' + (price ? ' · ' + esc(price) : '')}</button>`,
-      onSubmit: () => { AUTH.external = Date.now(); PRO.buy(); return false; }, // stays open: the 'wtpro' event closes it
+      onSubmit: () => { if (PRO.status() === 'preview') { toast('Purchases work in the Google Play version. This is a preview.'); return; } AUTH.external = Date.now(); PRO.buy(); return false; }, // stays open: the 'wtpro' event closes it
     });
   }
   function proRestore() { toast('Checking Google Play for your purchase…'); PRO.restore(); }
   function proSettings(group, srow) {
     const st = PRO.status(); const price = PRO.price();
     const head = st === 'unlocked' ? 'Every feature is unlocked in this version of WealthTrack.'
+      : st === 'preview' ? '<span class="warn">Previewing as a free user.</span> Pro features show as locked, the way a new Google Play user sees them.'
       : st === 'owned' ? '<span class="pos">Pro is on.</span> Thanks for supporting WealthTrack.'
       : st === 'pending' ? '<span class="warn">Purchase pending.</span> Pro turns on once Google Play finishes.'
       : 'One purchase' + (price ? ' (' + esc(price) + ')' : '') + ', yours for good. No subscription.';
     return group('pro', 'WealthTrack Pro', 'Pro adds the planning, reporting and backup tools. Your bills, paychecks, expenses, debts, goals and file backups stay free.',
-      srow('Status', head, st === 'none' ? proBtn('', 'Upgrade') : st === 'pending' ? '' : `<span class="pill paid">${ic('check')}${st === 'owned' ? 'Pro' : 'Unlocked'}</span>`) +
+      srow('Status', head, st === 'none' || st === 'preview' ? proBtn('', 'Upgrade') : st === 'pending' ? '' : `<span class="pill paid">${ic('check')}${st === 'owned' ? 'Pro' : 'Unlocked'}</span>`) +
       `<div class="set-row col">${proList()}</div>` +
+      (!PRO.enforced() ? srow('Preview as a free user', 'For testing. Locks the Pro features in this account so you can see what a free Google Play user gets. Nothing is deleted, and you can turn it off any time.', `<span class="switch"><input type="checkbox" data-act-change="proPreview" aria-label="Preview as a free user" ${st === 'preview' ? 'checked' : ''}><span></span></span>`) : '') +
       (PRO.enforced() ? srow('Restore purchase', 'Bought Pro before, or on another phone with the same Google account?', `<button class="btn sm" data-act="proRestore">Restore purchase</button>`) : ''));
   }
   // ProBilling.java fires window event "wtpro" with detail {op: 'purchase'|'restore'|'status', ok, owned, pending, error}
@@ -2695,8 +2699,8 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   const GD = {
     supported: () => !!(Bridge && Bridge.googleDriveSupported && Bridge.googleDriveSupported()),
     on: () => !!(W.settings().gdrive && W.settings().gdrive.on),
-    state() { try { return JSON.parse(localStorage.getItem('wt.gd') || '{}'); } catch (e) { return {}; } },
-    setState(p) { try { localStorage.setItem('wt.gd', JSON.stringify(Object.assign(GD.state(), p))); } catch (e) { /* storage blocked */ } },
+    state() { try { return JSON.parse(localStorage.getItem(ACC.key('wt.gd')) || '{}'); } catch (e) { return {}; } },
+    setState(p) { try { localStorage.setItem(ACC.key('wt.gd'), JSON.stringify(Object.assign(GD.state(), p))); } catch (e) { /* storage blocked */ } },
     dirty: false, timer: null, busy: false, manual: false, retries: 0,
     schedule(ms) { if (!GD.on() || !GD.supported()) return; clearTimeout(GD.timer); GD.timer = setTimeout(() => GD.backup(false), ms == null ? 60000 : ms); },
     // the phone couldn't reach Google (no internet / DNS, Private DNS, VPN or ad-blocker): a wait, not a failure.
@@ -2740,7 +2744,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         GD.manual = false;
       } else if (d.op === 'restore') {
         if (d.ok) { const text = Bridge.googleRestoreData && Bridge.googleRestoreData(); if (text) restoreFile({ text: async () => text }); else toast('The backup came back empty', { error: true }); }
-        else if (AUTH.resetMode() && /No WealthTrack backup/.test(d.error || '')) { try { localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ } toast('No backup in your Google Drive yet. WealthTrack will back up from now on.'); GD.backup(false); refresh(); }
+        else if (AUTH.resetMode() && /No WealthTrack backup/.test(d.error || '')) { try { localStorage.removeItem(ACC.key('wt.restoreAfterReset')); } catch (e) { /* ignore */ } toast('No backup in your Google Drive yet. WealthTrack will back up from now on.'); GD.backup(false); refresh(); }
         else if (d.error !== 'cancelled') toast(d.error, { error: true });
       }
       if (ui.route === 'settings') refresh();
@@ -2815,12 +2819,12 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         return;
       }
       // browser: show reminders that are due now (once per reminder per device)
-      let shown = {}; try { shown = JSON.parse(localStorage.getItem('wt.rem') || '{}'); } catch (e) { /* ignore */ }
+      let shown = {}; try { shown = JSON.parse(localStorage.getItem(ACC.key('wt.rem')) || '{}'); } catch (e) { /* ignore */ }
       const now = new Date();
       const due = list.filter(r => r.date === today() && now.getHours() * 60 + now.getMinutes() >= r.hour * 60 + (r.minute || 0) && !shown[r.id]);
       due.forEach(r => { shown[r.id] = 1; if ('Notification' in window && Notification.permission === 'granted') { try { new Notification(r.title, { body: r.body }); } catch (e) { /* ignore */ } } });
       if (due.length && !('Notification' in window && Notification.permission === 'granted')) toast(due.length === 1 ? due[0].title + ' · ' + due[0].body : due.length + ' bill reminders: ' + due.map(r => r.title.replace(/ is due today| is overdue| due in .*/, '')).join(', '));
-      try { localStorage.setItem('wt.rem', JSON.stringify(shown)); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(ACC.key('wt.rem'), JSON.stringify(shown)); } catch (e) { /* ignore */ }
     }, 400);
   }
 
@@ -2954,7 +2958,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     },
     removePhoto: () => { const p = Object.assign({}, W.settings().profile); delete p.photo; W.saveSettings({ profile: p }); refresh(); },
     dateFormat: d => { W.saveSettings({ dateFormat: W.normDateFormat(d.v) }); applyDisplay(); refresh(); },
-    gdFresh: async () => { if (await confirmBox('Start fresh?', 'Backups resume, and the next one replaces the old backup in your Google Drive with what\'s on this phone now.', 'Start fresh', true)) { try { localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ } GD.backup(true); refresh(); } },
+    gdFresh: async () => { if (await confirmBox('Start fresh?', 'Backups resume, and the next one replaces the old backup in your Google Drive with what\'s on this phone now.', 'Start fresh', true)) { try { localStorage.removeItem(ACC.key('wt.restoreAfterReset')); } catch (e) { /* ignore */ } GD.backup(true); refresh(); } },
     integrity: () => dataCheck(),
     startOver: () => {
       modal({ title: 'Erase everything?', submit: 'Erase and start blank', body: `<div class="callout red">${ic('alert')}<div>This deletes <b>all</b> WealthTrack data on this device, including payment history. A backup will be downloaded first.</div></div><label class="field" style="margin-top:12px"><span>Type ERASE to confirm</span><input class="input" name="c" autocomplete="off"></label>`,
@@ -3016,6 +3020,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     },
     currency: el => { if (!CURRENCIES[el.value]) return; W.saveSettings({ currency: el.value }); applyDisplay(); toast('Currency set to ' + el.value); refresh(); },
     dateFormat: el => { W.saveSettings({ dateFormat: W.normDateFormat(el.value) }); applyDisplay(); toast('Dates now look like ' + W.shortDate(today())); refresh(); },
+    proPreview: el => { PRO.setPreviewFree(el.checked); toast(el.checked ? 'Previewing as a free user. Pro features are locked in this account.' : 'Preview off. Every feature is unlocked again.'); refresh(); },
     remTime: el => { const r = W.settings().reminders; const [h, m] = el.value.split(':').map(Number); r.hour = h; r.minute = W.remindersPro() ? m : 0; W.saveSettings({ reminders: r }); scheduleReminders(); },
     remOverdue: el => { const r = W.settings().reminders; r.overdueDaily = el.checked && W.remindersPro(); W.saveSettings({ reminders: r }); scheduleReminders(); },
     dueSoon: el => { W.saveSettings({ dueSoonDays: Math.max(1, Math.min(30, +el.value || 7)) }); },
@@ -3125,7 +3130,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   // back to the real (blank or restored) records; the demo is gone for good on this device
   function leaveDemo() {
     if (!DEMO.on) return;
-    try { localStorage.setItem('wt.demoDone', '1'); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem(ACC.key('wt.demoDone'), '1'); } catch (e) { /* storage blocked */ }
     const real = DEMO.real; DEMO.on = false; DEMO.real = null; if (DEMO.restoreSave) DEMO.restoreSave();
     real.meta.settings.demoDone = true; S.put('meta', real.meta.settings); // remembered with your data, not just this browser
     W.init(real, S); S.flush(); W.runMaintenance(); applyTheme(); scheduleReminders();
@@ -3212,6 +3217,77 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
 
 
   // ------------------------------------------------------------ sign-in, PIN and fingerprint pages
+  // ------------------------------------------------------------ WealthTrack accounts (accounts.js)
+  // Each account is a separate set of data on this device: its own database, PIN, settings, reminders,
+  // widgets and Google Drive backup file. Switching saves, then reloads into the other account.
+  const acctErr = fn => { try { return fn(); } catch (e) { throw new UserError(e.message || String(e)); } };
+  const acctInitial = n => esc((String(n || '?').trim()[0] || '?').toUpperCase());
+  async function acctReload(id) {
+    try { await S.flush(); } catch (e) { /* the other account still opens */ }
+    if (id) ACC.switchTo(id);
+    location.reload();
+  }
+  function acctRows(srow) {
+    const all = ACC.list(), me = ACC.get(ACC.active()) || all[0];
+    return srow('WealthTrack account', `Signed in as <b>${esc(me.name)}</b>.` + (all.length > 1 ? ` ${all.length} accounts on this device.` : '') + ' Each account has its own data, PIN, reminders and backups.',
+      `<div class="row wrap" style="gap:6px;justify-content:flex-end"><button class="btn sm" data-act="acctManage">${all.length > 1 ? 'Switch or manage' : 'Add account'}</button><button class="btn sm" data-act="acctSignOut">Sign out</button></div>`);
+  }
+  function acctManage() {
+    const all = ACC.list(), cur = ACC.active();
+    const row = a => `<div class="set-row"><div class="set-k" style="display:flex;gap:10px;align-items:center"><span class="avatar" style="width:36px;height:36px;font-size:15px" aria-hidden="true">${acctInitial(a.name)}</span><div><div>${esc(a.name)}${a.id === cur ? ' <span class="pill paid">Open</span>' : ''}</div><div class="tiny muted">${a.id === ACC.MAIN ? 'First account' : a.created ? 'Added ' + esc(a.created) : ''}</div></div></div>
+      <div class="set-v row wrap" style="gap:6px;justify-content:flex-end">${a.id !== cur ? `<button type="button" class="btn sm primary" data-act="acctSwitch" data-id="${esc(a.id)}">Switch</button>` : ''}<button type="button" class="btn sm" data-act="acctRename" data-id="${esc(a.id)}">Rename</button>${a.id !== ACC.MAIN && a.id !== cur ? `<button type="button" class="btn sm danger" data-act="acctDelete" data-id="${esc(a.id)}">Delete</button>` : ''}</div></div>`;
+    acctManage.open = modal({
+      title: 'Accounts on this device',
+      body: `<p class="small muted" style="margin-top:0">Accounts don't share anything. A new account starts blank, like a brand-new install, which is handy for trying WealthTrack as a new user.</p>${all.map(row).join('')}
+        <p class="tiny muted">Reminders and home-screen widgets follow the account that's open.</p>`,
+      footer: `<button type="button" class="btn" data-close>Close</button>${all.length < 10 ? `<button type="button" class="btn primary" data-act="acctAdd">${ic('plus')}Add account</button>` : ''}`,
+    });
+  }
+  const closeAcctManage = () => { if (acctManage.open) { acctManage.open.close(); acctManage.open = null; } };
+  function acctNameModal(o) {
+    modal({
+      title: o.title, submit: o.submit,
+      body: `<label class="field"><span>Account name</span><input class="input" name="name" maxlength="30" autocomplete="off" value="${esc(o.value || '')}" placeholder="e.g. Test user" autofocus></label>${o.note ? `<p class="tiny muted">${o.note}</p>` : ''}`,
+      onSubmit: f => o.done(acctErr(() => ACC.cleanName(f.name) ? f.name : (() => { throw new Error('Give the account a name'); })())),
+    });
+  }
+  const ACCT_ACTIONS = {
+    acctManage: () => acctManage(),
+    acctAdd: () => { closeAcctManage(); acctNameModal({ title: 'Add an account', submit: 'Create and open', note: 'It opens blank, so you\'ll see the welcome, setup and sign-in steps a new user sees. Your current account isn\'t changed.', done: name => { const id = acctErr(() => ACC.create(name)); acctReload(id); return false; } }); },
+    acctSwitch: d => { closeAcctManage(); acctReload(d.id); },
+    acctRename: d => { closeAcctManage(); const a = ACC.get(d.id); if (!a) return; acctNameModal({ title: 'Rename account', submit: 'Save', value: a.name, done: name => { acctErr(() => ACC.rename(d.id, name)); toast('Account renamed'); refresh(); } }); },
+    acctDelete: async d => {
+      const a = ACC.get(d.id); if (!a) return; closeAcctManage();
+      modal({
+        title: 'Delete ' + esc(a.name) + '?', submit: 'Delete account',
+        body: `<div class="callout red">${ic('alert')}<div>This permanently deletes every bill, payment and setting in <b>${esc(a.name)}</b> on this device. Its Google Drive backup, if it has one, stays in Drive.</div></div><label class="field" style="margin-top:12px"><span>Type DELETE to confirm</span><input class="input" name="c" autocomplete="off"></label>`,
+        onSubmit: async f => { if (String(f.c || '').trim().toUpperCase() !== 'DELETE') throw new UserError('Type DELETE to confirm'); await acctErr(() => ACC.remove(d.id)); toast(a.name + ' deleted'); refresh(); },
+      });
+    },
+    acctSignOut: async () => {
+      if (!(await confirmBox('Sign out of WealthTrack?', 'Your data stays saved in this account on this device. Next time WealthTrack opens, you choose an account or create a new one.', 'Sign out'))) return;
+      try { await S.flush(); } catch (e) { /* still sign out */ }
+      ACC.signOut(); location.reload();
+    },
+  };
+  Object.assign(A, ACCT_ACTIONS);
+  // Shown at start-up after signing out: choose an account or make a new one (nothing is open yet).
+  function accountPicker() {
+    return new Promise(res => {
+      const page = authPage();
+      const draw = err => {
+        const all = ACC.list();
+        page.set(`<h1>Choose an account</h1><p class="auth-sub">Each account keeps its own data, PIN and backups on this device.</p>
+          <div class="acct-list" style="display:grid;gap:8px;margin:14px 0">${all.map(a => `<button type="button" class="btn acct-pick" style="justify-content:flex-start;gap:12px;min-height:52px;width:100%" data-auth="pick" data-id="${esc(a.id)}"><span class="avatar" style="width:34px;height:34px;font-size:15px" aria-hidden="true">${acctInitial(a.name)}</span><span>${esc(a.name)}</span></button>`).join('')}</div>
+          ${all.length < 10 ? `<form class="acct-new" novalidate style="display:grid;gap:8px"><label class="field"><span>New account</span><input class="input" name="name" maxlength="30" autocomplete="off" placeholder="e.g. Test user"></label><p class="auth-err" role="alert">${err ? esc(err) : ''}</p><button class="btn primary auth-cta" type="submit">Create account</button></form>` : ''}`);
+        const form = page.body.querySelector('.acct-new');
+        if (form) form.addEventListener('submit', e => { e.preventDefault(); try { const id = ACC.create(new FormData(form).get('name')); ACC.switchTo(id); page.close(); res(); } catch (x) { draw(x.message); } });
+      };
+      page.on('pick', b => { try { ACC.switchTo(b.dataset.id); } catch (e) { return draw(e.message); } page.close(); res(); });
+      draw();
+    });
+  }
+
   // Android: Sign in with Google once (turns on Drive backup), create a PIN (encrypts the data on the
   // phone), optionally turn on fingerprint. Every launch, and after 2 minutes away, the unlock page asks
   // for the PIN or a fingerprint. Browser: the same pages with a PIN only.
@@ -3220,8 +3296,9 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     // Test hook only: skips first-run setup while no PIN exists yet. It can't open encrypted data.
     skip: () => { try { return localStorage.getItem('wt.skipOnboarding') === '1'; } catch (e) { return false; } },
     android: () => GD.supported(),
-    bio: () => { try { return Bridge && Bridge.biometricStatus ? Bridge.biometricStatus() : 'none'; } catch (e) { return 'none'; } },
-    resetMode: () => { try { return localStorage.getItem('wt.restoreAfterReset') === '1'; } catch (e) { return false; } },
+    // the phone keeps one fingerprint-protected PIN, so fingerprint unlock belongs to the first account only
+    bio: () => { if (!ACC.isMain()) return 'none'; try { return Bridge && Bridge.biometricStatus ? Bridge.biometricStatus() : 'none'; } catch (e) { return 'none'; } },
+    resetMode: () => { try { return localStorage.getItem(ACC.key('wt.restoreAfterReset')) === '1'; } catch (e) { return false; } },
     external: 0, // set while Google sign-in, the camera or a file picker is open (don't auto-lock on return)
   };
   const GOOGLE_G = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.1C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 2.9-2.2 5.3-4.7 7l7.3 5.7c4.3-4 7.2-9.9 7.2-17.2z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.3-5.7c-2 1.4-4.7 2.3-8.6 2.3-6.3 0-11.6-4.2-13.5-10l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
@@ -3291,9 +3368,10 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         else if (d.error && d.error !== 'cancelled') pad.error(d.error);
       };
       window.addEventListener('biometric', onBio);
+      page.on('switchAcct', () => { ACC.signOut(); location.reload(); }); // nothing is decrypted yet, so just start over at the picker
       const pad = pinEntry(page, {
         title: esc(greeting() + (unlockFlow.greetFirst ? ', ' + unlockFlow.greetFirst : '')), sub: bioOn ? 'Use your fingerprint or enter your PIN' : 'Enter your PIN to open WealthTrack', cta: 'Unlock', minLen: 4, bio: bioOn, onBio: tryBio,
-        links: '<button type="button" class="link" data-auth="forgot">Forgot PIN?</button>',
+        links: '<button type="button" class="link" data-auth="forgot">Forgot PIN?</button>' + (ACC.list().length > 1 ? '<button type="button" class="link" data-auth="switchAcct">Switch account</button>' : ''),
         onSubmit: async p => {
           if (await S.unlock(p)) { done(); return true; }
           tries++;
@@ -3313,7 +3391,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       <div class="auth-links"><button type="button" class="link" data-auth="back">I remember it</button></div>`);
     const go = async restore => {
       if (!confirm('Erase all WealthTrack data on this device? This can\'t be undone.')) return;
-      try { if (restore) localStorage.setItem('wt.restoreAfterReset', '1'); else localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ }
+      try { if (restore) localStorage.setItem(ACC.key('wt.restoreAfterReset'), '1'); else localStorage.removeItem(ACC.key('wt.restoreAfterReset')); } catch (e) { /* ignore */ }
       if (Bridge && Bridge.biometricDisable) { try { Bridge.biometricDisable(); } catch (e) { /* ignore */ } }
       if (window.WTWidget) WTWidget.clear(); await S.eraseAll(); location.reload();
     };
@@ -3486,6 +3564,8 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   // ------------------------------------------------------------ boot
   async function boot() {
     try {
+      if (ACC.signedOut()) await accountPicker();
+      if (Bridge && Bridge.googleSetBackupName) { try { Bridge.googleSetBackupName(ACC.driveFile()); } catch (e) { /* main file stays */ } }
       await S.open(W.COLLS);
       try { applyThemeValue(localStorage.getItem('wt.theme') || 'system', localStorage.getItem('wt.palette') || 'default'); } catch (e) { /* storage blocked */ }
       if (await S.lockInfo()) { unlockFlow.greetFirst = await S.greetName(); await unlockFlow(); }
@@ -3500,13 +3580,13 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         if (window.WTSampleSeed && typeof window.WTSampleSeed.seed === 'function') window.WTSampleSeed.seed(W); else WTSeed.seed(W, { blank: true });
         await S.flush();
         // fresh install on a phone: check Google Drive for a backup before anything is backed up over it
-        if (AUTH.android()) { try { localStorage.setItem('wt.restoreAfterReset', '1'); } catch (e) { /* ignore */ } }
+        if (AUTH.android()) { try { localStorage.setItem(ACC.key('wt.restoreAfterReset'), '1'); } catch (e) { /* ignore */ } }
       }
       // older installs: add built-in categories that came later (Mortgage, Property tax...). Never touches the user's own.
       try { if (WTSeed.ensureBuiltins && WTSeed.ensureBuiltins(W).length) await S.flush(); } catch (e) { console.error(e); }
       // New user with nothing entered yet: show the demo (memory only). Real records are never touched.
       const realBlank = () => !Object.keys(W.D.templates).length && !Object.keys(W.D.incomes).length && !Object.keys(W.D.debts).length && !Object.keys(W.D.expenses).length && !Object.keys(W.D.payments).length;
-      let demoDone = !!W.settings().demoDone; try { demoDone = demoDone || localStorage.getItem('wt.demoDone') === '1'; } catch (e) { /* storage blocked */ }
+      let demoDone = !!W.settings().demoDone; try { demoDone = demoDone || localStorage.getItem(ACC.key('wt.demoDone')) === '1'; } catch (e) { /* storage blocked */ }
       if (!demoDone && !S.key && window.WTDemo && realBlank()) {
         DEMO.real = W.D; DEMO.on = true;
         W.init(null, { put() { }, del() { } }); // in-memory only: nothing the demo does is saved or backed up

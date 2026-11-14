@@ -41,6 +41,10 @@ final class GoogleDriveBackup {
     static final int REQ_AUTH = 3001;
     private static final String SCOPE = "https://www.googleapis.com/auth/drive.file";
     private static final String FILE_NAME = "WealthTrack-backup.json";
+    // Each WealthTrack account on the phone backs up to its own file, so a second account
+    // can never overwrite the first one's backup. Only these exact shapes are accepted.
+    private static final java.util.regex.Pattern FILE_RE = java.util.regex.Pattern.compile("^WealthTrack-backup(-[a-z0-9]{1,24})?\\.json$");
+    private volatile String fileName = FILE_NAME;
     private static final String API = "https://www.googleapis.com/drive/v3/";
     private static final String UPLOAD = "https://www.googleapis.com/upload/drive/v3/";
 
@@ -86,7 +90,7 @@ final class GoogleDriveBackup {
                             request("PATCH", UPLOAD + "files/" + id + "?uploadType=media&fields=id", token, "application/json", body);
                         } else {
                             String boundary = "wealthtrack" + System.nanoTime();
-                            String meta = new JSONObject().put("name", FILE_NAME).put("mimeType", "application/json").toString();
+                            String meta = new JSONObject().put("name", fileName).put("mimeType", "application/json").toString();
                             ByteArrayOutputStream out = new ByteArrayOutputStream();
                             out.write(("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + meta + "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                             out.write(body);
@@ -115,6 +119,13 @@ final class GoogleDriveBackup {
             }
             public void fail(String error) { emitError("restore", error); }
         });
+    }
+
+    /** Which Drive file this account uses; anything that isn't a WealthTrack backup name is refused. */
+    boolean setFileName(String name) {
+        if (name == null || !FILE_RE.matcher(name).matches()) return false;
+        fileName = name;
+        return true;
     }
 
     String takeRestoreData() { String d = restoreData; restoreData = null; return d; }
@@ -161,7 +172,7 @@ final class GoogleDriveBackup {
     // ---------------------------------------------------------------- Drive REST helpers
 
     private String findBackupId(String token) throws Exception {
-        String q = URLEncoder.encode("name = '" + FILE_NAME + "' and trashed = false", "UTF-8");
+        String q = URLEncoder.encode("name = '" + fileName + "' and trashed = false", "UTF-8");
         JSONObject res = new JSONObject(request("GET", API + "files?spaces=drive&orderBy=modifiedTime%20desc&fields=files(id)&q=" + q, token, null, null));
         JSONArray files = res.optJSONArray("files");
         return files != null && files.length() > 0 ? files.getJSONObject(0).getString("id") : null;

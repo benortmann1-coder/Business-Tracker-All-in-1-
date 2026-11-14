@@ -32,6 +32,12 @@
   }
 
   /** bridge: window.AndroidBridge (or a stand-in in tests), or null in a browser. */
+  // the preview switch lives in localStorage, per account (accounts.js), never in the data or backups
+  const prefs = {
+    k: () => (root.WTAccounts ? root.WTAccounts.key('wt.previewFree') : 'wt.previewFree'),
+    get() { try { return root.localStorage ? root.localStorage.getItem(prefs.k()) : null; } catch (e) { return null; } },
+    set(v) { try { if (!root.localStorage) return; if (v == null) root.localStorage.removeItem(prefs.k()); else root.localStorage.setItem(prefs.k(), v); } catch (e) { /* storage blocked */ } },
+  };
   function create(bridge) {
     const api = {
       PRODUCT_ID, FEATURES, ROUTES, FREE_ALWAYS,
@@ -39,15 +45,18 @@
       enforced: () => call(bridge, 'proEnforced') === true,
       /** True when Google Play says this account bought Pro. */
       owned: () => call(bridge, 'proOwned') === true,
+      /** Testing only, outside the Play build: show this account what a free user sees. */
+      previewFree: () => !api.enforced() && prefs.get() === '1',
+      setPreviewFree: on => prefs.set(on ? '1' : null),
       /** The single answer every gate uses. */
-      isPro: () => !api.enforced() || api.owned(),
+      isPro: () => api.enforced() ? api.owned() : !api.previewFree(),
       /** Can this install buy Pro right now? (Play build, billing connected) */
       canBuy: () => api.enforced() && call(bridge, 'proAvailable') === true,
       /** Play's localized price, e.g. "$4.99", or '' until it's loaded. */
       price: () => { const p = call(bridge, 'proPrice'); return typeof p === 'string' && p.length <= 32 ? p : ''; },
-      /** 'owned' | 'pending' | 'none' | 'unlocked' (not enforced) */
+      /** 'owned' | 'pending' | 'none' | 'unlocked' (not enforced) | 'preview' (not enforced, previewing free) */
       status: () => {
-        if (!api.enforced()) return 'unlocked';
+        if (!api.enforced()) return api.previewFree() ? 'preview' : 'unlocked';
         if (api.owned()) return 'owned';
         return call(bridge, 'proPending') === true ? 'pending' : 'none';
       },

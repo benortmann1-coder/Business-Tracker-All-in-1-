@@ -247,6 +247,12 @@ public class WebAppBridge {
     }
 
     @JavascriptInterface
+    public boolean googleSetBackupName(String name) {
+        if (!activity.isTrustedPage() || activity.drive == null) return false;
+        return activity.drive.setFileName(name);
+    }
+
+    @JavascriptInterface
     public void googleBackup(String json) {
         if (!activity.isTrustedPage() || activity.drive == null) return;
         activity.drive.backup(json);

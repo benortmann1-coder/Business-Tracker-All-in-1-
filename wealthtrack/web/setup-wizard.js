@@ -181,7 +181,8 @@
   const fld = (label, inner, cls) => `<label class="field${cls ? ' ' + cls : ''}"><span>${label}</span>${inner}</label>`;
   const moneyIn = (name, val, extra) => `<input class="input money-in" name="${name}" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(val == null ? '' : val)}" ${extra || ''}>`;
   const ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
-  const testSkip = () => { try { return localStorage.getItem('wt.skipOnboarding') === '1' && localStorage.getItem('wt.setupWizard') !== '1'; } catch (e) { return false; } };
+  // test hooks: skipOnboarding turns the wizard off unless wt.setupWizard=1; wt.setupWizard=0 turns it off on its own (sign-in tests)
+  const testSkip = () => { try { const f = localStorage.getItem('wt.setupWizard'); return f === '0' || (localStorage.getItem('wt.skipOnboarding') === '1' && f !== '1'); } catch (e) { return false; } };
 
   const CSS = `
 .wz-top { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }

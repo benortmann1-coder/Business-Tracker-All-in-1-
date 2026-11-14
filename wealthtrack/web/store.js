@@ -9,7 +9,9 @@
  */
 (function (root) {
   'use strict';
-  const DB_NAME = 'wealthtrack', VERSION = 1;
+  const VERSION = 1;
+  // which account's database to open (accounts.js); the first account keeps the original name
+  const dbName = () => (root.WTAccounts ? root.WTAccounts.dbName() : 'wealthtrack');
   const ITER_NEW = 600000, ITER_LEGACY = 250000;
   const BAD_IDS = new Set(['__proto__', 'constructor', 'prototype']);
   const safeId = id => typeof id === 'string' && id.length > 0 && id.length <= 200 && !BAD_IDS.has(id);
@@ -25,7 +27,7 @@
     open(colls) {
       return new Promise((resolve, reject) => {
         if (!root.indexedDB) return reject(new Error('This browser has no IndexedDB storage.'));
-        const req = indexedDB.open(DB_NAME, VERSION);
+        const req = indexedDB.open(dbName(), VERSION);
         req.onupgradeneeded = () => {
           const db = req.result;
           colls.concat(['sys']).forEach(c => { if (!db.objectStoreNames.contains(c)) db.createObjectStore(c, { keyPath: 'id' }); });
@@ -39,7 +41,7 @@
           };
           try {
             if (root.BroadcastChannel) {
-              Store.channel = new BroadcastChannel('wealthtrack');
+              Store.channel = new BroadcastChannel(dbName());
               Store.channel.onmessage = ev => { if (ev.data === 'changed' && Store.onRemoteChange) Store.onRemoteChange(); };
             }
           } catch (e) { Store.channel = null; }
