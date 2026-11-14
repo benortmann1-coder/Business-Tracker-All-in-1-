@@ -241,9 +241,12 @@
     const n = netWorth(today());
     const verified = !n.estimate && (n.totalAssets !== 0 || n.totalLiabilities !== 0);
     const why = n.estimate ? ' Enter your account balances so this can be verified.' : (!verified ? ' Enter your account balances or debts to start tracking.' : '');
+    // "Net worth reached $0" means climbing out of the red, so it needs a recorded debt;
+    // otherwise any new install with a balance would earn it straight away.
+    const hadDebt = WT.debts().length > 0;
     let prev = null;
     for (const [cents, id, label] of NW) {
-      const ok = verified && n.netWorth >= cents;
+      const ok = verified && n.netWorth >= cents && (cents !== 0 || hadDebt);
       let progress;
       if (ok) progress = 1;
       else if (cents === 0) progress = n.totalLiabilities > 0 ? clamp01(n.totalAssets / n.totalLiabilities) : 0;
