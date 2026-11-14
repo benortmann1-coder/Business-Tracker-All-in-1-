@@ -3,7 +3,8 @@
  * (amounts already formatted) and hands it to AndroidBridge.updateWidgets(json). The Java side keeps it in
  * private SharedPreferences (excluded from cloud backup and device transfer by data_extraction_rules.xml).
  *
- * States: 'ok' (amounts), 'pin' (PIN lock is on: no amounts ever leave the page), 'pro' (not WealthTrack Pro),
+ * States: 'ok' (amounts; with locked:true while the PIN is on: bill names and due dates only, no amounts or
+ * balances ever leave the page), 'pro' (not WealthTrack Pro),
  * 'empty' (demo or nothing entered yet). snapshot() is pure over the WT data model and runs under Node for tests.
  */
 (function (root) {
@@ -20,7 +21,6 @@
     opts = opts || {};
     const today = opts.today || WT.todayStr();
     const base = { v: 1, asOf: today, asOfText: 'Updated ' + WT.shortDate(today) };
-    if (opts.pin) return Object.assign(base, { state: 'pin' });
     if (opts.pro === false) return Object.assign(base, { state: 'pro' });
     if (opts.demo) return Object.assign(base, { state: 'empty' });
 
@@ -42,6 +42,14 @@
     if (!hasAnything) return Object.assign(base, { state: 'empty' });
 
     const nxt = WT.nextPaycheck(WT.addDays(today, 1));
+    // PIN on: the widget can still say what's due and when, but never how much or what's left
+    if (opts.pin) return Object.assign(base, {
+      state: 'ok', locked: true,
+      bills: bills.map(b => ({ name: b.name, dueDate: b.dueDate, dueShort: b.dueShort, overdue: b.overdue })),
+      overdueCount: overdue.length,
+      overdueText: overdue.length ? overdue.length + ' overdue' : '',
+      payText: nxt ? 'Payday ' + (WT.diffDays(today, nxt.date) === 1 ? 'tomorrow' : WT.shortDate(nxt.date)) : '',
+    });
     return Object.assign(base, {
       state: 'ok',
       leftLabel, leftText: WT.fmt(leftCents), leftNeg: leftCents < 0,

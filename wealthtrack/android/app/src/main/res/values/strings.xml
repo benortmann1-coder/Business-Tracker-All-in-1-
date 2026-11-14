@@ -11,7 +11,9 @@
     <string name="widget_list_title">Upcoming bills</string>
     <string name="widget_setup">Open WealthTrack to set up this widget</string>
     <string name="widget_empty">Open WealthTrack to add your bills</string>
-    <string name="widget_pin">WealthTrack — open to view</string>
+    <string name="widget_pin">Amounts hidden while app lock is on. Tap to open.</string>
+    <string name="widget_next_label">Next bill</string>
+    <string name="widget_locked_note">Amounts hidden (PIN on)</string>
     <string name="widget_pro">Widgets are part of WealthTrack Pro — tap to upgrade</string>
     <string name="widget_all_paid">No unpaid bills coming up</string>
     <string name="widget_next_bill">Next: %1$s · %2$s · %3$s</string>

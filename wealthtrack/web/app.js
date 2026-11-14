@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.6.2'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.6.3'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -2463,8 +2463,8 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         (GD.supported() ? (GD.supported() ? srow('Google account', s.account && s.account.email ? 'Signed in as <b>' + esc(s.account.email) + '</b>' : s.guest ? '<span class="warn"><b>Guest: your data is not backed up.</b></span> It only exists on this phone. Sign in to back it up to Google Drive.' : '<span class="warn">Not signed in.</span> Sign in to back up to Google Drive.', s.account && s.account.email ? `<button class="btn sm" data-act="signOut">Sign out</button>` : `<button class="btn sm primary" data-act="gdSignIn">Sign in with Google</button>`) : '') : srow('Google account', 'Sign in with Google is in the Android app.', '<span class="faint small">Android app only</span>')) +
         srow('Currency', 'Changes the symbol shown on amounts. It doesn\'t convert anything.', `<select class="input" style="width:auto;max-width:100%" data-act-change="currency" aria-label="Currency">${CURRENCY_ORDER.map(k => opt(k, CURRENCIES[k][0].trim() + ' ' + CURRENCIES[k][1] + ' (' + k + ')', CURRENCIES[cur] ? cur : 'USD')).join('')}</select>`) +
         srow('Date format', 'Used for every date in the app.', `<select class="input" style="width:auto;max-width:100%" data-act-change="dateFormat" aria-label="Date format">${W.DATE_FORMATS.map(k => opt(k, W.formatDate(today(), k) + (/_num|_dot|ymd/.test(k) ? ' (' + DATE_FORMAT_NAMES[k] + ')' : ''), W.normDateFormat(s.dateFormat))).join('')}</select>`)),
-      security: () => group('security', 'Security', S.cryptoAvailable ? 'WealthTrack asks for your PIN' + (AUTH.bio() === 'enabled' ? ' or fingerprint' : '') + ' when you open it and after 2 minutes away. Your data is encrypted with the PIN (AES-256).' : 'Encryption needs the Android app or a secure (https) page.',
-        (S.cryptoAvailable ? srow('PIN', lockOn ? '<span class="pos">On</span>. A forgotten PIN can\'t be recovered' + (GD.supported() ? ', but you can restore from your Drive backup.' : '; keep a backup.') : '<span class="warn">No PIN yet.</span>', lockOn ? `<button class="btn sm" data-act="changePin">${ic('lock')}Change PIN</button>` : `<button class="btn sm primary" data-act="setPinNow">${ic('lock')}Create PIN</button>`) : '') +
+      security: () => group('security', 'Security', S.cryptoAvailable ? (lockOn ? 'WealthTrack asks for your PIN' + (AUTH.bio() === 'enabled' ? ' or fingerprint' : '') + ' when you open it and after 2 minutes away. Your data is encrypted with the PIN (AES-256).' : 'No PIN: WealthTrack opens without asking, and your data isn\'t encrypted. Create a PIN to lock and encrypt it.') : 'Encryption needs the Android app or a secure (https) page.',
+        (S.cryptoAvailable ? srow('PIN', lockOn ? '<span class="pos">On</span>. A forgotten PIN can\'t be recovered' + (GD.supported() ? ', but you can restore from your Drive backup.' : '; keep a backup.') + (Bridge && typeof Bridge.updateWidgets === 'function' ? ' Home-screen widgets hide amounts while the PIN is on.' : '') : '<span class="warn">No PIN yet.</span>', lockOn ? `<div class="row wrap" style="gap:6px"><button class="btn sm" data-act="changePin">${ic('lock')}Change PIN</button><button class="btn sm ghost danger" data-act="pinOff">Turn off</button></div>` : `<button class="btn sm primary" data-act="setPinNow">${ic('lock')}Create PIN</button>`) : '') +
         (AUTH.bio() !== 'none' ? srow('Fingerprint', AUTH.bio() === 'enabled' ? '<span class="pos">On</span>. Unlock with a touch.' : 'Unlock with your fingerprint instead of typing your PIN.', AUTH.bio() === 'enabled' ? `<button class="btn sm" data-act="bioOff">Turn off</button>` : `<button class="btn sm" data-act="bioOn" ${lockOn ? '' : 'disabled'}>Turn on</button>`) : '') || '<div class="set-row"><div class="set-k muted">Nothing to set here.</div></div>'),
       theme: () => group('look', 'App theme', 'Colors and what the dashboard shows.',
         srow('Theme', s.theme === 'seasonal' ? 'Colors change with the month: icy blue in January, evergreen in December. Follows your phone\'s light or dark mode.' : s.theme === 'random' ? 'Each month gets a different color, never the same twice in a year. Follows your phone\'s light or dark mode.' : 'System follows your phone or computer. Seasonal and Random color the app by month.', `<div class="theme-pick"><div class="seg boxed">${[['system', 'System'], ['light', 'Light'], ['blue', 'Soft blue'], ['dark', 'Dark']].map(([k, l]) => `<button class="${s.theme === k ? 'on' : ''}" data-act="theme" data-v="${k}">${l}</button>`).join('')}</div><div class="seg boxed">${[['seasonal', 'Seasonal'], ['random', 'Random monthly']].map(([k, l]) => `<button class="${s.theme === k ? 'on' : ''}" data-act="theme" data-v="${k}"><i class="swatch ${k}"></i>${l}</button>`).join('')}</div>${s.theme === 'random' ? `<button class="btn sm" data-act="shuffleMonthColors">${ic('repeat')}Shuffle colors</button>` : ''}</div>`) +
@@ -2944,11 +2944,21 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       const page = authPage({ overlay: true }); const ok = await stepGoogle(page, 'Not now'); page.close();
       toast(ok ? 'Signed in again' : 'You can sign in any time from Settings'); refresh();
     },
-    setPinNow: async () => { const page = authPage({ overlay: true }); page.on('cancel', () => page.close()); await stepCreatePin(page, '<button type="button" class="link" data-auth="cancel">Cancel</button>'); page.close(); toast('PIN set. Your data is now encrypted.' + (AUTH.bio() === 'available' ? ' You can turn on fingerprint unlock below.' : '')); refresh(); },
+    setPinNow: async () => { const page = authPage({ overlay: true }); page.on('cancel', () => page.close()); await stepCreatePin(page, '<button type="button" class="link" data-auth="cancel">Cancel</button>'); page.close(); if (W.settings().noPin) W.saveSettings({ noPin: false }); toast('PIN set. Your data is now encrypted.' + (AUTH.bio() === 'available' ? ' You can turn on fingerprint unlock below.' : '')); refresh(); },
     changePin: () => requirePinThen('Change PIN', async page => {
       const pin = await stepCreatePin(page, '');
       if (AUTH.bio() === 'enabled' && Bridge.biometricDisable) { Bridge.biometricDisable(); toast('PIN changed. Turn fingerprint on again in Settings.'); } else toast('PIN changed');
       page.close(); refresh();
+    }),
+    // Turn the PIN off: confirm with the current PIN, then store the data unencrypted and remember the choice
+    // (settings.noPin) so WealthTrack doesn't ask to create a PIN again on the next start.
+    pinOff: () => requirePinThen('Turn off PIN', async page => {
+      page.close();
+      if (!(await confirmBox('Turn off your PIN?', 'Your data will no longer be encrypted on this phone, and anyone who can open your phone can open WealthTrack.' + (Bridge && typeof Bridge.updateWidgets === 'function' ? ' Home-screen widgets will show your amounts.' : '') + ' You can create a PIN again any time in Settings.', 'Turn off PIN', true))) return;
+      await S.disableLock(DEMO.on ? DEMO.real : W.D);
+      if (AUTH.bio() === 'enabled' && Bridge && Bridge.biometricDisable) Bridge.biometricDisable();
+      W.saveSettings({ noPin: true }); await S.flush();
+      toast('PIN is off'); refresh();
     }),
     bioOn: () => requirePinThen('Turn on fingerprint', async (page, pin) => { await stepFingerprint(page, pin); page.close(); refresh(); }),
     bioOff: () => { if (Bridge && Bridge.biometricDisable) Bridge.biometricDisable(); toast('Fingerprint unlock is off'); refresh(); },
@@ -3404,7 +3414,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
 
   // First run (and after Sign out): Google sign-in on Android, then create a PIN, then fingerprint.
   async function onboarding() {
-    if (S.key || AUTH.skip() || W.settings().guest || await S.lockInfo()) return;
+    if (S.key || AUTH.skip() || W.settings().guest || W.settings().noPin || await S.lockInfo()) return;
     const page = authPage({ overlay: true });
     if (!S.cryptoAvailable) {
       page.set(`<h1>Almost there</h1><p class="auth-sub">This browser can't encrypt your data, so a PIN isn't available here. Use the Android app, or open WealthTrack in Chrome, Edge or Safari.</p><button type="button" class="btn primary auth-cta" data-auth="go">Continue</button>`);
@@ -3595,7 +3605,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         WTSeed.seed(W, { blank: true }); WTDemo.load(W);
         // device/account choices made while the demo is showing (sign-in, guest, PIN-free choice, name, theme...)
         // are real: save them to the real settings too. Budget and plan settings stay demo-only.
-        const DEVICE_KEYS = ['guest', 'account', 'gdrive', 'profile', 'theme', 'palette', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange', 'sbSection'];
+        const DEVICE_KEYS = ['guest', 'noPin', 'account', 'gdrive', 'profile', 'theme', 'palette', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange', 'sbSection'];
         const demoSave = W.saveSettings;
         W.saveSettings = patch => {
           demoSave(patch);

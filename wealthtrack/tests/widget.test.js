@@ -15,12 +15,22 @@ function fresh(kind) {
 }
 const hasMoney = s => /\$\d/.test(JSON.stringify(s));
 
-test('PIN lock: no amounts, names or dates of bills leave the page', () => {
+test('PIN lock: bill names and due dates only, never amounts or balances', () => {
   fresh('sample');
+  const open = WW.snapshot(WT, { today: TODAY, pro: true });
   const s = WW.snapshot(WT, { today: TODAY, pin: true, pro: true });
-  assert.equal(s.state, 'pin');
-  assert.equal(hasMoney(s), false);
-  assert.equal(s.bills, undefined);
+  assert.equal(s.state, 'ok'); assert.equal(s.locked, true);
+  assert.equal(hasMoney(s), false, 'no dollar amounts anywhere');
+  assert.equal(s.leftText, undefined); assert.equal(s.leftLabel, undefined); assert.equal(s.leftNeg, undefined);
+  assert.ok(s.bills.length > 0 && s.bills.length <= 3);
+  assert.deepEqual(s.bills.map(b => b.name), open.bills.map(b => b.name), 'same bills as when unlocked');
+  for (const b of s.bills) { assert.equal(b.amount, undefined); assert.match(b.dueDate, /^\d{4}-\d{2}-\d{2}$/); assert.deepEqual(Object.keys(b).sort(), ['dueDate', 'dueShort', 'name', 'overdue']); }
+  assert.equal(s.overdueCount, open.overdueCount);
+  // PIN on but nothing entered: still the empty state; not Pro: still locked out
+  fresh();
+  assert.equal(WW.snapshot(WT, { today: TODAY, pin: true }).state, 'empty');
+  fresh('sample');
+  assert.equal(WW.snapshot(WT, { today: TODAY, pin: true, pro: false }).state, 'pro');
 });
 
 test('not Pro: locked snapshot with no amounts', () => {

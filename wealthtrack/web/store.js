@@ -312,6 +312,7 @@
       if (['default', 'ocean', 'plum', 'slate', 'espresso', 'contrast'].includes(m.palette)) keep.palette = m.palette; // ids from web/themes.js only, never CSS
       if (m.account && typeof m.account === 'object' && typeof m.account.email === 'string') keep.account = { email: m.account.email.slice(0, 200) };
       if (m.guest === true) keep.guest = true;
+      if (m.noPin === true) keep.noPin = true; // the user turned the PIN off in Settings
       if (m.profile && typeof m.profile === 'object') {
         const pr = {};
         const txt = (v, n) => typeof v === 'string' ? v.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n) : '';

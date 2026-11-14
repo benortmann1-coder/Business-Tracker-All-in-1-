@@ -95,6 +95,31 @@ const fakeBridge = () => {
     ok(/Create a PIN/.test(await h1(page)) && await page.evaluate(async () => !(await WTStore.lockInfo())), 'browser: erase starts setup again');
     await ctx.close();
   }
+  // turning the PIN off: asks for the PIN, confirms, decrypts, and never asks to create one again
+  {
+    const { ctx, page } = await mk();
+    await page.goto(FILE); await ready(page); await page.waitForSelector('.auth .pin-dots');
+    await typePin(page, '246810'); await typePin(page, '246810', 3000);
+    await page.evaluate(() => { WT.addTemplate({ name: 'Water bill', amountCents: 4200, anchor: WT.todayStr(), frequency: 'monthly' }); return WTStore.flush(); });
+    await page.evaluate(() => { location.hash = '#/settings/security'; }); await page.waitForTimeout(400);
+    if (!(await page.locator('[data-act=pinOff]').count())) { await page.evaluate(() => { location.hash = '#/settings'; }); await page.waitForTimeout(300); const g = page.locator('[data-act=sgroup][data-g=security], [data-g=security]'); if (await g.count()) { await g.first().click(); await page.waitForTimeout(300); } }
+    ok(await page.locator('[data-act=pinOff]').count() === 1, 'settings: "Turn off" next to Change PIN');
+    await page.click('[data-act=pinOff]'); await page.waitForSelector('.auth .pin-dots');
+    ok(/Turn off PIN/.test(await h1(page)), 'turn off asks for the current PIN');
+    await typePin(page, '111111', 2500); ok(/Wrong PIN/.test(await page.locator('.auth .auth-err').textContent()), 'turn off: wrong PIN refused');
+    await typePin(page, '246810', 1500);
+    const dlg = page.locator('.overlay', { hasText: 'Turn off your PIN?' });
+    ok(await dlg.count() === 1, 'turn off: confirmation explains the data won\'t be encrypted');
+    await dlg.locator('button', { hasText: 'Turn off PIN' }).click(); await page.waitForTimeout(1200);
+    const st = await page.evaluate(async () => ({ key: !!WTStore.key, lock: !!(await WTStore.lockInfo()), noPin: WT.settings().noPin }));
+    ok(!st.key && !st.lock && st.noPin === true, 'PIN is off: no key, no lock record, choice remembered');
+    await page.reload(); await ready(page); await page.waitForTimeout(800);
+    ok(await page.locator('.auth').count() === 0, 'reopen: no unlock screen and no "Create a PIN" again');
+    ok(await page.evaluate(() => Object.values(WT.D.templates).some(t => t.name === 'Water bill')), 'data kept after turning the PIN off');
+    await page.evaluate(() => { location.hash = '#/settings/security'; }); await page.waitForTimeout(400);
+    ok(await page.locator('[data-act=setPinNow]').count() === 1 && /No PIN/.test(await page.locator('#main').textContent()), 'Settings offers Create PIN again and says there is no PIN');
+    await ctx.close();
+  }
   // dark mode + phone screenshots of the pages
   if (SHOTS) {
     const { ctx, page } = await mk({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark' }, true);

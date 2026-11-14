@@ -132,6 +132,17 @@ final class WidgetData {
         }
         v.setViewVisibility(R.id.widget_content, View.VISIBLE);
         v.setViewVisibility(R.id.widget_notice, View.GONE);
+        if (o.optBoolean("locked")) {
+            // PIN on: what's due next and when, no amounts
+            JSONArray lb = o.optJSONArray("bills");
+            JSONObject nb = lb != null && lb.length() > 0 ? lb.optJSONObject(0) : null;
+            v.setTextViewText(R.id.left_label, ctx.getString(R.string.widget_next_label));
+            v.setTextViewText(R.id.left_amount, nb != null ? txt(nb, "name") : ctx.getString(R.string.widget_all_paid));
+            v.setTextColor(R.id.left_amount, ctx.getColor(nb != null && isOverdue(nb) ? R.color.widget_neg : R.color.widget_ink));
+            v.setTextViewText(R.id.next_bill, (nb != null ? dueLabel(ctx, nb) + " · " : "") + ctx.getString(R.string.widget_locked_note));
+            v.setTextColor(R.id.next_bill, ctx.getColor(R.color.widget_ink2));
+            return v;
+        }
         v.setTextViewText(R.id.left_label, txt(o, "leftLabel"));
         v.setTextViewText(R.id.left_amount, txt(o, "leftText"));
         v.setTextColor(R.id.left_amount, ctx.getColor(o.optBoolean("leftNeg") ? R.color.widget_neg : R.color.widget_ink));
@@ -166,7 +177,8 @@ final class WidgetData {
         }
         v.setViewVisibility(R.id.widget_content, View.VISIBLE);
         v.setViewVisibility(R.id.widget_notice, View.GONE);
-        String sub = txt(o, "leftLabel") + " " + txt(o, "leftText");
+        boolean locked = o.optBoolean("locked");
+        String sub = locked ? ctx.getString(R.string.widget_locked_note) : txt(o, "leftLabel") + " " + txt(o, "leftText");
         String pay = txt(o, "payText");
         v.setTextViewText(R.id.list_sub, pay.isEmpty() ? sub : sub + " · " + pay);
         String od = txt(o, "overdueText");
@@ -180,7 +192,7 @@ final class WidgetData {
             if (b == null) { v.setViewVisibility(r[0], View.GONE); continue; }
             v.setViewVisibility(r[0], View.VISIBLE);
             v.setTextViewText(r[1], txt(b, "name"));
-            v.setTextViewText(r[2], txt(b, "amount"));
+            v.setTextViewText(r[2], locked ? "" : txt(b, "amount"));
             v.setTextViewText(r[3], dueLabel(ctx, b));
             v.setTextColor(r[3], ctx.getColor(isOverdue(b) ? R.color.widget_neg : R.color.widget_ink2));
         }
