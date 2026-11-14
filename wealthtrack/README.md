@@ -67,6 +67,8 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
 
 A new install starts **blank**: the built-in categories and an empty Checking account, nothing else. Add your paychecks, bills and debts in the app, or restore a backup.
 
+**Setup wizard.** On a blank install (after the demo, if you looked at it), a short skippable wizard walks you through your checking balance, paychecks, bills (with one-tap presets like Rent and Electric) and credit cards or loans, then shows your next paycheck's plan. Closing it keeps what you entered and it won't come back on its own; **Settings → Your data → Setup wizard** runs it again (`web/setup-wizard.js`).
+
 The automated tests use made-up example data from `tests/fixtures/sample-data.js`. It is never included in the app.
 
 Full audit results: [AUDIT-REPORT.md](AUDIT-REPORT.md).
@@ -75,7 +77,7 @@ Full audit results: [AUDIT-REPORT.md](AUDIT-REPORT.md).
 
 ```
 wealthtrack/
-  web/        the app: index.html, styles.css, core.js (logic), store.js (IndexedDB+crypto), seed.js, xlsx.js, app.js (UI)
+  web/        the app: index.html, styles.css, core.js (logic), store.js (IndexedDB+crypto), seed.js, xlsx.js, app.js (UI), setup-wizard.js (first-run setup)
   android/    native WebView wrapper (see android/README.md)
   tests/      core.test.js (node:test), e2e.js (Playwright)
   build.js    bundles web/ into dist/WealthTrack.html

@@ -2472,6 +2472,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         srow('Backup', s.lastBackup ? 'Last backup ' + W.dateLabel(s.lastBackup, true) : '<span class="warn">No backup yet</span>', `<button class="btn sm primary" data-act="backup">${ic('download')}Back up now</button>`) +
         srow('Restore', 'Always asks before replacing anything.', `<label class="btn sm">${ic('upload')}Choose backup file<input type="file" accept="application/json,.json" data-act-change="restoreFile" hidden></label>`) +
         gdRow(srow) +
+        srow('Setup wizard', 'Walks you through your balance, paychecks, bills and debts. Adds to what you have; nothing is replaced.', `<button class="btn sm" data-act="setupWizard">${ic('check')}Run setup</button>`) +
         srow('Check data', 'Looks for duplicate bills and broken links.', `<button class="btn sm ghost" data-act="integrity">Run check</button>`) +
         srow('Start over', 'Erases everything on this device. A backup downloads first.', `<button class="btn sm danger" data-act="startOver">Erase all data…</button>`)),
       about: () => group('about', 'About', 'WealthTrack keeps your money records on this device. There are no ads and no bank logins.',
@@ -2729,7 +2730,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     const row = $(`[data-inst="${instId}"]`); if (row) row.classList.add('flash');
   }
   const A = {
-    demoExit: async () => { if (await confirmBox('Use your own data?', 'The demo bills and debts are removed and WealthTrack starts empty, ready for your own paychecks, bills and debts.', 'Start with my own data')) { leaveDemo(); refresh(); toast('Demo closed. Add your first paycheck or bill to get started.'); } },
+    demoExit: async () => { if (await confirmBox('Use your own data?', 'The demo bills and debts are removed and WealthTrack starts empty, ready for your own paychecks, bills and debts.', 'Start with my own data')) { leaveDemo(); refresh(); if (!(window.WTSetupUI && WTSetupUI.maybeStart())) toast('Demo closed. Add your first paycheck or bill to get started.'); } },
     billMine: () => { setBillView('mine'); toast('My order is on. Hold a bill and drag it up or down.'); refresh(); },
     markPaid: d => { if (Date.now() - (A.markPaid.at || 0) < 700 && A.markPaid.id && A.markPaid.id !== d.id) return; A.markPaid.at = Date.now(); A.markPaid.id = d.id; if (W.isAutopay(W.D.instances[d.id])) return toast('This bill is on auto-pay. It\'s marked paid automatically on its due date.'); withUndoPay(d.id); },
     paidMenu: (d, el) => menu(el, [{ label: 'Payment details / add payment', icon: 'cash', run: () => paymentModal(d.id) }, { label: 'Mark unpaid', icon: 'undo', danger: true, run: async () => { if (await confirmBox('Mark unpaid?', 'The payment will be voided. It stays in your history and other months aren\'t affected.', 'Mark unpaid', true)) { W.markUnpaid(d.id); toast('Marked unpaid'); refresh(); } } }]),
@@ -3404,7 +3405,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       { const st = W.settings(); if (!(st.account && st.account.email) && st.gdrive && st.gdrive.on && st.gdrive.email) W.saveSettings({ account: { email: st.gdrive.email } }); } // signed in on 1.2.1
       if (W.settings().monthColors === 'random' && !['seasonal', 'random'].includes(W.settings().theme)) W.saveSettings({ theme: 'random', monthColors: null });
       applyTheme(); shell(); bindGlobal(); billDrag(); render(); scheduleReminders(); addressAutocomplete(); piAutosave();
-      onboarding().catch(err => { console.error(err); toast(err.message || String(err), { error: true }); });
+      onboarding().then(() => { if (!DEMO.on && window.WTSetupUI) WTSetupUI.maybeStart(); }).catch(err => { console.error(err); toast(err.message || String(err), { error: true }); });
       // lock again after 2 minutes away (reload drops the decrypted data from memory)
       let hiddenAt = 0;
       document.addEventListener('click', e => { if (e.target.closest('input[type=file], label')) { const l = e.target.closest('label'); if (!l || l.querySelector('input[type=file]')) AUTH.external = Date.now(); } }, true);

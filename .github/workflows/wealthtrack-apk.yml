@@ -35,7 +35,7 @@ jobs:
           node-version: '22'
 
       - name: Core logic tests
-        run: node --test wealthtrack/tests/core.test.js wealthtrack/tests/security.test.js wealthtrack/tests/smartbudget.test.js wealthtrack/tests/smartplan.test.js wealthtrack/tests/wealth.test.js
+        run: node --test wealthtrack/tests/core.test.js wealthtrack/tests/security.test.js wealthtrack/tests/smartbudget.test.js wealthtrack/tests/smartplan.test.js wealthtrack/tests/wealth.test.js wealthtrack/tests/setup-wizard.test.js
 
       - name: Set up Java
         uses: actions/setup-java@v4

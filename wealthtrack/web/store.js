@@ -332,6 +332,7 @@
       if (['date', 'month', '30', '60'].includes(m.upRange)) keep.upRange = m.upRange;
       if (['plan', 'compare', 'customize'].includes(m.sbSection)) keep.sbSection = m.sbSection; // Smart Budget page section
       if (m.demoDone === true) keep.demoDone = true;
+      if (['done', 'dismissed'].includes(m.setupWizard)) keep.setupWizard = m.setupWizard; // first-run setup wizard (setup-wizard.js)
       if (Array.isArray(m.billOrder)) keep.billOrder = Array.from(new Set(m.billOrder.filter(isRef))).slice(0, 1000); // My order (Bills)
       if (Array.isArray(m.setAsides)) keep.setAsides = m.setAsides.filter(x => x && typeof x === 'object').slice(0, 50).map(x => ({ id: isRef(x.id) ? x.id : 'sa_' + Math.random().toString(36).slice(2), name: String(x.name == null ? '' : x.name).slice(0, 100), amountCents: Number.isInteger(x.amountCents) && x.amountCents >= 0 ? x.amountCents : 0 }));
       if ('projectionIncludesSetAsides' in m) keep.projectionIncludesSetAsides = !!m.projectionIncludesSetAsides;
