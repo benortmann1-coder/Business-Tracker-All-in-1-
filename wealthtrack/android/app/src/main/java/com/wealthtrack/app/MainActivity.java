@@ -194,7 +194,28 @@ public class MainActivity extends Activity {
             webView.restoreState(savedInstanceState);
         }
         if (webView.getUrl() == null) {
-            webView.loadUrl(START_URL);
+            webView.loadUrl(START_URL + routeHash(getIntent()));
+        }
+    }
+
+    /** Extra set by the home-screen widgets: which screen to open. Only known routes are accepted. */
+    static final String EXTRA_ROUTE = "com.wealthtrack.app.ROUTE";
+
+    private static String routeHash(Intent intent) {
+        String r = intent == null ? null : intent.getStringExtra(EXTRA_ROUTE);
+        if ("bills".equals(r) || "dashboard".equals(r) || "settings".equals(r)) return "#/" + r;
+        if ("upgrade".equals(r)) return "#/settings?upgrade=widgets"; // web/widget.js opens the Pro dialog
+        return "";
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        String hash = routeHash(intent);
+        if (!hash.isEmpty() && webView != null && isTrustedPage()) {
+            // hash is one of a few fixed strings, never user input
+            webView.post(() -> webView.evaluateJavascript("location.hash='" + hash + "'", null));
         }
     }
 
