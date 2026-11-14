@@ -94,5 +94,5 @@ test('a bridge whose proEnforced throws falls back to unlocked (not the Play bui
 
 test('product ID and feature list', () => {
   assert.equal(WTPro.PRODUCT_ID, 'wealthtrack_pro');
-  assert.deepEqual(WTPro.FEATURES.map(f => f[0]), ['drive', 'reports', 'export', 'payoff', 'smart']);
+  assert.deepEqual(WTPro.FEATURES.map(f => f[0]), ['drive', 'reports', 'export', 'payoff', 'smart', 'reminders', 'widgets', 'themes']);
 });
