@@ -16,6 +16,10 @@ android {
         targetSdk 36
         versionCode 33
         versionName '1.5.6'
+        // WealthTrack Pro is only enforced in the Google Play build: ./gradlew bundleRelease -PplayBuild=true
+        // Sideloaded APKs (Drive upload) and the browser version keep every feature unlocked,
+        // because Play Billing only works for apps installed from Google Play.
+        buildConfigField 'boolean', 'PRO_ENFORCED', (project.findProperty('playBuild') == 'true') ? 'true' : 'false'
     }
 
     buildFeatures {
@@ -78,6 +82,8 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
     // Sign in with Google -> Drive backup
     implementation 'com.google.android.gms:play-services-auth:21.2.0'
+    // WealthTrack Pro one-time purchase (Play requires Billing Library 8+ since Aug 31 2026)
+    implementation 'com.android.billingclient:billing:8.3.0'
     // keep every kotlin-stdlib-jdk7/jdk8 at one version (avoids duplicate-class build errors)
     implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
 }

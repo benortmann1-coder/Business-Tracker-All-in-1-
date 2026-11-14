@@ -52,6 +52,8 @@ public class MainActivity extends Activity {
     GoogleDriveBackup drive;
     BiometricLock biometric;
     AddressLookup address;
+    /** Play Billing for WealthTrack Pro; null unless this is the Google Play build (BuildConfig.PRO_ENFORCED). */
+    ProBilling pro;
     static final int REQ_NOTIFICATIONS = 2001;
     static final int REQ_STORAGE = 2002;
 
@@ -171,6 +173,7 @@ public class MainActivity extends Activity {
         drive = new GoogleDriveBackup(this, webView);
         biometric = new BiometricLock(this, webView);
         address = new AddressLookup(this, webView);
+        if (BuildConfig.PRO_ENFORCED) pro = new ProBilling(this, webView);
         webView.addJavascriptInterface(new WebAppBridge(this, webView), "AndroidBridge");
 
         if (savedInstanceState != null) {
@@ -390,6 +393,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
+        if (pro != null) pro.restore(false); // a pending purchase may have finished, or been refunded
     }
 
     @Override
@@ -400,6 +404,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (pro != null) { pro.close(); pro = null; }
         if (webView != null) {
             webView.removeJavascriptInterface("AndroidBridge");
             webView.destroy();

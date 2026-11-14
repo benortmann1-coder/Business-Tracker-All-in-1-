@@ -24,13 +24,13 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAKUlEQVR
 
   await go('settings');
   const items = await page.locator('.set-item b').allTextContents();
-  ok(JSON.stringify(items) === JSON.stringify(['Personal info', 'Security', 'App theme', 'Notifications', 'Accounts', 'Categories', 'Your data', 'About']), 'menu sections in order: ' + items.join(', '));
+  ok(JSON.stringify(items) === JSON.stringify(['Personal info', 'Security', 'App theme', 'Notifications', 'Accounts', 'Categories', 'Your data', 'WealthTrack Pro', 'About']), 'menu sections in order: ' + items.join(', '));
   ok(/Add your name/.test(await page.locator('.set-profile').textContent()), 'profile card asks for a name');
   await shot('settings-menu');
   await page.click('.set-item[data-sec=about]'); await page.waitForTimeout(200);
   ok(/About/.test(await page.locator('#main h1').textContent()) && /Version/.test(await page.locator('#main').textContent()), 'About page');
   await page.click('.set-back'); await page.waitForTimeout(200);
-  ok(await page.locator('.set-item').count() === 8, 'back arrow returns to the menu');
+  ok(await page.locator('.set-item').count() === 9, 'back arrow returns to the menu');
   await page.evaluate(() => history.back()); await page.waitForTimeout(200);
   ok(/About/.test(await page.locator('#main h1').textContent()), 'browser/phone back goes to the previous page');
 

@@ -1210,6 +1210,21 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
 .side-logout:hover { background: var(--hover); color: var(--ink); }
 .side-logout svg { width: 16px; height: 16px; }
 
+/* ---------- WealthTrack Pro ---------- */
+.pro-lock { padding: 18px; }
+.pro-page { max-width: 560px; margin: 10px auto 0; text-align: center; padding: 30px 22px; }
+.pro-page h2 { margin: 12px 0 6px; }
+.pro-page .btn { margin-top: 6px; }
+.pro-badge { width: 48px; height: 48px; border-radius: 14px; margin: 0 auto; display: grid; place-items: center; background: var(--paid-soft); color: var(--paid); }
+.pro-badge svg { width: 24px; height: 24px; }
+.pill.pro-pill { background: var(--paid-soft); color: var(--paid); }
+.pill.pro-pill svg { width: 11px; height: 11px; }
+.pro-list { list-style: none; padding: 0; margin: 12px 0 4px; display: grid; gap: 10px; font-size: 14px; color: var(--ink-2); }
+.pro-list li { display: flex; gap: 10px; align-items: flex-start; }
+.pro-list li span b { display: block; color: var(--ink); font-weight: 650; }
+.pro-list svg { width: 16px; height: 16px; color: var(--paid); flex: none; margin-top: 2px; stroke-width: 2.4; }
+.modal-f .btn.ghost[data-act="proRestore"] { margin-right: auto; }
+
 </style>
 </head>
 <body>
@@ -5913,6 +5928,71 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
 
 </script>
   <script>
+/* WealthTrack Pro: who gets the paid features.
+ *
+ * Pro is a one-time Google Play purchase (product ID "wealthtrack_pro").
+ * The Android app is the only source of truth: its Play Billing code (ProBilling.java)
+ * checks Google Play and keeps the result, and the page asks it through AndroidBridge.
+ * Nothing about Pro is stored in WealthTrack's own data, so a backup file can't unlock it.
+ *
+ * Pro is only enforced in the Google Play build (BuildConfig.PRO_ENFORCED). The browser
+ * version and sideloaded APKs have every feature unlocked, because Play Billing only works
+ * for apps installed from Google Play.
+ */
+(function (root) {
+  'use strict';
+  const PRODUCT_ID = 'wealthtrack_pro';
+
+  // What Pro unlocks. Keys are used by the gates in app.js.
+  const FEATURES = [
+    ['drive', 'Automatic Google Drive backup', 'Your data is copied to your own Google Drive as you go, so a lost phone never costs you your records.'],
+    ['reports', 'Reports and trends', 'Month-to-month comparison, 12-month trends, debt trend and the yearly table.'],
+    ['export', 'Excel and CSV export', 'Every bill, payment, purchase and paycheck in a spreadsheet.'],
+    ['payoff', 'Debt payoff planner', 'Snowball vs. avalanche, your debt-free date and the interest you save.'],
+    ['smart', 'Smart Budget', 'A paycheck-by-paycheck plan for needs, debt, savings and fun money.'],
+  ];
+  const ROUTES = ['reports', 'smart']; // whole pages that need Pro
+  const FREE_ALWAYS = ['backup', 'restore', 'driveRestore']; // getting your data out is never locked
+
+  function call(bridge, name) {
+    try { return bridge && typeof bridge[name] === 'function' ? bridge[name]() : undefined; } catch (e) { return undefined; }
+  }
+
+  /** bridge: window.AndroidBridge (or a stand-in in tests), or null in a browser. */
+  function create(bridge) {
+    const api = {
+      PRODUCT_ID, FEATURES, ROUTES, FREE_ALWAYS,
+      /** True only in the Google Play build. */
+      enforced: () => call(bridge, 'proEnforced') === true,
+      /** True when Google Play says this account bought Pro. */
+      owned: () => call(bridge, 'proOwned') === true,
+      /** The single answer every gate uses. */
+      isPro: () => !api.enforced() || api.owned(),
+      /** Can this install buy Pro right now? (Play build, billing connected) */
+      canBuy: () => api.enforced() && call(bridge, 'proAvailable') === true,
+      /** Play's localized price, e.g. "$4.99", or '' until it's loaded. */
+      price: () => { const p = call(bridge, 'proPrice'); return typeof p === 'string' && p.length <= 32 ? p : ''; },
+      /** 'owned' | 'pending' | 'none' | 'unlocked' (not enforced) */
+      status: () => {
+        if (!api.enforced()) return 'unlocked';
+        if (api.owned()) return 'owned';
+        return call(bridge, 'proPending') === true ? 'pending' : 'none';
+      },
+      allows: feature => FREE_ALWAYS.includes(feature) || api.isPro(),
+      routeLocked: route => ROUTES.includes(route) && !api.isPro(),
+      buy: () => { if (bridge && typeof bridge.proPurchase === 'function') bridge.proPurchase(); },
+      restore: () => { if (bridge && typeof bridge.proRestore === 'function') bridge.proRestore(); },
+    };
+    return api;
+  }
+
+  const WTPro = { create, PRODUCT_ID, FEATURES, ROUTES, FREE_ALWAYS };
+  if (typeof module !== 'undefined' && module.exports) module.exports = WTPro;
+  else root.WTPro = WTPro;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
 /* WealthTrack UI (vanilla JS, no network). Depends on core.js, store.js, seed.js, xlsx.js. */
 (function () {
   'use strict';
@@ -5929,6 +6009,9 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
   const DEMO = { on: false, real: null };
   const curMonth = () => W.monthOf(today());
   const Bridge = window.AndroidBridge || null;
+  // Pro (paid features): see web/pro.js. Unlocked everywhere except the Google Play build.
+  const PRO = window.WTPro.create(Bridge);
+  const isPro = () => PRO.isPro();
   const APP_VERSION = '1.5.6'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
@@ -5945,6 +6028,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+    star: 'M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z',
     plus: 'M12 5v14M5 12h14', check: 'M20 6 9 17l-5-5', dots: 'M12 6h.01M12 12h.01M12 18h.01', chevL: 'M15 18l-6-6 6-6', chevR: 'M9 18l6-6-6-6',
     x: 'M18 6 6 18M6 6l12 12', alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
     search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3', download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
@@ -6022,7 +6106,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
     $$('[data-nav-btn]').forEach(b => b.classList.toggle('active', b.dataset.navBtn === ui.route || (b.dataset.navBtn === 'more' && !MOBILE.includes(ui.route))));
     const y = window.scrollY;
     const piFocus = piKeepFocus(); // Personal info: save pending typing first, keep the cursor where it was
-    try { main.innerHTML = demoBar() + (VIEWS[ui.route] || VIEWS.dashboard)(); }
+    try { main.innerHTML = demoBar() + (PRO.routeLocked(ui.route) ? proPage(ui.route) : (VIEWS[ui.route] || VIEWS.dashboard)()); }
     catch (e) { console.error(e); main.innerHTML = `<div class="card"><h3>Something went wrong</h3><p class="muted">${esc(e.message)}</p></div>`; }
     // quick access to Settings, top right of every page
     const tb = main.querySelector('.topbar');
@@ -7040,7 +7124,7 @@ body.reordering #main .bill[data-tpl]:not(.dragging), body.reordering #main tr[d
           ${groups.filter(g => g[1].length).map(([label, list]) => `<div class="group-h"><span class="t">${label}</span><span class="s"><b>${fmt(list.reduce((a, d) => a + Math.max(0, W.debtBalance(d.id)), 0))}</b></span></div>${list.map(debtCard).join('')}`).join('')}
         </div>` : `<div class="empty"><b>No debts added</b>Add a card or loan to see payoff dates and interest.</div>`}
       </section>
-      ${inputs.length ? `<section class="section">
+      ${inputs.length && !isPro() ? proSection('payoff', 'Payoff plan') : inputs.length ? `<section class="section">
         <div class="section-h"><h2>Payoff plan</h2><span class="meta">Snowball vs. avalanche</span></div>
         <div class="payoff-controls"><label class="small muted" for="pxtra">Extra each month on top of minimums</label>
           <div class="row wrap"><input id="pxtra" class="input money-in" style="width:120px" inputmode="decimal" value="${W.centsToStr(extra)}" data-act-change="payoffExtra"><div class="chips">${[0, 5000, 10000, 25000, 50000].map(v => `<button class="chip ${extra === v ? 'on' : ''}" data-act="payoffPreset" data-v="${v}">${v ? '+' + fmt0(v) : 'None'}</button>`).join('')}</div></div></div>
@@ -8009,6 +8093,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     if (ui.route === 'smart') refresh();
   }
   function dashSmart() {
+    if (!isPro()) return proSection('smart', 'Smart Budget');
     const head = sectionH('Smart Budget', 'Open', 'href="#/smart/plan"'); // the widget summarizes the plan: open "My plan"
     let st = null; try { st = sbState(); } catch (e) { console.error(e); }
     if (!st || !st.a || !(st.a.income > 0) || !st.eff) return `<section class="section">${head}<p class="small muted" style="margin:10px 0 0">See how to split your take-home pay between needs, debt, savings and wants.</p></section>`;
@@ -8319,6 +8404,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     ['accounts', 'Accounts', 'wallet', 'Checking, savings and cash'],
     ['categories', 'Categories', 'tag', 'Categories and set-asides'],
     ['data', 'Your data', 'db', 'Export, backup, restore'],
+    ['pro', 'WealthTrack Pro', 'star', 'Reports, export, Drive backup and more'],
     ['about', 'About', 'info', 'Version and privacy'],
   ];
   function viewSettings() {
@@ -8337,6 +8423,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       categories: W.categories().length + ' categories',
       data: GD.on() ? 'Backing up to Google Drive' : s.lastBackup ? 'Last backup ' + W.dateLabel(s.lastBackup, true) : 'No backup yet',
       about: 'Version ' + APP_VERSION,
+      pro: { owned: 'Pro · thank you!', pending: 'Purchase pending', none: 'Free version · see what Pro adds', unlocked: 'All features unlocked' }[PRO.status()],
     };
     const sec = ui.setSec;
     if (!sec) {
@@ -8389,6 +8476,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         gdRow(srow) +
         srow('Check data', 'Looks for duplicate bills and broken links.', `<button class="btn sm ghost" data-act="integrity">Run check</button>`) +
         srow('Start over', 'Erases everything on this device. A backup downloads first.', `<button class="btn sm danger" data-act="startOver">Erase all data…</button>`)),
+      pro: () => proSettings(group, srow),
       about: () => group('about', 'About', 'WealthTrack keeps your money records on this device. There are no ads and no bank logins.',
         srow('Version', '', `<span class="small">${Bridge && Bridge.appVersion ? 'App ' + esc(Bridge.appVersion()) : 'Version ' + APP_VERSION + ' for web'}</span>`) +
         srow('Bills scheduled through', '', `<span class="small">${W.monthLabel(s.generatedThrough || curMonth())}</span>`) +
@@ -8538,6 +8626,57 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   }
 
 
+  // ------------------------------------------------------------ WealthTrack Pro (paid features, see web/pro.js)
+  const PRO_FEAT = Object.fromEntries(PRO.FEATURES.map(f => [f[0], f]));
+  const proList = () => `<ul class="pro-list">${PRO.FEATURES.map(([, t, d]) => `<li>${ic('check')}<span><b>${esc(t)}</b>${esc(d)}</span></li>`).join('')}</ul>`;
+  const proBtn = (f, label) => `<button class="btn primary" data-act="proUpgrade" data-f="${esc(f || '')}">${ic('star')}${label || 'Unlock with Pro'}</button>`;
+  // a locked section inside a free page (dashboard widget, debt payoff plan)
+  function proSection(f, title) {
+    const x = PRO_FEAT[f] || ['', title, ''];
+    return `<section class="section">${sectionH(esc(title), '<span class="pill pro-pill">' + ic('star') + 'Pro</span>')}<div class="pro-lock card"><p class="small muted" style="margin:0 0 12px">${esc(x[2])}</p>${proBtn(f)}</div></section>`;
+  }
+  // a whole page that needs Pro (Reports, Smart Budget)
+  function proPage(route) {
+    const r = ROUTES.find(x => x[0] === route) || [route, route]; const f = PRO_FEAT[route] || PRO_FEAT.reports;
+    return `<div class="topbar"><div><h1>${esc(r[1])}</h1><div class="sub">Part of WealthTrack Pro.</div></div></div>
+      <div class="fade-in"><div class="card pro-lock pro-page"><div class="pro-badge">${ic('star')}</div><h2>${esc(f[1])}</h2><p class="muted">${esc(f[2])} Your records are all still here; Pro just opens this page.</p>${proBtn(route, 'See WealthTrack Pro')}</div></div>`;
+  }
+  function proDialog(f) {
+    if (PRO.isPro()) { toast('You already have every WealthTrack feature.'); return; }
+    const x = PRO_FEAT[f]; const price = PRO.price();
+    const pending = PRO.status() === 'pending';
+    proDialog.open = modal({
+      title: 'WealthTrack Pro',
+      submit: pending ? 'Purchase pending…' : 'Upgrade' + (price ? ' for ' + esc(price) : ''),
+      body: `${x ? `<p class="muted" style="margin-top:0"><b>${esc(x[1])}</b> is part of Pro.</p>` : ''}<p class="small muted" style="margin-top:0">One purchase, yours for good. No subscription, no ads, and your data still never leaves your phone.</p>${proList()}
+        ${pending ? '<div class="callout">Google Play is still processing your payment. Pro turns on by itself once it goes through.</div>' : ''}
+        ${!PRO.canBuy() ? '<p class="tiny warn">Can\'t reach Google Play right now. Check your connection, then tap Upgrade to try again.</p>' : ''}`,
+      footer: `<button type="button" class="btn ghost" data-act="proRestore">Restore purchase</button><button type="button" class="btn" data-close>Not now</button><button class="btn primary" type="submit" ${pending ? 'disabled' : ''}>${pending ? 'Purchase pending…' : 'Upgrade' + (price ? ' · ' + esc(price) : '')}</button>`,
+      onSubmit: () => { AUTH.external = Date.now(); PRO.buy(); return false; }, // stays open: the 'wtpro' event closes it
+    });
+  }
+  function proRestore() { toast('Checking Google Play for your purchase…'); PRO.restore(); }
+  function proSettings(group, srow) {
+    const st = PRO.status(); const price = PRO.price();
+    const head = st === 'unlocked' ? 'Every feature is unlocked in this version of WealthTrack.'
+      : st === 'owned' ? '<span class="pos">Pro is on.</span> Thanks for supporting WealthTrack.'
+      : st === 'pending' ? '<span class="warn">Purchase pending.</span> Pro turns on once Google Play finishes.'
+      : 'One purchase' + (price ? ' (' + esc(price) + ')' : '') + ', yours for good. No subscription.';
+    return group('pro', 'WealthTrack Pro', 'Pro adds the planning, reporting and backup tools. Your bills, paychecks, expenses, debts, goals and file backups stay free.',
+      srow('Status', head, st === 'none' ? proBtn('', 'Upgrade') : st === 'pending' ? '' : `<span class="pill paid">${ic('check')}${st === 'owned' ? 'Pro' : 'Unlocked'}</span>`) +
+      `<div class="set-row col">${proList()}</div>` +
+      (PRO.enforced() ? srow('Restore purchase', 'Bought Pro before, or on another phone with the same Google account?', `<button class="btn sm" data-act="proRestore">Restore purchase</button>`) : ''));
+  }
+  // ProBilling.java fires window event "wtpro" with detail {op: 'purchase'|'restore'|'status', ok, owned, pending, error}
+  window.addEventListener('wtpro', e => {
+    const d = (e && e.detail) || {};
+    if (d.owned) { if (proDialog.open) { proDialog.open.close(); proDialog.open = null; } if (d.op !== 'status') toast(d.op === 'restore' ? 'Pro restored. Everything is unlocked.' : 'Welcome to WealthTrack Pro!'); GD.dirty = true; GD.schedule(5000); }
+    else if (d.pending && d.op !== 'status') toast('Payment pending. Pro turns on once Google Play finishes.');
+    else if (d.op === 'restore' && d.ok) toast('No Pro purchase found for this Google account.');
+    else if (d.error && d.error !== 'cancelled' && d.op !== 'status') toast(String(d.error).slice(0, 200), { error: true });
+    if (W.D) refresh();
+  });
+
   // ------------------------------------------------------------ Google Drive backup (Android: Sign in with Google)
   // The Android app keeps one file, WealthTrack-backup.json, in the user's Google Drive (drive.file scope:
   // it can only see files it created). Backups run a minute after changes, when the app goes to the
@@ -8559,6 +8698,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     backup(manual) {
       if (!GD.supported() || !GD.on() || GD.busy || DEMO.on) return; // demo data is never backed up
       if (AUTH.resetMode()) return; // never overwrite the Drive backup with a freshly reset phone before it's restored
+      if (!PRO.allows('drive')) return; // automatic Drive backup is Pro; restoring from Drive stays free
       clearTimeout(GD.timer);
       GD.busy = true; GD.manual = !!manual; GD.dirty = false;
       try { Bridge.googleBackup(backupJson()); } catch (e) { GD.busy = false; GD.dirty = true; GD.setState({ err: e.message || String(e) }); }
@@ -8570,6 +8710,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
           const email = String(d.email || '').slice(0, 200);
           W.saveSettings({ gdrive: { on: true, email }, account: { email }, guest: false }); GD.setState({ err: '', needsSignIn: false });
           if (AUTH.resetMode()) { toast('Signed in. Getting your backup from Google Drive…'); Bridge.googleRestore(); }
+          else if (!PRO.allows('drive')) toast('Signed in' + (email ? ' as ' + email : '') + '. Automatic Drive backup is part of WealthTrack Pro.');
           else { toast('Signed in' + (email ? ' as ' + email : '') + '. Backing up now…'); GD.backup(true); }
         }
         else if (d.error !== 'cancelled') { GD.setState({ err: d.error }); if (!document.querySelector('.auth')) toast(d.error, { error: true }); } // the sign-in page shows it inline
@@ -8604,6 +8745,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     if (!GD.on()) return srow('Google Drive backup', 'Sign in with Google and your data is backed up to your own Google Drive automatically. WealthTrack can only see the backup file it creates.', `<button class="btn sm primary" data-act="gdSignIn">${ic('upload')}Sign in with Google</button>`);
     const email = esc((W.settings().gdrive || {}).email || 'your Google account');
     if (AUTH.resetMode()) return srow('Google Drive backup', '<span class="warn">Waiting to restore your Drive backup.</span> Backups are paused so the old backup isn\'t replaced.', `<div class="row wrap" style="gap:6px"><button class="btn sm primary" data-act="gdRestore">${ic('download')}Restore from Drive</button><button class="btn sm ghost" data-act="gdFresh">Start fresh instead</button></div>`);
+    if (!PRO.allows('drive')) return srow('Google Drive backup', `Signed in as ${email}. Automatic backup to your Drive is part of WealthTrack Pro. You can still restore a backup that's already there.`, `<div class="row wrap" style="gap:6px;justify-content:flex-end"><button class="btn sm" data-act="gdRestore">${ic('download')}Restore from Drive</button><button class="btn sm primary" data-act="proUpgrade" data-f="drive">Get Pro</button></div>`);
     const offline = !st.needsSignIn && GD.isOffline(st);
     const note = st.needsSignIn ? '<span class="warn">Google needs you to sign in again.</span>'
       : offline ? '<span class="warn gd-wait">No internet connection. Backup will try again when you\'re back online.</span> ' + esc(GD.lastText()) + '.'
@@ -8722,7 +8864,8 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     clearHist: () => { ui.histSearch = ''; ui.histKind = ''; ui.histFrom = ''; ui.histTo = ''; refresh(); },
     addGoal: () => goalModal(), contribute: d => contributeModal(d.id), withdraw: d => contributeModal(d.id, true),
     goalMenu: (d, el) => menu(el, [{ label: 'Edit goal', icon: 'edit', run: () => goalModal(d.id) }, { label: 'Archive goal', icon: 'trash', danger: true, run: () => { W.updateGoal(d.id, { archived: true }); refresh(); } }]),
-    exportXlsx: () => exportXlsx(), exportCsvMenu: () => exportCsvMenu(), backup: () => backup(),
+    exportXlsx: () => PRO.allows('export') ? exportXlsx() : proDialog('export'), exportCsvMenu: () => PRO.allows('export') ? exportCsvMenu() : proDialog('export'),
+    proUpgrade: d => proDialog(d.f), proRestore: () => proRestore(), backup: () => backup(),
     gdSignIn: () => { if (!GD.supported()) return; toast('Opening Google sign-in…'); Bridge.googleSignIn(); },
     gdBackup: () => GD.backup(true),
     gdRestore: () => { if (!GD.supported()) return; toast('Getting your backup from Google Drive…'); Bridge.googleRestore(); },
