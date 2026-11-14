@@ -69,7 +69,7 @@ A new install starts **blank**: the built-in categories and an empty Checking ac
 
 The automated tests use made-up example data from `tests/fixtures/sample-data.js`. It is never included in the app.
 
-Full audit results: [AUDIT-REPORT.md](AUDIT-REPORT.md).
+Full audit results: [AUDIT-REPORT.md](AUDIT-REPORT.md). Publishing on Google Play: [PLAY-STORE.md](PLAY-STORE.md) (privacy policy in `privacy/`, listing text and images in `store-listing/`).
 
 ## Developing
 

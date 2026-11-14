@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WealthTrack Privacy Policy</title>
+<style>
+  :root { --ink: #1c1917; --ink-2: #57534e; --bg: #f6f5f1; --card: #ffffff; --line: #e7e5e4; --brand: #16a34a; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #f5f5f4; --ink-2: #a8a29e; --bg: #12110f; --card: #1c1b19; --line: #2e2c29; --brand: #22c55e; } }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .logo { width: 48px; height: 48px; border-radius: 12px; flex: none; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0; }
+  h2 { font-size: 19px; margin: 32px 0 8px; }
+  .meta { color: var(--ink-2); font-size: 14px; margin: 0 0 24px; }
+  .summary { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 10px; padding: 14px 18px; }
+  .summary ul { margin: 6px 0 0; padding-left: 20px; }
+  a { color: var(--brand); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
+  tr:last-child td { border-bottom: 0; }
+  .placeholder { background: #fef08a; color: #422006; padding: 0 4px; border-radius: 3px; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <svg class="logo" viewBox="18 18 72 72" aria-hidden="true"><rect x="0" y="0" width="108" height="108" fill="#16A34A"/><path d="M0,72 L108,48 L108,108 L0,108 Z" fill="#15803D"/><path d="M32,66 L46,52 L56,60 L74,40" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M64,36 L78,36 L78,50 Z" fill="#fff"/></svg>
+  <h1>WealthTrack Privacy Policy</h1>
+</header>
+<p class="meta">Effective November 13, 2026 · Applies to the WealthTrack Android app and the WealthTrack web version</p>
+
+<div class="summary">
+  <b>The short version</b>
+  <ul>
+    <li>Your money records stay on your device. WealthTrack has no servers and no user accounts of its own, and we never receive your data.</li>
+    <li>No ads, no analytics, no tracking, no selling or sharing of data, and no bank connections.</li>
+    <li>If <em>you</em> turn on Google Drive backup, a backup file goes to <em>your own</em> Google Drive.</li>
+    <li>Typing a street address in Personal info sends that text to an address-search service to suggest matches.</li>
+  </ul>
+</div>
+
+<h2>Who we are</h2>
+<p>WealthTrack is made by an independent developer, <span class="placeholder">[YOUR NAME OR BUSINESS NAME]</span> ("we", "us"). Questions about this policy: <span class="placeholder">[YOUR CONTACT EMAIL]</span>.</p>
+
+<h2>Information you enter</h2>
+<p>You type in the information WealthTrack works with: bills, payments, paychecks and income, expenses, debts, budgets, savings goals, account balances, notes, receipt photos, and optional personal info (name, email, mailing address, profile photo). This information is stored <b>only on your device</b>, in the app's private storage (the browser's IndexedDB storage). We don't receive it, and nobody else can read it unless you share a backup or export yourself.</p>
+<ul>
+  <li><b>PIN lock.</b> If you set a PIN, the data on your device is encrypted with AES-256-GCM using a key derived from your PIN. A forgotten PIN can't be recovered by us.</li>
+  <li><b>Fingerprint unlock</b> uses Android's built-in biometric prompt. WealthTrack never sees or stores your fingerprint.</li>
+  <li><b>Android cloud backup is turned off.</b> The app's data is excluded from Google's automatic Android backup and from phone-to-phone transfer.</li>
+</ul>
+
+<h2>When data leaves your device</h2>
+<p>Only in these cases, and only because you used the feature:</p>
+<table>
+  <tr><th>Feature</th><th>What is sent, and to whom</th></tr>
+  <tr><td><b>Google Drive backup</b> (Android, optional)</td><td>When you choose <i>Sign in with Google</i>, Google confirms your Google account and shares your email address with the app (shown in Settings). The app then saves one backup file, <code>WealthTrack-backup.json</code>, with all your WealthTrack data to <b>your own Google Drive</b>, and updates it automatically. It uses Google's <code>drive.file</code> permission, so it can only see files it created, not the rest of your Drive. This backup file is not encrypted by WealthTrack (it is protected by your Google account). We never receive it. Google's handling is covered by the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</td></tr>
+  <tr><td><b>Address suggestions</b> (Android, Settings → Personal info)</td><td>While you type a street address, the text you've typed is sent to the Photon address-search service at <code>photon.komoot.io</code> (run by komoot, using OpenStreetMap data) to suggest matching addresses. Like any web request, it includes your device's IP address and identifies the app as "WealthTrack" with its version number. Nothing else from your records is sent. You can skip this by not typing in that field.</td></tr>
+  <tr><td><b>WealthTrack Pro purchase</b> (Android, optional)</td><td>Purchases are handled entirely by Google Play. We never see your payment card or billing details. The app only checks with Google Play whether Pro has been bought on your Google account. Google's terms and privacy policy apply to the purchase.</td></tr>
+  <tr><td><b>Backups, exports and sharing you start</b></td><td>"Back up now" (optionally password-encrypted), Excel and CSV exports, and anything you share go only where you choose to save or send them.</td></tr>
+  <tr><td><b>Links</b></td><td>If you tap a web, email or phone link, it opens in your browser, email or phone app.</td></tr>
+</table>
+<p>Apart from these, the app's in-app screens make no network requests.</p>
+
+<h2>Device permissions</h2>
+<ul>
+  <li><b>Notifications</b>: bill reminders are scheduled on your phone. Reminders on the lock screen show a generic message, not bill names or amounts.</li>
+  <li><b>Run at startup</b>: puts your bill reminders back after the phone restarts or the app updates.</li>
+  <li><b>Biometric</b>: optional fingerprint unlock.</li>
+  <li><b>Internet</b>: only for Google Drive backup, address suggestions and Google Play purchases described above.</li>
+  <li><b>Camera and photos</b>: when you attach a receipt or profile photo, Android's own camera or photo picker opens. Only the photo you pick is saved, inside WealthTrack's data on your device.</li>
+  <li><b>Storage</b> (Android 9 and older only): saving exports to your Downloads folder.</li>
+</ul>
+
+<h2>What we don't do</h2>
+<p>WealthTrack contains no advertising, no analytics or crash-reporting tools, and no tracking. It doesn't use the Android Advertising ID, doesn't connect to banks, and doesn't sell, rent or share your information with anyone.</p>
+
+<h2>Keeping and deleting your data</h2>
+<ul>
+  <li><b>On your device:</b> Settings → Your data → <i>Erase all data</i>, or uninstall the app (Android) / clear the site's data (web).</li>
+  <li><b>Google Drive backup:</b> sign out in Settings, then delete <code>WealthTrack-backup.json</code> from your Google Drive. Remove the app's access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+  <li>Because we never receive your data, there is nothing stored with us to delete.</li>
+</ul>
+
+<h2>Children</h2>
+<p>WealthTrack is meant for adults managing their own money. It isn't directed at children under 13, and we don't knowingly collect information from them.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the new version will be posted on this page with a new effective date. Significant changes will also be noted in the app's release notes.</p>
+
+<h2>Contact</h2>
+<p><span class="placeholder">[YOUR CONTACT EMAIL]</span></p>
+</main>
+</body>
+</html>

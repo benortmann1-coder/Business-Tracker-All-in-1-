@@ -74,10 +74,10 @@ tasks.register('checkWebAssets') {
 preBuild.dependsOn 'checkWebAssets'
 
 dependencies {
-    implementation 'androidx.webkit:webkit:1.11.0'
-    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.webkit:webkit:1.18.0'
+    implementation 'androidx.core:core:1.17.0'
     // Sign in with Google -> Drive backup
-    implementation 'com.google.android.gms:play-services-auth:21.2.0'
+    implementation 'com.google.android.gms:play-services-auth:21.6.0'
     // keep every kotlin-stdlib-jdk7/jdk8 at one version (avoids duplicate-class build errors)
     implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
 }
