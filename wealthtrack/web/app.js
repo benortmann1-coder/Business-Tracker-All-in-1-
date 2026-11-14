@@ -2703,6 +2703,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   let remTimer = null;
   function scheduleReminders() {
     clearTimeout(remTimer);
+    if (window.WTWidget) WTWidget.schedule({ demo: DEMO.on, pin: !!S.key }); // home-screen widgets (Android)
     if (DEMO.on) return; // no reminders for demo bills
     remTimer = setTimeout(() => {
       const list = W.reminderList(today(), 45);
@@ -3188,7 +3189,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       if (!confirm('Erase all WealthTrack data on this device? This can\'t be undone.')) return;
       try { if (restore) localStorage.setItem('wt.restoreAfterReset', '1'); else localStorage.removeItem('wt.restoreAfterReset'); } catch (e) { /* ignore */ }
       if (Bridge && Bridge.biometricDisable) { try { Bridge.biometricDisable(); } catch (e) { /* ignore */ } }
-      await S.eraseAll(); location.reload();
+      if (window.WTWidget) WTWidget.clear(); await S.eraseAll(); location.reload();
     };
     page.on('reset-restore', () => go(true));
     page.on('reset-fresh', () => go(false));
@@ -3437,7 +3438,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     erase.onclick = async () => {
       if (!dumped && !confirm('You have not downloaded your data. Erase anyway?')) return;
       if (prompt('Type ERASE to delete all WealthTrack data on this device') !== 'ERASE') return;
-      try { await S.eraseAll(); location.reload(); } catch (err) { alert('Could not erase: ' + (err.message || err)); }
+      try { if (window.WTWidget) WTWidget.clear(); await S.eraseAll(); location.reload(); } catch (err) { alert('Could not erase: ' + (err.message || err)); }
     };
   }
   window.WTApp = { refresh, ui };

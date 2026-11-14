@@ -164,6 +164,21 @@ public class WebAppBridge {
         return Notifications.enabled(activity);
     }
 
+    // ---------- Home-screen widgets ----------
+
+    /** json: the snapshot built by web/widget.js (amounts already formatted). */
+    @JavascriptInterface
+    public void updateWidgets(String json) {
+        if (!activity.isTrustedPage()) return;
+        WidgetData.save(activity.getApplicationContext(), json);
+    }
+
+    @JavascriptInterface
+    public void clearWidgets() {
+        if (!activity.isTrustedPage()) return;
+        WidgetData.clear(activity.getApplicationContext());
+    }
+
     // ---- Fingerprint unlock ----
 
     @JavascriptInterface

@@ -55,6 +55,7 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
   - JSON backup, optionally encrypted with a password; restore asks before replacing anything.
   - Optional PIN lock that encrypts data on the device with AES-256-GCM.
   - Android bill reminders work even when the app is closed.
+  - **Home-screen widgets (Android, Pro):** a small "money left + next bill" widget and an "upcoming bills" list. They show only what the app last sent (web/widget.js → WidgetData.java); with the PIN lock on they show no amounts.
 
 ### Not double counting
 
