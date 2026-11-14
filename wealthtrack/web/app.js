@@ -17,6 +17,9 @@
   // Pro (paid features): see web/pro.js. Unlocked everywhere except the Google Play build.
   const PRO = window.WTPro.create(Bridge);
   const isPro = () => PRO.isPro();
+  // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
+  window.WT_isPro = isPro;
+  window.WT_proDialog = f => proDialog(f);
   const APP_VERSION = '1.5.6'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
@@ -2461,6 +2464,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         (AUTH.bio() !== 'none' ? srow('Fingerprint', AUTH.bio() === 'enabled' ? '<span class="pos">On</span>. Unlock with a touch.' : 'Unlock with your fingerprint instead of typing your PIN.', AUTH.bio() === 'enabled' ? `<button class="btn sm" data-act="bioOff">Turn off</button>` : `<button class="btn sm" data-act="bioOn" ${lockOn ? '' : 'disabled'}>Turn on</button>`) : '') || '<div class="set-row"><div class="set-k muted">Nothing to set here.</div></div>'),
       theme: () => group('look', 'App theme', 'Colors and what the dashboard shows.',
         srow('Theme', s.theme === 'seasonal' ? 'Colors change with the month: icy blue in January, evergreen in December. Follows your phone\'s light or dark mode.' : s.theme === 'random' ? 'Each month gets a different color, never the same twice in a year. Follows your phone\'s light or dark mode.' : 'System follows your phone or computer. Seasonal and Random color the app by month.', `<div class="theme-pick"><div class="seg boxed">${[['system', 'System'], ['light', 'Light'], ['blue', 'Soft blue'], ['dark', 'Dark']].map(([k, l]) => `<button class="${s.theme === k ? 'on' : ''}" data-act="theme" data-v="${k}">${l}</button>`).join('')}</div><div class="seg boxed">${[['seasonal', 'Seasonal'], ['random', 'Random monthly']].map(([k, l]) => `<button class="${s.theme === k ? 'on' : ''}" data-act="theme" data-v="${k}"><i class="swatch ${k}"></i>${l}</button>`).join('')}</div>${s.theme === 'random' ? `<button class="btn sm" data-act="shuffleMonthColors">${ic('repeat')}Shuffle colors</button>` : ''}</div>`) +
+        paletteRow(s, srow) +
         `<div class="set-row col"><div class="set-k"><div>Dashboard sections</div><div class="tiny muted">Turn sections on or off and set their order.</div></div><div class="widget-list">${order.map((k, idx) => `<div class="widget-row"><label class="check grow"><input type="checkbox" data-act-change="widgetToggle" data-k="${k}" ${dash.hidden.includes(k) ? '' : 'checked'}> ${WIDGETS[k].name}</label><button class="btn sm icon ghost" data-act="widgetMove" data-k="${k}" data-n="-1" ${idx === 0 ? 'disabled' : ''} aria-label="Move up">${ic('up')}</button><button class="btn sm icon ghost" data-act="widgetMove" data-k="${k}" data-n="1" ${idx === order.length - 1 ? 'disabled' : ''} aria-label="Move down">${ic('down')}</button></div>`).join('')}</div></div>`),
       notifications: () => group('reminders', 'Notifications', Bridge ? 'Scheduled on your phone, even when the app is closed.' : 'Shown while WealthTrack is open. The Android app can remind you in the background.',
         srow('Bill reminders', 'Auto-pay bills are skipped. They pay themselves.', `<label class="switch"><input type="checkbox" data-act-change="remEnabled" ${r.enabled ? 'checked' : ''}><span></span></label>`) +
@@ -2877,6 +2881,13 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     gdRestore: () => { if (!GD.supported()) return; toast('Getting your backup from Google Drive…'); Bridge.googleRestore(); },
     gdOff: async () => { if (await confirmBox('Turn off Google Drive backup?', 'New changes stop being backed up. The backup already in your Drive stays there. To remove WealthTrack\'s access completely, go to myaccount.google.com/permissions.', 'Turn off', true)) { W.saveSettings({ gdrive: { on: false, email: '' } }); GD.setState({ needsSignIn: false, err: '', offline: false }); toast('Google Drive backup is off'); refresh(); } },
     theme: d => { if (!['system', 'light', 'blue', 'dark', 'seasonal', 'random'].includes(d.v)) return; W.saveSettings({ theme: d.v }); applyTheme(); refresh(); },
+    palette: d => {
+      const TH = window.WTThemes; if (!TH || !TH.valid(d.v)) return;
+      if (d.v !== 'default' && !TH.themesPro()) { if (typeof window.WT_proDialog === 'function') window.WT_proDialog('themes'); else toast('Color themes are part of WealthTrack Pro'); return; }
+      const patch = { palette: d.v };
+      if (d.v !== 'default' && !TH.PALETTE_MODES.includes(W.settings().theme || 'system')) patch.theme = 'system';
+      W.saveSettings(patch); applyTheme(); refresh();
+    },
     shuffleMonthColors: () => { W.saveSettings({ monthColorSeed: 1 + Math.floor(Math.random() * 2147483646) }); toast('Month colors shuffled'); refresh(); },
     widgetMove: d => { const s = W.settings().dashboard; const order = s.order.filter(k => WIDGETS[k]).concat(Object.keys(WIDGETS).filter(k => !s.order.includes(k))); const i = order.indexOf(d.k), j = i + +d.n; if (j < 0 || j >= order.length) return; [order[i], order[j]] = [order[j], order[i]]; W.saveSettings({ dashboard: { order, hidden: s.hidden } }); refresh(); },
     customizeDash: () => go('settings'),
@@ -3132,15 +3143,29 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     window.onAndroidBack = () => { if (closeMenu.fn) { closeMenu(); return true; } if (modalStack.length) { modalStack[modalStack.length - 1](); return true; } if (ui.route !== 'dashboard') { go('dashboard'); return true; } return false; };
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener && window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   }
-  function applyTheme() {
-    const t = W.settings().theme;
-    try { localStorage.setItem('wt.theme', t || 'system'); } catch (e) { /* storage blocked */ }
-    applyThemeValue(t);
+  // Color themes (web/themes.js). Palettes sit on top of System, Light or Dark.
+  function paletteRow(s, srow) {
+    const TH = window.WTThemes; if (!TH) return '';
+    const cur = TH.valid(s.palette) ? s.palette : 'default', pro = TH.themesPro();
+    const onTop = TH.PALETTE_MODES.includes(s.theme || 'system');
+    const btns = TH.IDS.map(id => { const p = TH.PALETTES[id]; const locked = id !== 'default' && !pro;
+      return `<button type="button" class="pal-btn${cur === id && onTop ? ' on' : ''}" data-act="palette" data-v="${id}" aria-pressed="${cur === id && onTop}" aria-label="${esc(p.name)}${locked ? ' (Pro)' : ''}"><span class="pal-sw" style="background:${p.swatch[1]}"><i style="background:${p.swatch[0]}"></i></span><span class="pal-n">${esc(p.name)}</span>${locked ? ic('lock', 'pal-lock') : ''}</button>`; }).join('');
+    const hint = (onTop ? 'Recolors the app. Works with System, Light and Dark.' : 'Choosing one switches Theme back to System.') + (pro ? '' : ' Color themes are part of WealthTrack Pro.');
+    return `<div class="set-row col"><div class="set-k"><div>Color theme</div><div class="tiny muted">${hint}</div></div><div class="pal-grid">${btns}</div></div>`;
   }
-  function applyThemeValue(t) {
+  function applyTheme() {
+    const t = W.settings().theme, pal = W.settings().palette || 'default';
+    try { localStorage.setItem('wt.theme', t || 'system'); localStorage.setItem('wt.palette', pal); } catch (e) { /* storage blocked */ }
+    applyThemeValue(t, pal);
+  }
+  function applyThemeValue(t, pal) {
     if (t === 'light' || t === 'dark' || t === 'blue' || t === 'seasonal' || t === 'random') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
     const dark = t === 'dark' || ((t === 'system' || t === 'seasonal' || t === 'random') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    let m = $('meta[name=theme-color]'); if (m) m.setAttribute('content', dark ? '#0b1020' : t === 'blue' ? '#e8eff7' : '#f4f6fb');
+    const TH = window.WTThemes; const p = TH ? TH.effective(pal, t || 'system', TH.themesPro()) : 'default';
+    if (p !== 'default') document.documentElement.setAttribute('data-palette', p); else document.documentElement.removeAttribute('data-palette');
+    const bar = (p !== 'default' && TH.barColor(p, dark)) || (dark ? '#0f1412' : t === 'blue' ? '#e8eff7' : '#f6f5f1');
+    let m = $('meta[name=theme-color]'); if (m) m.setAttribute('content', bar);
+    if (Bridge && typeof Bridge.setSystemBars === 'function') { try { Bridge.setSystemBars(bar, !!dark); } catch (e) { /* older app */ } }
   }
 
   const VIEWS = { dashboard: viewDashboard, bills: viewBills, paychecks: viewPaychecks, calendar: viewCalendar, expenses: viewExpenses, debts: viewDebts, smart: viewSmart, progress: viewProgress, goals: viewGoals, reports: viewReports, history: viewHistory, settings: viewSettings };
@@ -3423,7 +3448,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   async function boot() {
     try {
       await S.open(W.COLLS);
-      try { applyThemeValue(localStorage.getItem('wt.theme') || 'system'); } catch (e) { /* storage blocked */ }
+      try { applyThemeValue(localStorage.getItem('wt.theme') || 'system', localStorage.getItem('wt.palette') || 'default'); } catch (e) { /* storage blocked */ }
       if (await S.lockInfo()) { unlockFlow.greetFirst = await S.greetName(); await unlockFlow(); }
       const empty = await S.isEmpty();
       const data = empty ? null : await S.loadAll();
@@ -3449,7 +3474,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         WTSeed.seed(W, { blank: true }); WTDemo.load(W);
         // device/account choices made while the demo is showing (sign-in, guest, PIN-free choice, name, theme...)
         // are real: save them to the real settings too. Budget and plan settings stay demo-only.
-        const DEVICE_KEYS = ['guest', 'account', 'gdrive', 'profile', 'theme', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange', 'sbSection'];
+        const DEVICE_KEYS = ['guest', 'account', 'gdrive', 'profile', 'theme', 'palette', 'monthColors', 'monthColorSeed', 'currency', 'dateFormat', 'reminders', 'dueSoonDays', 'achievementsNotify', 'tips', 'billView', 'upRange', 'sbSection'];
         const demoSave = W.saveSettings;
         W.saveSettings = patch => {
           demoSave(patch);

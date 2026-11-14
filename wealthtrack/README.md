@@ -49,6 +49,7 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
 - **Calendar.** Shows bills, paychecks and payments. Tap a day to view, add or pay bills. Drag a bill to another day to move it for that month only.
 - **Savings goals.** Shows progress and projected finish date. Contributions are transfers between your own accounts, not spending.
 - **Reports and History.** Month-to-month comparison, 12-month trends, debt trend, yearly table, and a searchable list of every transaction.
+- **Color themes (Pro).** Ocean, Plum, Slate, Espresso and High contrast, each in light and dark, on top of System / Light / Dark (Settings → App theme). Every theme passes WCAG AA contrast (`tests/themes.test.js`); the Android status and navigation bars follow the theme.
 - **Data.**
   - Stored in IndexedDB on your device.
   - Export to Excel (.xlsx, several sheets) and CSV.

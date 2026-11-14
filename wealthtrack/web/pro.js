@@ -20,6 +20,9 @@
     ['export', 'Excel and CSV export', 'Every bill, payment, purchase and paycheck in a spreadsheet.'],
     ['payoff', 'Debt payoff planner', 'Snowball vs. avalanche, your debt-free date and the interest you save.'],
     ['smart', 'Smart Budget', 'A paycheck-by-paycheck plan for needs, debt, savings and fun money.'],
+    ['reminders', 'Custom bill reminders', 'Pick how many days ahead and what time, per bill, plus daily nudges while a bill is overdue.'],
+    ['widgets', 'Home-screen widgets', 'What\'s left after bills and your next bills, right on your home screen.'],
+    ['themes', 'Color themes', 'Ocean, Plum, Slate, Espresso and High contrast, in light and dark.'],
   ];
   const ROUTES = ['reports', 'smart']; // whole pages that need Pro
   const FREE_ALWAYS = ['backup', 'restore', 'driveRestore']; // getting your data out is never locked
