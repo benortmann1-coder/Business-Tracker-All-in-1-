@@ -215,6 +215,13 @@ public class WebAppBridge {
         return activity.address.take(seq);
     }
 
+    /** Theme colors for the system bars: only a #rrggbb color and a light/dark flag are accepted. */
+    @JavascriptInterface
+    public void setSystemBars(String hex, boolean dark) {
+        if (!activity.isTrustedPage() || hex == null || !hex.matches("^#[0-9a-fA-F]{6}$")) return;
+        activity.applySystemBars(android.graphics.Color.parseColor(hex), dark);
+    }
+
     @JavascriptInterface
     public boolean googleDriveSupported() { return true; }
 

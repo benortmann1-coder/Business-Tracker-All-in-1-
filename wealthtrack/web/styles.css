@@ -779,6 +779,15 @@ body[data-month] {
 }
 .theme-pick { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .theme-pick .seg button { display: inline-flex; align-items: center; gap: 6px; }
+/* color theme picker (web/themes.js) */
+.pal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; width: 100%; }
+.pal-btn { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); cursor: pointer; text-align: left; font-size: 13px; }
+.pal-btn.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); font-weight: 600; }
+.pal-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.pal-sw { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line-2); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.pal-sw i { width: 12px; height: 12px; border-radius: 50%; }
+.pal-n { flex: 1; min-width: 0; }
+.pal-lock { width: 14px; height: 14px; color: var(--ink-3); flex: none; }
 .swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 .swatch.seasonal { background: conic-gradient(#3b82c4 0 25%, #2f9e55 0 50%, #d9a400 0 75%, #e07a1f 0); }
 .swatch.random { background: conic-gradient(#d14d7a 0 20%, #1aa38a 0 40%, #8b6fd1 0 60%, #e5603f 0 80%, #8a9a2b 0); }

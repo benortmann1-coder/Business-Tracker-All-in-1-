@@ -26,6 +26,8 @@ import androidx.annotation.NonNull;
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewAssetLoader;
@@ -58,9 +60,20 @@ public class MainActivity extends Activity {
     private WebView webView;
     /** Host of the page currently shown; the JS bridge only answers when this is the bundled app. */
     private volatile String currentHost = null;
+    private FrameLayout rootView;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri cameraOutputUri;
     private File cameraOutputFile;
+
+    /** Color the area behind the status and navigation bars to match the app's theme. */
+    void applySystemBars(int color, boolean dark) {
+        runOnUiThread(() -> {
+            if (rootView != null) rootView.setBackgroundColor(color);
+            WindowInsetsControllerCompat c = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+            c.setAppearanceLightStatusBars(!dark);
+            c.setAppearanceLightNavigationBars(!dark);
+        });
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -73,6 +86,7 @@ public class MainActivity extends Activity {
         // Android 15+ draws apps edge to edge: keep the page clear of the status bar, navigation bar,
         // display cutout and keyboard by padding a container (its background shows behind the bars).
         FrameLayout root = new FrameLayout(this);
+        rootView = root;
         root.setBackgroundColor(getResources().getColor(R.color.bg, getTheme()));
         root.addView(webView);
         setContentView(root);

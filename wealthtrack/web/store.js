@@ -300,6 +300,7 @@
       const keep = { id: 'settings' };
       if (['system', 'light', 'blue', 'dark', 'seasonal', 'random'].includes(m.theme)) keep.theme = m.theme;
       if (['seasonal', 'random', 'off'].includes(m.monthColors)) keep.monthColors = m.monthColors;
+      if (['default', 'ocean', 'plum', 'slate', 'espresso', 'contrast'].includes(m.palette)) keep.palette = m.palette; // ids from web/themes.js only, never CSS
       if (m.account && typeof m.account === 'object' && typeof m.account.email === 'string') keep.account = { email: m.account.email.slice(0, 200) };
       if (m.guest === true) keep.guest = true;
       if (m.profile && typeof m.profile === 'object') {
