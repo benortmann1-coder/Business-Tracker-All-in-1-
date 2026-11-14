@@ -14,8 +14,8 @@ android {
         applicationId 'com.wealthtrack.app'
         minSdk 24
         targetSdk 36
-        versionCode 33
-        versionName '1.5.6'
+        versionCode 34
+        versionName '1.6.0'
         // WealthTrack Pro is only enforced in the Google Play build: ./gradlew bundleRelease -PplayBuild=true
         // Sideloaded APKs (Drive upload) and the browser version keep every feature unlocked,
         // because Play Billing only works for apps installed from Google Play.

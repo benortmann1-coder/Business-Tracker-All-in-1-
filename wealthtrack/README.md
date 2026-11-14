@@ -57,9 +57,10 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
   - Optional PIN lock that encrypts data on the device with AES-256-GCM.
   - Android bill reminders work even when the app is closed.
   - **Home-screen widgets (Android, Pro):** a small "money left + next bill" widget and an "upcoming bills" list. They show only what the app last sent (web/widget.js → WidgetData.java); with the PIN lock on they show no amounts.
+  - **Custom reminders (Pro):** lead days from 2 weeks to the day of, any time in 15-minute steps, a daily reminder for up to 2 weeks while a bill is overdue, and per-bill rules (Edit bill → Reminders: your settings, custom, or none). Free keeps the standard choices.
 
 - **WealthTrack Pro** (one-time Google Play purchase, product ID `wealthtrack_pro`).
-  - Pro adds: automatic Google Drive backup, Reports, Excel/CSV export, the debt payoff planner and Smart Budget. Bills, paychecks, expenses, debts, goals, calendar, history and file backup/restore stay free.
+  - Pro adds: automatic Google Drive backup, Reports, Excel/CSV export, the debt payoff planner, Smart Budget, custom reminders, home-screen widgets and color themes. Bills, paychecks, expenses, debts, goals, calendar, history and file backup/restore stay free.
   - Locked features never hide or delete data. Restoring an existing Drive backup is always free.
   - Only the Google Play build enforces Pro (`./gradlew bundleRelease -PplayBuild=true`, which CI uses for the `.aab`). The Drive APK and the browser version have everything unlocked, because Play Billing only works for apps installed from Google Play.
   - Code: `web/pro.js` (the single `isPro()` answer), `android/.../ProBilling.java` (Play Billing Library 8). Settings → WealthTrack Pro has Upgrade and Restore purchase.

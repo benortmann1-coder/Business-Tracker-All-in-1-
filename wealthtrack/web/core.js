@@ -256,7 +256,7 @@
   function defaultSettings() {
     return {
       id: 'settings', schema: 1, theme: 'system', currencySymbol: '$',
-      reminders: { enabled: true, daysBefore: [3, 1, 0], hour: 9 },
+      reminders: { enabled: true, daysBefore: [3, 1, 0], hour: 9, minute: 0, overdueDaily: false },
       dashboard: { order: ['summary', 'available', 'upcoming', 'overdue', 'nextcheck', 'progress', 'charts', 'projection', 'debt', 'budgets', 'goals'], hidden: [] },
       setAsides: [], projectionIncludesSetAsides: true, dueSoonDays: 7, createdAt: todayStr(),
       generatedThrough: null, lock: null,
@@ -324,6 +324,7 @@
       payFrom: f.payFrom || 'auto', subscription: !!f.subscription, autopay: f.autopay != null ? !!f.autopay : !!f.subscription, deleted: false, createdAt: todayStr(),
       versions: [{ from: f.anchor, anchor: f.anchor, amountCents: f.amountCents, frequency: f.frequency || 'monthly', interval: f.interval || 1, unit: f.unit || 'month', eom: !!f.eom }],
     };
+    { const rr = WT.cleanReminderRule(f.reminder); if (rr) t.reminder = rr; }
     if (t.versions[0].frequency === 'once') t.endDate = f.anchor;
     save('templates', t);
     WT.ensureGenerated(maxMonth(addMonthKey(monthOf(todayStr()), 1), monthOf(f.anchor)));
@@ -392,6 +393,7 @@
     const wasAuto = t.autopay != null ? !!t.autopay : !!t.subscription;
     if (ch.autopay !== undefined && !!ch.autopay !== wasAuto) { if (ch.autopay) t.autopaySince = todayStr(); else delete t.autopaySince; }
     ['name', 'category', 'method', 'accountId', 'notes', 'debtId', 'payFrom', 'subscription', 'autopay'].forEach(k => { if (ch[k] !== undefined) t[k] = k === 'name' ? ch[k].trim() : ch[k]; });
+    if (ch.reminder !== undefined) { const rr = WT.cleanReminderRule(ch.reminder); if (rr) t.reminder = rr; else delete t.reminder; }
     const cur = ruleAt(t, from);
     const sched = { amountCents: ch.amountCents ?? cur.amountCents, frequency: ch.frequency || cur.frequency, interval: ch.interval ?? cur.interval, unit: ch.unit || cur.unit, anchor: ch.anchor || cur.anchor, eom: ch.eom !== undefined ? !!ch.eom : !!cur.eom };
     const schedChanged = ['amountCents', 'frequency', 'interval', 'unit', 'anchor'].some(k => String(sched[k]) !== String(cur[k])) || sched.eom !== !!cur.eom;
@@ -966,17 +968,54 @@
   };
 
   // ---------------------------------------------------------------- reminders
+  // PRO-GATE: custom reminders (per-bill overrides, minutes, extra lead days, daily overdue reminders) are Pro.
+  // Wired to the real entitlement at merge; until then everything is unlocked.
+  WT.remindersPro = () => (typeof WT_isPro === 'function' ? !!WT_isPro() : true);
+  const REM_FREE_DAYS = [7, 3, 1, 0];
+  const REM_MINUTES = [0, 15, 30, 45];
+  const remDays = (a, allowed) => Array.from(new Set((Array.isArray(a) ? a : []).filter(d => Number.isInteger(d) && d >= 0 && d <= 30 && (!allowed || allowed.includes(d))))).sort((x, y) => y - x);
+  const remHour = h => (Number.isInteger(h) && h >= 0 && h < 24 ? h : 9);
+  const remMinute = m => (REM_MINUTES.includes(m) ? m : 0);
+  // a bill's own reminder rule: {mode:'default'} | {mode:'off'} | {mode:'custom', daysBefore, hour, minute}
+  WT.cleanReminderRule = function (r) {
+    if (!r || typeof r !== 'object' || !['custom', 'off'].includes(r.mode)) return null;
+    if (r.mode === 'off') return { mode: 'off' };
+    return { mode: 'custom', daysBefore: remDays(r.daysBefore), hour: remHour(r.hour), minute: remMinute(r.minute) };
+  };
+  // Pure: which reminders a bill gets. g = settings.reminders, rule = template.reminder, pro = has Pro.
+  // Returns null for none, else {daysBefore, hour, minute, overdueDaily}.
+  WT.reminderPlan = function (g, rule, pro) {
+    if (!g || !g.enabled) return null;
+    const base = { daysBefore: remDays(g.daysBefore, pro ? null : REM_FREE_DAYS), hour: remHour(g.hour), minute: pro ? remMinute(g.minute) : 0, overdueDaily: !!(pro && g.overdueDaily) };
+    if (!g.daysBefore) base.daysBefore = [1];
+    const r = pro ? WT.cleanReminderRule(rule) : null;
+    if (r && r.mode === 'off') return null;
+    if (r && r.mode === 'custom') { base.daysBefore = r.daysBefore; base.hour = r.hour; base.minute = r.minute; }
+    return base.daysBefore.length || base.overdueDaily ? base : null;
+  };
+  const OVERDUE_DAYS = 14; // daily overdue reminders run for at most two weeks past the due date
   WT.reminderList = function (today, horizonDays) {
-    const s = WT.settings().reminders; if (!s || !s.enabled) return [];
-    today = today || todayStr(); const out = [];
-    for (const i of WT.instancesBetween(today, addDays(today, horizonDays || 45))) {
+    const g = WT.settings().reminders; if (!g || !g.enabled) return [];
+    today = today || todayStr(); const out = []; const pro = WT.remindersPro();
+    const end = addDays(today, horizonDays || 45);
+    const from = g.overdueDaily && pro ? addDays(today, -OVERDUE_DAYS) : today;
+    for (const i of WT.instancesBetween(from, end)) {
+      const t = WT.D.templates[i.templateId];
+      if (t && (t.deleted || t.status === 'cancelled' || t.status === 'deleted' || inPause(t, i.dueDate))) continue;
       const st = WT.instStatus(i, today); if (st.remaining <= 0 || i.skipped || WT.isAutopay(i)) continue;
-      for (const db of s.daysBefore || [1]) {
+      const plan = WT.reminderPlan(g, t && t.reminder, pro); if (!plan) continue;
+      const body = fmt(st.remaining) + ' due ' + dateLabel(i.dueDate);
+      for (const db of plan.daysBefore) {
         const d = addDays(i.dueDate, -db); if (d < today) continue;
-        out.push({ id: i.id + '@' + db, date: d, hour: s.hour ?? 9, title: db === 0 ? i.name + ' is due today' : i.name + ' due in ' + db + ' day' + (db > 1 ? 's' : ''), body: fmt(st.remaining) + ' due ' + dateLabel(i.dueDate) });
+        out.push({ id: i.id + '@' + db, date: d, hour: plan.hour, minute: plan.minute, title: db === 0 ? i.name + ' is due today' : i.name + ' due in ' + db + ' day' + (db > 1 ? 's' : ''), body });
+      }
+      if (plan.overdueDaily) for (let k = 1; k <= OVERDUE_DAYS; k++) {
+        const d = addDays(i.dueDate, k); if (d < today) continue; if (d > end) break;
+        out.push({ id: i.id + '@od' + k, date: d, hour: plan.hour, minute: plan.minute, title: i.name + ' is overdue', body: fmt(st.remaining) + ' was due ' + dateLabel(i.dueDate) });
       }
     }
-    return out;
+    // soonest first, so the phone's alarm cap keeps the nearest reminders
+    return out.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute));
   };
 
   // ---------------------------------------------------------------- unified transaction history

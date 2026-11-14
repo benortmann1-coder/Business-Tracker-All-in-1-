@@ -264,7 +264,14 @@
         ((t.removedKeys = Array.isArray(t.removedKeys) ? t.removedKeys.filter(k => typeof k === 'string' && DATE.test(k)) : []), true) &&
         ((t.status = ['active', 'paused', 'cancelled', 'deleted'].includes(t.status) ? t.status : 'active'), true) &&
         ((t.payFrom = t.payFrom === 'auto' || isRef(t.payFrom) ? t.payFrom : 'auto'), true) &&
-        str(t, 'category', 100) && str(t, 'method', 100) && str(t, 'notes', 5000) && bool(t, 'deleted') && bool(t, 'subscription') && ((delete t.payEarly, delete t.payOn), true),
+        str(t, 'category', 100) && str(t, 'method', 100) && str(t, 'notes', 5000) && bool(t, 'deleted') && bool(t, 'subscription') && ((delete t.payEarly, delete t.payOn), true) &&
+        (() => { // per-bill reminder rule (core.js WT.cleanReminderRule)
+          const r = t.reminder;
+          if (r && typeof r === 'object' && r.mode === 'off') t.reminder = { mode: 'off' };
+          else if (r && typeof r === 'object' && r.mode === 'custom') t.reminder = { mode: 'custom', daysBefore: Array.from(new Set((Array.isArray(r.daysBefore) ? r.daysBefore : []).filter(d => Number.isInteger(d) && d >= 0 && d <= 30))).sort((a, b) => b - a), hour: Number.isInteger(r.hour) && r.hour >= 0 && r.hour < 24 ? r.hour : 9, minute: [0, 15, 30, 45].includes(r.minute) ? r.minute : 0 };
+          else delete t.reminder;
+          return true;
+        })(),
       instances: i => ref(i, 'templateId', true) && date(i, 'periodKey', true) && date(i, 'dueDate', true) && int(i, 'amountCents', true) && str(i, 'name', 200, true) &&
         ((i.periodMonth = i.periodKey.slice(0, 7)), true) &&
         ((i.custom = i.custom && typeof i.custom === 'object' && !Array.isArray(i.custom) ? { amount: !!i.custom.amount, due: !!i.custom.due, note: !!i.custom.note } : {}), true) &&
@@ -324,7 +331,7 @@
       else if (['mdy', 'dmy', 'mdy_long', 'mdy_num', 'dmy_num', 'dmy_dot', 'ymd'].includes(m.dateFormat)) keep.dateFormat = m.dateFormat;
       if (m.gdrive && typeof m.gdrive === 'object') keep.gdrive = { on: !!m.gdrive.on, email: typeof m.gdrive.email === 'string' ? m.gdrive.email.slice(0, 200) : '' };
       if (Number.isInteger(m.monthColorSeed) && m.monthColorSeed > 0 && m.monthColorSeed < 2147483648) keep.monthColorSeed = m.monthColorSeed;
-      if (m.reminders && typeof m.reminders === 'object') keep.reminders = { enabled: !!m.reminders.enabled, daysBefore: Array.isArray(m.reminders.daysBefore) ? m.reminders.daysBefore.filter(d => Number.isInteger(d) && d >= 0 && d <= 30) : [3, 1, 0], hour: Number.isInteger(m.reminders.hour) && m.reminders.hour >= 0 && m.reminders.hour < 24 ? m.reminders.hour : 9 };
+      if (m.reminders && typeof m.reminders === 'object') keep.reminders = { enabled: !!m.reminders.enabled, daysBefore: Array.isArray(m.reminders.daysBefore) ? m.reminders.daysBefore.filter(d => Number.isInteger(d) && d >= 0 && d <= 30) : [3, 1, 0], hour: Number.isInteger(m.reminders.hour) && m.reminders.hour >= 0 && m.reminders.hour < 24 ? m.reminders.hour : 9, minute: [0, 15, 30, 45].includes(m.reminders.minute) ? m.reminders.minute : 0, overdueDaily: !!m.reminders.overdueDaily };
       if (m.dashboard && Array.isArray(m.dashboard.order) && Array.isArray(m.dashboard.hidden)) {
         const ok = k => typeof k === 'string' && /^[a-z]{1,20}$/.test(k);
         keep.dashboard = { order: m.dashboard.order.filter(ok), hidden: m.dashboard.hidden.filter(ok) };

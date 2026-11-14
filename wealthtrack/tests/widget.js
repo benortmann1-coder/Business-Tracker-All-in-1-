@@ -24,7 +24,7 @@ const fakeBridge = () => {
   const mk = async (sample, pro) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await ctx.addInitScript(fakeBridge);
-    if (pro === false) await ctx.addInitScript(() => { window.WT_isPro = () => false; });
+    if (pro === false) await ctx.addInitScript(() => { Object.defineProperty(window, 'WT_isPro', { configurable: true, get: () => () => false, set: () => {} }); }); // app.js sets WT_isPro at load; keep the test's answer
     if (sample) await ctx.addInitScript({ path: SAMPLE });
     const page = await ctx.newPage(); page.on('pageerror', e => errors.push(e.message));
     await page.goto(FILE); await page.waitForFunction(() => window.__wtReady);
