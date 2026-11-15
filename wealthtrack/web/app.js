@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.6.3'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.7.0'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -111,12 +111,15 @@
     const viewedMonth = ui.route === 'bills' && billsTabOf() === 'upcoming' && upRangeOf() === 'month' && /^\d{4}-\d{2}$/.test(ui.month || '') ? ui.month : curMonth();
     const monthTint = monthColorSlot(viewedMonth);
     if (monthTint) document.body.dataset.month = monthTint; else delete document.body.dataset.month;
+    document.body.dataset.route = ui.route;
     const oc = $('#navOverdue'); if (oc) { const n = W.overdue().length; oc.textContent = n ? n : ''; oc.title = n ? n + ' overdue' : ''; }
     $$('[data-nav-btn]').forEach(b => b.classList.toggle('active', b.dataset.navBtn === ui.route || (b.dataset.navBtn === 'more' && !MOBILE.includes(ui.route))));
     const y = window.scrollY;
     const piFocus = piKeepFocus(); // Personal info: save pending typing first, keep the cursor where it was
     try { main.innerHTML = demoBar() + (PRO.routeLocked(ui.route) ? proPage(ui.route) : (VIEWS[ui.route] || VIEWS.dashboard)()); }
     catch (e) { console.error(e); main.innerHTML = `<div class="card"><h3>Something went wrong</h3><p class="muted">${esc(e.message)}</p></div>`; }
+    decorate(main);
+    if (!render.obs && typeof MutationObserver === 'function') { render.obs = new MutationObserver(() => { clearTimeout(render.obsT); render.obsT = setTimeout(() => decorate(main), 0); }); render.obs.observe(main, { childList: true, subtree: true }); }
     // quick access to Settings, top right of every page
     const tb = main.querySelector('.topbar');
     if (tb && !tb.querySelector('.quick-set')) tb.insertAdjacentHTML('beforeend', `<button class="btn icon quick-set" data-nav-go="settings" aria-label="Settings" title="Settings">${ic('gear')}</button>`);
@@ -369,6 +372,34 @@
     return `<div class="card stat"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div>${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
   }
   const fig = (label, value, hint, cls) => `<div class="fig"><span class="eyebrow">${label}</span><div class="v ${cls || ''}">${value}</div>${hint ? `<div class="h">${hint}</div>` : ''}</div>`;
+  // Section headers get a small icon chip in the color of their money area (bills, debt, savings…).
+  // Done on the page after it's drawn, so every screen and add-on gets the same treatment.
+  const TONES = [
+    [/overdue|still unpaid/i, 'over', 'alert'], [/net worth|milestone|progress/i, 'worth', 'trend'], [/tip/i, 'goals', 'star'],
+    [/paycheck|income|job|bonus/i, 'income', 'wallet'], [/debt|payoff|loan|credit card/i, 'debt', 'card'],
+    [/saving|goal|emergency/i, 'savings', 'target'], [/coming up|bill|subscription/i, 'bills', 'bills'],
+    [/where it went|by category|spend|expense|purchase|ledger/i, 'spend', 'pie'],
+    [/budget|plan|strateg|suggest|customi|recommend|compare|section/i, 'budget', 'sliders'],
+    [/cash|forecast|month|report/i, 'worth', 'chart'], [/account/i, 'income', 'wallet'], [/history/i, 'neutral', 'clock'], [/notification|reminder/i, 'neutral', 'bell'],
+  ];
+  function decorate(root) {
+    (root || document).querySelectorAll('.section-h > h2:not([data-tone]), .card-h > h3:not([data-tone]), .hm-sec > h2:not([data-tone])').forEach(h => {
+      const t = TONES.find(x => x[0].test(h.textContent || ''));
+      h.dataset.tone = t ? t[1] : 'neutral';
+      if (h.closest('.modal')) return;
+      const chip = document.createElement('span'); chip.className = 'sec-ic'; chip.setAttribute('aria-hidden', 'true'); chip.innerHTML = ic(t ? t[2] : 'list');
+      h.insertBefore(chip, h.firstChild);
+    });
+    (root || document).querySelectorAll('.fig:not([data-tone]):not([data-toneless])').forEach(f => {
+      const e = f.querySelector('.eyebrow'); const t = e && FIG_TONES.find(x => x[0].test(e.textContent || ''));
+      f.dataset.tone = t ? t[1] : '';
+      if (!t) f.removeAttribute('data-tone'), f.dataset.toneless = '1';
+    });
+  }
+  const FIG_TONES = [
+    [/overdue|unpaid|left to pay|short/i, 'over'], [/income|paycheck|coming|received|take-home/i, 'income'], [/debt|owed|minimum|utilization|interest|card payment/i, 'debt'],
+    [/bill|due|living|essential/i, 'bills'], [/spen|purchase|biggest|categor/i, 'spend'], [/saving|goal|free|left|available|projected/i, 'savings'], [/budget|plan/i, 'budget'], [/net worth|asset/i, 'worth'],
+  ];
   const sectionH = (title, meta, link) => `<div class="section-h"><h2>${title}</h2>${link ? `<a ${link}>${meta}</a>` : meta ? `<span class="meta">${meta}</span>` : ''}</div>`;
   // where each widget lives: summary spans the page; main = left column, side = right column
   const WIDGETS = {
@@ -390,22 +421,23 @@
     const acc = W.D.accounts.acc_checking;
     const nxt = W.nextPaycheck(W.addDays(today(), 1));
     const debt = W.totalDebt();
-    return `${acc && acc.needsBalance ? `<div class="callout blue" style="margin-bottom:18px">${ic('wallet')}<div class="grow"><b>What's in checking right now?</b> Your available balance and forecast start at ${fmt(0)} until you enter it.</div><button class="btn sm primary" data-act="setBalance" data-id="acc_checking">Enter balance</button></div>` : ''}
-    <div class="summary">
-      <div>
-        <span class="eyebrow">Left after ${W.monthLabel(mk).split(' ')[0]} bills</span>
-        <div class="big ${left < 0 ? 'neg' : ''}">${fmt(left)}</div>
-        <div class="sentence"><b>${fmt(sm.income.total)}</b> coming in, <b>${fmt(sm.bills.total)}</b> going out to ${sm.bills.count} bills.</div>
-        <div class="meter"><div class="bar"><i style="width:${pct}%"></i></div><div class="legend-line"><span>${sm.bills.paidCount} of ${sm.bills.count} paid · ${fmt(sm.bills.paid)}</span><span>${fmt(sm.bills.remaining)} to go</span></div></div>
+    const needBal = acc && acc.needsBalance ? `<div class="callout blue" style="margin-bottom:14px">${ic('wallet')}<div class="grow"><b>What's in checking right now?</b> Your available balance and forecast start at ${fmt(0)} until you enter it.</div><button class="btn sm primary" data-act="setBalance" data-id="acc_checking">Enter balance</button></div>` : '';
+    return `
+    <div class="hero-card">
+      <div class="hero-main">
+        <div class="hero-top"><span class="hero-eyebrow">Left after ${W.monthLabel(mk).split(' ')[0]} bills</span><span class="hero-chip">${sm.bills.paidCount} of ${sm.bills.count} paid</span></div>
+        <div class="hero-big ${left < 0 ? 'is-neg' : ''}">${fmt(left)}</div>
+        <div class="hero-sentence"><b>${fmt(sm.income.total)}</b> coming in · <b>${fmt(sm.bills.total)}</b> going out to ${sm.bills.count} bills</div>
+        <div class="hero-meter" role="img" aria-label="${pct}% of this month's bills paid"><i style="width:${pct}%"></i></div>
+        <div class="hero-legend"><span>${fmt(sm.bills.paid)} paid</span><span>${fmt(sm.bills.remaining)} to go</span></div>
       </div>
-      <div class="aside">
-        <span class="eyebrow">Available now</span>
-        <div class="big sm ${avail < 0 ? 'neg' : ''}">${fmt(avail)}</div>
-        <div class="sentence">${W.accounts().filter(a => a.inAvailable).map(a => esc(a.name) + ' <b>' + fmt(W.accountBalance(a.id)) + '</b>').join(' · ') || 'No accounts yet'}${nxt ? `<br>Next paycheck <b>${fmt(nxt.amountCents)}</b> on ${W.dateLabel(nxt.date)}` : ''}</div>
-        <div class="row" style="margin-top:12px;gap:14px"><button class="link" data-act="setBalance" data-id="acc_checking">Update balance</button><button class="link" data-nav-go="settings">Accounts</button></div>
+      <div class="hero-side">
+        <div class="hero-stat"><span>Available now</span><b class="${avail < 0 ? 'is-neg' : ''}">${fmt(avail)}</b><small>${W.accounts().filter(a => a.inAvailable).map(a => esc(a.name) + ' ' + fmt(W.accountBalance(a.id))).join(' · ') || 'No accounts yet'}</small></div>
+        <div class="hero-stat"><span>Next paycheck</span><b>${nxt ? fmt(nxt.amountCents) : '—'}</b><small>${nxt ? W.dateLabel(nxt.date) : 'Add a job to see it'}</small></div>
+        <div class="hero-actions"><button class="hero-btn" data-act="setBalance" data-id="acc_checking">Update balance</button><button class="hero-btn" data-nav-go="settings">Accounts</button></div>
       </div>
     </div>
-    <div class="figures" style="--n:5">
+    ${needBal}<div class="figures" style="--n:5">
       ${fig('Income', fmt(sm.income.total), sm.income.received ? fmt(sm.income.received) + ' received' : 'expected')}
       ${fig('Bills', fmt(sm.bills.total), sm.bills.count + ' this month')}
       ${fig('Unpaid', fmt(sm.bills.remaining), sm.bills.overdue ? `<span class="neg">${fmt(sm.bills.overdue)} overdue</span>` : 'nothing overdue', sm.bills.overdue ? 'neg' : '')}
@@ -524,7 +556,7 @@
     const nm = profile().first; const greet = greeting();
     return `<div class="topbar"><div><h1 class="greet">${esc(greet)}${nm ? ', ' + esc(nm) : ''}</h1><div class="sub">${W.dateLabel(today(), true)}${days != null ? ` · payday ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days'}` : ''}</div></div>
       <div class="row wrap">${monthSel('month', ui.month)}</div></div>
-      <div class="fade-in">${homeExt('renderDashboardTop')}${W.settings().guest && GD.supported() && !(W.settings().account && W.settings().account.email) ? `<div class="callout red guest-banner">${ic('alert')}<div><b>Guest mode: your data is not backed up.</b> If you lose or reset this phone, it's gone. <button class="link" data-act="gdSignIn">Sign in with Google</button></div></div>` : ''}${col('top')}<div class="split" style="margin-top:30px"><div>${col('main')}</div><div>${col('side')}</div></div></div>`;
+      <div class="fade-in">${W.settings().guest && GD.supported() && !(W.settings().account && W.settings().account.email) ? `<div class="callout red guest-banner">${ic('alert')}<div><b>Guest mode: your data is not backed up.</b> If you lose or reset this phone, it's gone. <button class="link" data-act="gdSignIn">Sign in with Google</button></div></div>` : ''}${col('top')}${homeExt('renderDashboardTop')}<div class="split" style="margin-top:30px"><div>${col('main')}</div><div>${col('side')}</div></div></div>`;
   }
   // ------------------------------------------------------------ BILLS
   function viewBills() {
@@ -3219,7 +3251,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     const dark = t === 'dark' || ((t === 'system' || t === 'seasonal' || t === 'random') && window.matchMedia('(prefers-color-scheme: dark)').matches);
     const TH = window.WTThemes; const p = TH ? TH.effective(pal, t || 'system', TH.themesPro()) : 'default';
     if (p !== 'default') document.documentElement.setAttribute('data-palette', p); else document.documentElement.removeAttribute('data-palette');
-    const bar = (p !== 'default' && TH.barColor(p, dark)) || (dark ? '#0f1412' : t === 'blue' ? '#e8eff7' : '#f6f5f1');
+    const bar = (p !== 'default' && TH.barColor(p, dark)) || (dark ? '#0b1017' : t === 'blue' ? '#e6eef8' : '#f1f4f9');
     let m = $('meta[name=theme-color]'); if (m) m.setAttribute('content', bar);
     if (Bridge && typeof Bridge.setSystemBars === 'function') { try { Bridge.setSystemBars(bar, !!dark); } catch (e) { /* older app */ } }
   }

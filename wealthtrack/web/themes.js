@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
   const P = {
-    default: { name: 'Default', swatch: ['#0f5c4a', '#f6f5f1'] },
+    default: { name: 'Default', swatch: ['#0b7a5b', '#f1f4f9'] },
     ocean: {
       name: 'Ocean', swatch: ['#0b5d8c', '#f1f5f8'],
       light: { bg: '#f1f5f8', surface: '#ffffff', 'surface-2': '#f8fafc', sunken: '#e6edf3', hover: '#edf2f6', line: '#dbe3ea', 'line-2': '#c6d1db', rule: '#14212d',

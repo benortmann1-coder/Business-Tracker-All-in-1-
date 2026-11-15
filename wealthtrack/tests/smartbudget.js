@@ -14,10 +14,11 @@ const W$ = c => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits:
 // (canonical: sorted keys, since records reloaded from IndexedDB can come back in a different key order)
 // bucket color tokens: low saturation (<= 45%), none equal to the old bright slots, and the donut/bars use them
 const PALETTE = () => {
-  const cs = getComputedStyle(document.documentElement); const v = {}; let ok = true;
-  const hsl = hex => { const n = parseInt(hex.replace('#', ''), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; return { s: d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1)), l }; };
+  const cs = getComputedStyle(document.documentElement); const v = {}; let ok = true; const seen = new Set();
+  const hsl = hex => { const n = parseInt(hex.replace('#', ''), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; const hu = d === 0 ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { s: d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1)), l, h: hu * 60 }; };
   const old = ['--s1', '--s2', '--s3', '--auto'].map(k => cs.getPropertyValue(k).trim().toLowerCase());
-  ['needs', 'debt', 'savings', 'wants'].forEach(k => { const c = cs.getPropertyValue('--sb-' + k).trim().toLowerCase(); const h = /^#[0-9a-f]{6}$/.test(c) ? hsl(c) : null; v[k] = c + (h ? ' s' + Math.round(h.s * 100) : ''); if (!h || h.s > 0.45 || old.includes(c)) ok = false; });
+  ['needs', 'debt', 'savings', 'wants'].forEach(k => { const c = cs.getPropertyValue('--sb-' + k).trim().toLowerCase(); const h = /^#[0-9a-f]{6}$/.test(c) ? hsl(c) : null; v[k] = c + (h ? ' s' + Math.round(h.s * 100) : ''); if (!h || old.includes(c) || (h.s > 0.25 && (h.h < 70 || h.h > 330))) ok = false; seen.add(c); });
+  if (seen.size !== 4) ok = false;
   const strokes = [...document.querySelectorAll('.sb-donut circle[stroke-dasharray]')].map(c => c.getAttribute('stroke'));
   const bars = [...document.querySelectorAll('.sb-stack i')].map(i => i.style.background);
   if (!strokes.length || !strokes.every(x => /var\(--sb-(needs|debt|savings|wants)\)/.test(x)) || !bars.every(x => /--sb-/.test(x))) ok = false;
@@ -103,9 +104,9 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   const wj = await page.evaluate(() => ({ val: document.querySelector('#sbSec').value, top: Math.round(document.querySelector('#sbWhy').getBoundingClientRect().top) }));
   ok(wj.val === 'compare' && wj.top >= -2 && wj.top < 120, '"Why this plan" switches to Strategies & compare and scrolls to the reasons ' + JSON.stringify(wj));
   await sec(page, 'plan'); await page.evaluate(() => window.scrollTo(0, 0));
-  // palette: the four bucket tokens are muted (low saturation), not the old bright categorical colors, and every chart uses them
+  // palette: four distinct bucket colors, never the red/amber kept for warnings or the chart's categorical slots, and every chart uses them
   const pl = await page.evaluate(PALETTE);
-  ok(pl.ok, 'professional palette: --sb-needs/debt/savings/wants are restrained ' + JSON.stringify(pl.v));
+  ok(pl.ok, 'professional palette: --sb-needs/debt/savings/wants are distinct and never warning colors ' + JSON.stringify(pl.v));
   const income = await page.evaluate(() => WTSmart.analyze().income);
   // sample data: $1,600 biweekly x 26 / 12 = $3,466.67 a month
   ok(income === 346667, 'sample data has take-home income ' + income);
@@ -600,7 +601,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
     const dk = await page.evaluate(() => { const l = el => (getComputedStyle(el).backgroundColor.match(/\d+/g) || [255, 255, 255]).slice(0, 3).reduce((a, b) => a + +b, 0) / 3; return { bk: l(document.querySelector('.sb-bk')), inp: l(document.querySelector('.sb-amt')), rb: l(document.querySelector('#sbRemain')) }; });
     ok(dk.bk < 60 && dk.inp < 60 && dk.rb < 60, 'dark mode: editor cards, fields and Remaining bar are dark ' + JSON.stringify(dk));
     const pd = await page.evaluate(PALETTE);
-    ok(pd.ok, 'dark mode: restrained bucket colors ' + JSON.stringify(pd.v));
+    ok(pd.ok, 'dark mode: distinct bucket colors, never warning colors ' + JSON.stringify(pd.v));
     await sec(page, 'customize'); await page.locator('#sbEdit').scrollIntoViewIfNeeded(); await shot(page, 'smart-dark-editor');
     await shot(page, 'smart-dark', true);
     await ctx.close();
