@@ -110,6 +110,7 @@ const MODALS = [
   ['debts', 'debt balance', async p => { await p.locator('[data-act=debtMenu]').first().click(); await p.locator('#menu button', { hasText: 'Update balance' }).first().click(); }],
   ['debts', 'debt history', async p => { await p.locator('[data-act=debtMenu]').first().click(); await p.locator('#menu button', { hasText: 'History' }).first().click(); }],
   ['debts', 'debt menu', p => p.locator('[data-act=debtMenu]').first().click(), true],
+  ['debts', 'what-if calculator open', async p => { if (!(await p.locator('#pxtra').isVisible())) await p.click('#debtWhatIf > summary'); await p.locator('#pxtra').waitFor({ state: 'visible', timeout: 2000 }); }, false, true],
   ['goals', 'add goal', p => p.locator('[data-act=addGoal]').first().click()],
   ['calendar', 'day modal', p => p.locator('.cal .day').nth(10).click()],
   ['history', 'csv menu', p => p.click('[data-act=exportCsvMenu]')],
@@ -120,7 +121,6 @@ const MODALS = [
   ['settings/categories', 'add category', p => p.click('[data-act=addCat]')],
   ['settings/data', 'erase', p => p.click('[data-act=startOver]')],
   ['dashboard', 'quick add menu', p => p.click('.fab'), true],
-  ['dashboard', 'more menu', p => p.click('[data-nav-btn=more]'), true],
 ];
 
 (async () => {

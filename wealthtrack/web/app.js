@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.7.0'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.0'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -71,17 +71,42 @@
   const ROUTES = [
     ['dashboard', 'Dashboard', 'home'], ['bills', 'Bills', 'bills'], ['paychecks', 'Paychecks', 'wallet'], ['calendar', 'Calendar', 'cal'],
     ['expenses', 'Expenses', 'cash'], ['debts', 'Debt', 'card'], ['smart', 'Smart Budget', 'sliders'], ['goals', 'Savings goals', 'target'],
-    ['reports', 'Reports', 'chart'], ['progress', 'Progress', 'trend'], ['history', 'History', 'list'], ['settings', 'Settings', 'gear'],
+    ['reports', 'Reports', 'chart'], ['progress', 'Net worth', 'trend'], ['history', 'History', 'list'], ['settings', 'Settings', 'gear'],
   ];
-  const MOBILE = ['dashboard', 'bills', 'paychecks', 'calendar'];
+  // Five areas, each with its pages as tabs. Every page keeps its own address (#/debts, #/calendar…),
+  // so old links still work; the area decides which bottom-nav button lights up and which tabs show.
+  const HUBS = [
+    { id: 'home', name: 'Home', icon: 'home', tabs: [{ r: 'dashboard', l: 'Home' }] },
+    { id: 'bills', name: 'Bills', icon: 'bills', tabs: [{ r: 'bills', tab: 'upcoming', l: 'Overview' }, { r: 'calendar', l: 'Calendar' }, { r: 'bills', tab: 'manage', l: 'All bills' }, { r: 'bills', tab: 'subs', l: 'Subscriptions' }] },
+    { id: 'plan', name: 'Plan', icon: 'sliders', tabs: [{ r: 'smart', l: 'Budget' }, { r: 'paychecks', l: 'Paychecks' }] },
+    { id: 'spend', name: 'Spending', icon: 'cash', tabs: [{ r: 'expenses', l: 'Expenses' }, { r: 'reports', l: 'Reports' }, { r: 'history', l: 'History' }] },
+    { id: 'wealth', name: 'Wealth', icon: 'trend', tabs: [{ r: 'progress', l: 'Net worth' }, { r: 'debts', l: 'Debt' }, { r: 'goals', l: 'Savings' }] },
+  ];
+  const hubOf = r => HUBS.find(h => h.tabs.some(t => t.r === r)) || null;
+  const MOBILE = HUBS.map(h => h.tabs[0].r); // bottom-nav buttons, by each area's first page
+  // the page an area opens on: the last one you used there, else its first
+  const hubLanding = h => { const last = ui.hubLast && ui.hubLast[h.id]; return h.tabs.some(t => t.r === last) ? last : h.tabs[0].r; };
+  function hubTabs(h) {
+    if (!h || h.tabs.length < 2) return '';
+    const on = t => t.r === ui.route && (!t.tab || billsTabOf() === t.tab);
+    return `<nav class="hub-tabs" aria-label="${h.name} pages">${h.tabs.map(t => `<button type="button" class="${on(t) ? 'on' : ''}" ${on(t) ? 'aria-current="page"' : ''} ${t.tab ? `data-act="billsTab" data-tab="${t.tab}"` : `data-nav-go="${t.r}"`}>${t.l}</button>`).join('')}</nav>`;
+  }
   function go(r) { location.hash = '#/' + r; }
-  function readRoute() { const full = (location.hash || '').replace(/^#\/?/, '').split('?')[0]; let [r, sub] = full.split('/'); if (r === 'budgets') r = 'smart'; /* the old Budgets page became Smart Budget */ ui.route = ROUTES.some(x => x[0] === r) ? r : 'dashboard'; ui.setSec = ui.route === 'settings' && SET_SECTIONS.some(x => x[0] === sub) ? sub : ''; }
+  // The paycheck plan and the debt payoff plan moved out of Smart Budget onto the Paychecks and Debt pages.
+  // Old links (#/smart/spPaychecks, #/smart/sbPlanSec, #/smart/spDebt) open the page that has the card now and scroll to it;
+  // #/paychecks/spPaychecks, #/debts/spDebt and #/debts/debtWhatIf do the same.
+  const SB_MOVED = { sbPlanSec: ['paychecks', 'spPaychecks'], spPaychecks: ['paychecks', 'spPaychecks'], spDebt: ['debts', 'spDebt'] };
+  const PAGE_CARDS = { paychecks: ['spPaychecks'], debts: ['spDebt', 'debtWhatIf'] };
+  function readRoute() { const full = (location.hash || '').replace(/^#\/?/, '').split('?')[0]; let [r, sub] = full.split('/'); if (r === 'budgets') r = 'smart'; /* the old Budgets page became Smart Budget */
+    if (r === 'smart' && Object.prototype.hasOwnProperty.call(SB_MOVED, sub)) [r, sub] = SB_MOVED[sub];
+    if (PAGE_CARDS[r] && PAGE_CARDS[r].includes(sub)) { render.jump = sub; try { if (history.replaceState) history.replaceState(null, '', '#/' + r); } catch (e) { /* ignore */ } }
+    ui.route = ROUTES.some(x => x[0] === r) ? r : 'dashboard'; ui.setSec = ui.route === 'settings' && SET_SECTIONS.some(x => x[0] === sub) ? sub : ''; }
 
   // ------------------------------------------------------------ shell
+  // desktop sidebar: the same five areas with their pages listed, then Settings
   const NAV_GROUPS = [
-    ['Overview', ['dashboard', 'bills', 'paychecks', 'calendar']],
-    ['Money', ['expenses', 'smart', 'debts', 'goals']],
-    ['Records', ['reports', 'progress', 'history', 'settings']],
+    ['Home', ['dashboard']], ['Bills', ['bills', 'calendar']], ['Plan', ['smart', 'paychecks']],
+    ['Spending', ['expenses', 'reports', 'history']], ['Wealth', ['progress', 'debts', 'goals']], ['App', ['settings']],
   ];
   function shell() {
     const item = id => { const r = ROUTES.find(x => x[0] === id); return `<a class="nav-item" href="#/${id}" data-nav="${id}">${ic(r[2])}<span>${r[1]}</span>${id === 'bills' ? '<span class="count" id="navOverdue"></span>' : ''}</a>`; };
@@ -97,8 +122,7 @@
         <main class="main" id="main"></main>
       </div>
       <nav class="bottom-nav" aria-label="Main navigation">
-        ${MOBILE.map(id => { const r = ROUTES.find(x => x[0] === id); return `<button data-nav-btn="${id}">${ic(r[2])}<span>${id === 'dashboard' ? 'Home' : r[1]}</span></button>`; }).join('')}
-        <button data-act="moreMenu" data-nav-btn="more">${ic('grid')}<span>More</span></button>
+        ${HUBS.map(h => `<button data-nav-btn="${h.tabs[0].r}" data-hub="${h.id}">${ic(h.icon)}<span>${h.name}</span></button>`).join('')}
       </nav>
       <button class="fab" data-act="quickAdd" aria-label="Add" title="Add an expense, bill or income">${ic('plus')}</button>
       <div class="toast-wrap" id="toasts" role="status" aria-live="polite"></div>
@@ -113,7 +137,9 @@
     if (monthTint) document.body.dataset.month = monthTint; else delete document.body.dataset.month;
     document.body.dataset.route = ui.route;
     const oc = $('#navOverdue'); if (oc) { const n = W.overdue().length; oc.textContent = n ? n : ''; oc.title = n ? n + ' overdue' : ''; }
-    $$('[data-nav-btn]').forEach(b => b.classList.toggle('active', b.dataset.navBtn === ui.route || (b.dataset.navBtn === 'more' && !MOBILE.includes(ui.route))));
+    const hub = hubOf(ui.route);
+    $$('[data-nav-btn]').forEach(b => b.classList.toggle('active', !!hub && b.dataset.hub === hub.id));
+    if (hub && hub.tabs.length > 1 && (ui.hubLast || {})[hub.id] !== ui.route) { ui.hubLast = Object.assign({}, ui.hubLast, { [hub.id]: ui.route }); saveUi(); }
     const y = window.scrollY;
     const piFocus = piKeepFocus(); // Personal info: save pending typing first, keep the cursor where it was
     try { main.innerHTML = demoBar() + (PRO.routeLocked(ui.route) ? proPage(ui.route) : (VIEWS[ui.route] || VIEWS.dashboard)()); }
@@ -122,10 +148,15 @@
     if (!render.obs && typeof MutationObserver === 'function') { render.obs = new MutationObserver(() => { clearTimeout(render.obsT); render.obsT = setTimeout(() => decorate(main), 0); }); render.obs.observe(main, { childList: true, subtree: true }); }
     // quick access to Settings, top right of every page
     const tb = main.querySelector('.topbar');
+    if (tb && hub && !main.querySelector('.hub-tabs') && !main.querySelector('.pro-page')) tb.insertAdjacentHTML('beforebegin', hubTabs(hub));
     if (tb && !tb.querySelector('.quick-set')) tb.insertAdjacentHTML('beforeend', `<button class="btn icon quick-set" data-nav-go="settings" aria-label="Settings" title="Settings">${ic('gear')}</button>`);
     // the lock screen can't read encrypted data, so only the first name is kept for its greeting
     try { const fn = (profile().first || '').slice(0, 40); if (fn !== render.greet) { render.greet = fn; S.setGreetName(fn); } } catch (e) { /* storage blocked */ }
     if (render.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
+    if (render.jump) { // a link to one card on this page (see PAGE_CARDS)
+      const card = document.getElementById(render.jump); render.jump = '';
+      if (card) { if (card.tagName === 'DETAILS') card.open = true; if (card.scrollIntoView) card.scrollIntoView({ block: 'start' }); }
+    }
     if (piFocus) piFocus();
     render.keepScroll = false;
     (AFTER[ui.route] || (() => { }))();
@@ -560,8 +591,7 @@
   }
   // ------------------------------------------------------------ BILLS
   function viewBills() {
-    const tabs = `<div class="seg" style="margin-bottom:6px">${[['upcoming', 'Overview'], ['manage', 'All bills'], ['subs', 'Subscriptions']].map(([k, l]) => `<button class="${billsTabOf() === k ? 'on' : ''}" data-act="billsTab" data-tab="${k}">${l}</button>`).join('')}</div>`;
-    const head = `<div class="topbar"><div><h1>Bills</h1><div class="sub">Tap the circle to mark a bill paid. Each month keeps its own record.</div></div><div class="row wrap desk-only"><button class="btn primary" data-act="addBill">${ic('plus')}New bill</button></div></div>${tabs}`;
+    const head = `${hubTabs(hubOf('bills'))}<div class="topbar"><div><h1>Bills</h1><div class="sub">Tap the circle to mark a bill paid. Each month keeps its own record.</div></div><div class="row wrap desk-only"><button class="btn primary" data-act="addBill">${ic('plus')}New bill</button></div></div>`;
     const tab = billsTabOf();
     if (tab === 'manage') return head + `<div style="margin-top:16px">${viewManageBills()}</div>`;
     if (tab === 'subs') return head + `<div style="margin-top:16px">${viewSubs()}</div>`;
@@ -973,7 +1003,21 @@
         <section class="section">${sectionH('Bonuses & extra income', 'Add', 'data-act="addExtraIncome" href="#"')}
           ${extras.map(x => `<div class="kv"><span>${esc(x.type[0].toUpperCase() + x.type.slice(1))}${x.note ? ' <span class="faint">· ' + esc(x.note) + '</span>' : ''}<span class="tiny faint" style="display:block">${W.dateLabel(x.date)}</span></span><span class="row" style="gap:10px"><b class="num pos">+${fmt(x.amountCents)}</b><button class="btn sm ghost" data-act="voidExtra" data-id="${x.id}">Remove</button></span></div>`).join('') || '<p class="small muted" style="margin:10px 0 0">Overtime, bonuses and side income you log here count toward the month.</p>'}
         </section>
-      </div>`;
+      </div>
+      ${pcPlanSection()}`;
+  }
+  // "Paycheck by paycheck": how each paycheck's leftover is split under your Smart Budget (WTPlanUI, web/smartplan-ui.js).
+  // Part of Smart Budget, so it is a Pro feature here too. Never lets a failure break the Paychecks page.
+  function pcPlanSection() {
+    const title = 'Paycheck by paycheck';
+    let html = '';
+    if (!isPro()) html = proSection('smart', title);
+    else {
+      const ctx = sbPlanCtx(); if (!ctx) return '';
+      const PU = window.WTPlanUI;
+      html = PU && PU.ready && typeof PU.renderPaychecks === 'function' ? planPart(() => PU.renderPaychecks(ctx), title) : planPart(() => sbPaychecks(ctx), title);
+    }
+    return html ? `<div class="pc-plan" id="pcPlan">${html}</div>` : '';
   }
   function incomeModal(id) {
     const x = id ? W.D.incomes[id] : null;
@@ -1153,6 +1197,33 @@
     const best = sAva.totalInterest <= sSnow.totalInterest ? 'ava' : 'snow';
     const order = s => s.debts.slice().sort((a, b) => (a.paidOffMonth || 999) - (b.paidOffMonth || 999)).map(d => `<li><span>${esc(d.name)}</span><span class="num faint">${d.paidOffMonth ? W.monthLabel(W.addMonthKey(curMonth(), d.paidOffMonth), true) : '—'}</span></li>`).join('');
     const planRow = (key, name, how, s) => `<tr class="${best === key ? 'best' : ''}"><td><b>${name}</b><div class="tiny muted">${how}</div></td><td class="num">${when(s)}</td><td class="r num">${s.months ? fmt(s.totalInterest) : '—'}</td><td class="r num ${key !== 'min' ? 'pos' : ''}">${key === 'min' ? '<span class="faint">—</span>' : sMin.months ? fmt(sMin.totalInterest - s.totalInterest) : s.months ? '<span title="Minimum payments alone never pay this off">Gets you out</span>' : '—'}</td></tr>`;
+    // ONE payoff area: the plan you save (WTPlanUI, feeds Smart Budget) is the main card; the quick what-if calculator
+    // sits under it, closed. Without a plan (no income yet, or WTPlanUI missing) the calculator shows open instead.
+    let payoff = '';
+    if (inputs.length && !isPro()) payoff = proSection('payoff', 'Debt payoff plan');
+    else if (inputs.length) {
+      const PU = window.WTPlanUI, ctx = PU && PU.ready && typeof PU.renderDebt === 'function' ? sbPlanCtx() : null;
+      const whatIf = `<details class="sb-det whatif" id="debtWhatIf"${ctx ? ' data-remember="whatIfOpen"' : ''}${!ctx || ui.whatIfOpen ? ' open' : ''}>
+        <summary>What-if calculator: try a different extra payment</summary>
+        <p class="small muted" style="margin:0 0 4px">A quick look at other amounts. It doesn’t change ${ctx ? 'your saved plan' : 'anything'}.</p>
+        <div class="payoff-controls"><label class="small muted" for="pxtra">Extra each month on top of minimums</label>
+          <div class="row wrap"><input id="pxtra" class="input money-in" style="width:120px" inputmode="decimal" value="${W.centsToStr(extra)}" data-act-change="payoffExtra"><div class="chips">${[0, 5000, 10000, 25000, 50000].map(v => `<button class="chip ${extra === v ? 'on' : ''}" data-act="payoffPreset" data-v="${v}">${v ? '+' + fmt0(v) : 'None'}</button>`).join('')}</div></div></div>
+        <div class="tbl-wrap"><table class="tbl plan-tbl"><thead><tr><th>Plan</th><th>Debt-free</th><th class="r">Interest</th><th class="r">Saves</th></tr></thead><tbody>
+          ${planRow('min', 'Minimums only', 'What happens if nothing changes', sMin)}
+          ${planRow('ava', 'Avalanche', 'Extra goes to the highest APR first', sAva)}
+          ${planRow('snow', 'Snowball', 'Extra goes to the smallest balance first', sSnow)}
+        </tbody></table></div>
+        <div style="margin-top:18px">${lineChart({ title: 'Total debt balance over time by plan', width: 1000, height: 240, labels: Array.from({ length: len }, (_, k) => W.monthLabel(W.addMonthKey(curMonth(), k), true)), series: [{ name: 'Minimums only', color: 'var(--ink-3)', values: pad(sMin.timeline, len) }, { name: 'Avalanche', color: 'var(--s1)', values: pad(sAva.timeline, len) }, { name: 'Snowball', color: 'var(--s2)', values: pad(sSnow.timeline, len), dash: '6 4' }], maxLabels: 6 })}</div>
+        <div class="payoff-order">
+          <div><span class="eyebrow">Avalanche order</span><ol>${order(sAva)}</ol></div>
+          <div><span class="eyebrow">Snowball order</span><ol>${order(sSnow)}</ol></div>
+        </div>
+      </details>`;
+      // the calculator goes at the bottom of the plan card; without a plan it gets the heading to itself
+      let planHtml = ctx ? planPart(() => PU.renderDebt(ctx, { after: whatIf }), 'Debt payoff plan') : `<section class="section">${sectionH('Debt payoff plan', 'Snowball vs. avalanche')}${whatIf}</section>`;
+      if (!planHtml.includes('id="debtWhatIf"')) planHtml += `<section class="section">${whatIf}</section>`;
+      payoff = `<div class="debt-payoff" id="debtPayoff">${planHtml}</div>`;
+    }
     return `<div class="topbar"><div><h1>Debt</h1><div class="sub">What you owe, what it costs each month, and the fastest way out.</div></div><button class="btn primary" data-act="addDebt">${ic('plus')}Add a debt</button></div>
       <div class="figures" style="--n:4">
         ${fig('Total owed', fmt(total), open.length + ' open account' + (open.length === 1 ? '' : 's'))}
@@ -1167,21 +1238,7 @@
           ${groups.filter(g => g[1].length).map(([label, list]) => `<div class="group-h"><span class="t">${label}</span><span class="s"><b>${fmt(list.reduce((a, d) => a + Math.max(0, W.debtBalance(d.id)), 0))}</b></span></div>${list.map(debtCard).join('')}`).join('')}
         </div>` : `<div class="empty"><b>No debts added</b>Add a card or loan to see payoff dates and interest.</div>`}
       </section>
-      ${inputs.length && !isPro() ? proSection('payoff', 'Payoff plan') : inputs.length ? `<section class="section">
-        <div class="section-h"><h2>Payoff plan</h2><span class="meta">Snowball vs. avalanche</span></div>
-        <div class="payoff-controls"><label class="small muted" for="pxtra">Extra each month on top of minimums</label>
-          <div class="row wrap"><input id="pxtra" class="input money-in" style="width:120px" inputmode="decimal" value="${W.centsToStr(extra)}" data-act-change="payoffExtra"><div class="chips">${[0, 5000, 10000, 25000, 50000].map(v => `<button class="chip ${extra === v ? 'on' : ''}" data-act="payoffPreset" data-v="${v}">${v ? '+' + fmt0(v) : 'None'}</button>`).join('')}</div></div></div>
-        <div class="tbl-wrap"><table class="tbl plan-tbl"><thead><tr><th>Plan</th><th>Debt-free</th><th class="r">Interest</th><th class="r">Saves</th></tr></thead><tbody>
-          ${planRow('min', 'Minimums only', 'What happens if nothing changes', sMin)}
-          ${planRow('ava', 'Avalanche', 'Extra goes to the highest APR first', sAva)}
-          ${planRow('snow', 'Snowball', 'Extra goes to the smallest balance first', sSnow)}
-        </tbody></table></div>
-        <div style="margin-top:18px">${lineChart({ title: 'Total debt balance over time by plan', width: 1000, height: 240, labels: Array.from({ length: len }, (_, k) => W.monthLabel(W.addMonthKey(curMonth(), k), true)), series: [{ name: 'Minimums only', color: 'var(--ink-3)', values: pad(sMin.timeline, len) }, { name: 'Avalanche', color: 'var(--s1)', values: pad(sAva.timeline, len) }, { name: 'Snowball', color: 'var(--s2)', values: pad(sSnow.timeline, len), dash: '6 4' }], maxLabels: 6 })}</div>
-        <div class="payoff-order">
-          <div><span class="eyebrow">Avalanche order</span><ol>${order(sAva)}</ol></div>
-          <div><span class="eyebrow">Snowball order</span><ol>${order(sSnow)}</ol></div>
-        </div>
-      </section>` : ''}`;
+      ${payoff}`;
   }
   const pad = (arr, n) => arr.concat(Array(Math.max(0, n - arr.length)).fill(0)).slice(0, n);
   function debtCard(d) {
@@ -1532,17 +1589,18 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   // (inactive sections are hidden, not removed), so switching is instant and unsaved editor changes are never lost.
   // Remembered per device (ui.sbSec) and with your data (settings.sbSection), like billView / upRange.
   // Deep links: #/smart/plan | compare | customize, or #/smart/<card id> (e.g. #/smart/sbEdit) to open a card's section.
-  const SB_SECS = [['plan', 'My plan'], ['compare', 'Strategies & compare'], ['customize', 'Customize & paychecks']];
-  const SB_CARD_SEC = { sbPlans: 'plan', sbRecSum: 'plan', sbVa: 'plan', sbSug: 'plan', sbHist: 'plan', sbWhy: 'compare', sbStrats: 'compare', sbCmp: 'compare', sbEdit: 'customize', sbSaved: 'customize', sbVs: 'customize', sbPrev: 'customize', sbPlanSec: 'customize', spPaychecks: 'customize', spDebt: 'customize' };
+  const SB_SECS = [['plan', 'My plan'], ['compare', 'Strategies & compare'], ['customize', 'Customize']];
+  const SB_CARD_SEC = { sbPlans: 'plan', sbRecSum: 'plan', sbVa: 'plan', sbSug: 'plan', sbHist: 'plan', sbWhy: 'compare', sbStrats: 'compare', sbCmp: 'compare', sbEdit: 'customize', sbSaved: 'customize', sbVs: 'customize', sbPrev: 'customize' };
   const sbSecOk = v => SB_SECS.some(x => x[0] === v);
   const sbSecOf = () => sbSecOk(ui.sbSec) ? ui.sbSec : W.D && sbSecOk(W.settings().sbSection) ? W.settings().sbSection : 'plan';
   const sbSecName = v => (SB_SECS.find(x => x[0] === v) || SB_SECS[0])[1];
   const sbHashSub = () => { const m = /^#\/?smart\/([A-Za-z-]{1,40})/.exec(location.hash || ''); return m ? m[1] : ''; };
   const sbSetHash = v => { try { const h = '#/smart/' + v; if (location.hash !== h && history.replaceState) history.replaceState(null, '', h); } catch (e) { /* ignore */ } };
   function sbSetSec(v) { if (!sbSecOk(v)) return; ui.sbSec = v; saveUi(); if (W.settings().sbSection !== v) W.saveSettings({ sbSection: v }); }
-  // unsaved changes anywhere in "Customize & paychecks" (budget editor, paycheck plan, debt plan)
-  const sbDirtyAny = () => !!(sbDraft && sbDraft.dirty) || sbTry(() => { const PU = window.WTPlanUI; return !!(PU && typeof PU.dirty === 'function' && PU.dirty()); }, false);
-  const sbSecNoteHtml = v => v !== 'customize' && sbDirtyAny() ? `<div class="callout small">${ic('info')}<div>You have unsaved changes in <b>Customize &amp; paychecks</b>. They’re kept until you Save or Cancel. <button type="button" class="link" data-act="sbGo" data-sec="customize">Go to them</button></div></div>` : '';
+  // unsaved changes in "Customize" (the budget editor). The paycheck plan and debt plan keep their own drafts
+  // (WTPlanUI.dirty()) on the Paychecks and Debt pages, with their own "Not saved yet" note and Save / Cancel there.
+  const sbDirtyAny = () => !!(sbDraft && sbDraft.dirty);
+  const sbSecNoteHtml = v => v !== 'customize' && sbDirtyAny() ? `<div class="callout small">${ic('info')}<div>You have unsaved changes in <b>Customize</b>. They’re kept until you Save or Cancel. <button type="button" class="link" data-act="sbGo" data-sec="customize">Go to them</button></div></div>` : '';
   // switch section in place (no re-render), then scroll to a card (`to` = element id) or back up to the dropdown
   function sbShowSec(v, to) {
     if (!sbSecOk(v)) return;
@@ -1553,7 +1611,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       const sel = $('#sbSec'); if (sel && sel.value !== v) sel.value = v;
       const note = $('#sbSecNote'); if (note) note.innerHTML = sbSecNoteHtml(v);
     }
-    if (was === 'customize' && v !== 'customize' && sbDirtyAny()) toast('Unsaved changes kept. Save or Cancel them in Customize & paychecks.');
+    if (was === 'customize' && v !== 'customize' && sbDirtyAny()) toast('Unsaved changes kept. Save or Cancel them in Customize.');
     const tgt = to && /^[A-Za-z-]{1,40}$/.test(to) ? document.getElementById(to) : null;
     if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: 'start' });
     else { const bar = $('#sbSecBar'); if (bar && bar.getBoundingClientRect().top < 0) bar.scrollIntoView({ block: 'start' }); }
@@ -1581,7 +1639,19 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   function homeExt(fn) { const H = window.WTHomeUI; if (!H || !H.ready || typeof H[fn] !== 'function') return ''; try { return H[fn]() || ''; } catch (e) { console.error(e); return ''; } }
   function viewProgress() {
     const html = homeExt('renderProgress');
-    return html || `<div class="topbar"><div><h1>Progress</h1><div class="sub">Net worth and milestones.</div></div></div><div class="empty"><b>Progress isn't available right now</b>The rest of WealthTrack works as usual.</div>`;
+    return html || `<div class="topbar"><div><h1>Net worth</h1><div class="sub">Net worth and milestones.</div></div></div><div class="empty"><b>Progress isn't available right now</b>The rest of WealthTrack works as usual.</div>`;
+  }
+  // one part of a page: a failure shows a short note instead of breaking the page
+  function planPart(fn, title) { try { return fn() || ''; } catch (e) { console.error(e); return `<section class="section">${sectionH(title, '')}<p class="small muted" style="margin:10px 0 0">This part couldn't be worked out right now.</p></section>`; } }
+  // What the paycheck plan (Paychecks page) and the debt payoff plan (Debt page) need from Smart Budget:
+  // { a, chosen, strategies, smart }. null when Smart Budget can't work out a plan (engine missing, no income yet).
+  function sbPlanCtx() {
+    try {
+      if (!sbEngine()) return null;
+      const st = sbState();
+      if (!st || !st.a || !(st.a.income > 0) || !st.rec) return null;
+      return { a: st.a, chosen: st.eff, strategies: st.list, smart: st.E };
+    } catch (e) { console.error(e); return null; }
   }
   function viewSmart() {
     const intro = 'A plan for your take-home pay, built from your paychecks, bills and debts. It never changes them.';
@@ -1593,12 +1663,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     const a = st.a;
     if (!(a.income > 0) || !st.rec) return sbHead(intro) + `<div class="empty">${ic('sliders')}<b>Add your income to get a Smart Budget</b>It splits your take-home pay into essentials, debt, savings and wants, using your bills and debts.<div class="row wrap" style="justify-content:center;margin-top:12px"><button class="btn primary" data-act="addIncome">${ic('plus')}Add income</button><a class="btn" href="#/bills">Bills</a></div></div>`;
     sbLive = st;
-    const sec = (fn, title) => { try { return fn(); } catch (e) { console.error(e); return `<section class="section">${sectionH(title, '')}<p class="small muted" style="margin:10px 0 0">This part couldn't be worked out right now.</p></section>`; } };
-    const PU = window.WTPlanUI, planUi = PU && PU.ready && typeof PU.renderPaychecks === 'function';
-    const ctx = { a, chosen: st.eff, strategies: st.list, smart: st.E };
-    const plan = planUi
-      ? sec(() => PU.renderPaychecks(ctx) || '', 'Paycheck by paycheck') + (typeof PU.renderDebt === 'function' ? sec(() => PU.renderDebt(ctx) || '', 'Debt payoff') : '')
-      : sec(() => sbPaychecks(st), 'Paycheck by paycheck');
+    const sec = planPart;
     // which section shows: a deep link (#/smart/compare or #/smart/sbEdit) wins over the remembered choice
     let cur = sbSecOf(); const sub = sbHashSub(); let jump = '';
     if (sbSecOk(sub)) cur = sub; else if (SB_CARD_SEC[sub]) { cur = SB_CARD_SEC[sub]; jump = sub; }
@@ -1614,7 +1679,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
         ${sec(() => sbCompare(st), 'Budget strategies')}
         ${sec(() => sbForecast(st), 'Compare over time')}`)}
       ${panel('customize', `${sec(() => sbCustom(st), 'Customize')}
-        <div class="sb-plan" id="sbPlanSec">${plan}</div>`)}
+        <p class="small muted sb-moved" id="sbMoved" style="margin:18px 0 0">Planning each paycheck is on the <a class="link" href="#/paychecks/spPaychecks">Paychecks page</a>. Your debt payoff plan is on the <a class="link" href="#/debts/spDebt">Debt page</a>.</p>`)}
     </div>`;
   }
   // ---- My plan: a short summary of the recommendation; the full reasoning lives in "Strategies & compare"
@@ -1952,7 +2017,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   function sbCustomize(id) {
     if (!sbLoad(id)) return;
     sbRedraw();
-    sbShowSec('customize', 'sbEdit'); // the editor lives in "Customize & paychecks": switch there first, then scroll
+    sbShowSec('customize', 'sbEdit'); // the editor lives in "Customize": switch there first, then scroll
     const s = sbLive.list.find(x => x.id === id);
     toast(sbName(s) + ' loaded. Change it, then tap Save.');
   }
@@ -2078,10 +2143,11 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
           <div class="row between wrap tiny" style="gap:4px 10px"><span class="${over ? (good[k] ? 'pos' : 'neg') : 'muted'}">${over ? (good[k] ? fmt(-rem) + ' more than planned' : fmt(-rem) + ' over plan') : fmt(rem) + ' left'}${fas != null && sched ? ` · ${fmt(fas)} after scheduled bills` : ''}</span><span class="faint">${pctU}% used</span></div>
           ${parts ? `<div class="sb-va-parts tiny muted">${parts}</div>` : ''}</div>`; }).join('')}</div></section>`;
   }
-  function sbPaychecks(st) {
-    const pcs = typeof st.E.paycheckPlan === 'function' ? st.E.paycheckPlan(st.eff, 3) : [];
+  // older, read-only paycheck list: only used on the Paychecks page when WTPlanUI (smartplan-ui.js) isn't loaded
+  function sbPaychecks(ctx) {
+    const pcs = typeof ctx.smart.paycheckPlan === 'function' ? ctx.smart.paycheckPlan(ctx.chosen, 3) : [];
     const list = Array.isArray(pcs) ? pcs.filter(p => p && p.date) : [];
-    return `<section class="section">${sectionH('Paycheck by paycheck', 'Next ' + (list.length || 3), 'href="#/paychecks"')}
+    return `<section class="section">${sectionH('Paycheck by paycheck', 'Next ' + (list.length || 3))}
       ${list.length ? `<div class="gap-s" style="margin-top:12px">${list.map(p => { const bills = Array.isArray(p.bills) ? p.bills : []; const res = p.reserve || {};
         return `<div class="panel sb-pc" data-key="${esc(p.key || '')}">
           <div class="row between"><span class="eyebrow">${W.dateLabel(p.date)}${p.incomeName ? ' · ' + esc(p.incomeName) : ''}</span><b class="num">${fmt(+p.net || 0)}</b></div>
@@ -2474,6 +2540,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       <div class="fade-in set-home">
         <a class="set-profile" href="#/settings/personal">${avatar(56)}<div class="grow"><b>${esc(profile().full || 'Add your name')}</b><span>${profile().email ? esc(profile().email) : s.guest ? 'Guest · not backed up' : 'Not signed in'}</span></div>${ic('chevR')}</a>
         <nav class="set-menu" aria-label="Settings sections">${SET_SECTIONS.map(([k, l, icon]) => `<a class="set-item" href="#/settings/${k}" data-sec="${k}"><span class="set-ic">${ic(icon)}</span><span class="grow"><b>${l}</b><span>${esc(sum[k])}</span></span>${ic('chevR')}</a>`).join('')}</nav>
+        <button type="button" class="set-logout" data-act="logout">${ic('logout')}Log out</button>
       </div>`;
     }
     const title = SET_SECTIONS.find(x => x[0] === sec)[1];
@@ -2676,7 +2743,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   const PRO_FEAT = Object.fromEntries(PRO.FEATURES.map(f => [f[0], f]));
   const proList = () => `<ul class="pro-list">${PRO.FEATURES.map(([, t, d]) => `<li>${ic('check')}<span><b>${esc(t)}</b>${esc(d)}</span></li>`).join('')}</ul>`;
   const proBtn = (f, label) => `<button class="btn primary" data-act="proUpgrade" data-f="${esc(f || '')}">${ic('star')}${label || 'Unlock with Pro'}</button>`;
-  // a locked section inside a free page (dashboard widget, debt payoff plan)
+  // a locked section inside a free page (dashboard widget, debt payoff plan, paycheck-by-paycheck plan)
   function proSection(f, title) {
     const x = PRO_FEAT[f] || ['', title, ''];
     return `<section class="section">${sectionH(esc(title), '<span class="pill pro-pill">' + ic('star') + 'Pro</span>')}<div class="pro-lock card"><p class="small muted" style="margin:0 0 12px">${esc(x[2])}</p>${proBtn(f)}</div></section>`;
@@ -2918,7 +2985,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     editTpl: d => { const t = W.D.templates[d.id]; if (t && !t.deleted) editTemplate(d.id); },
     remPro: () => { if (typeof WT_proDialog === 'function') WT_proDialog('reminders'); else toast('Custom reminders are part of WealthTrack Pro'); },
     addBill: () => addBill(), addBillOn: d => { closeAllModals(); addBill(d.date); },
-    billsTab: d => { if (d.tab === 'month') { ui.billsTab = 'upcoming'; ui.upRange = 'month'; } else ui.billsTab = d.tab; refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
+    billsTab: d => { if (d.tab === 'month') { ui.billsTab = 'upcoming'; ui.upRange = 'month'; } else ui.billsTab = d.tab; saveUi(); if (ui.route !== 'bills') go('bills'); else refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
     upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; if (v === 'month' && ui.upRange !== 'month') ui.month = curMonth(); ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
     billTools: () => { ui.billTools = !ui.billTools; refresh(); },
     openUpcoming: () => { ui.billsTab = 'upcoming'; go('bills'); },
@@ -3033,7 +3100,6 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     sbCats: () => sbCatsModal(),
     sbEss: d => sbSetEss(d.id, d.v === '1'),
     sbEssReset: () => sbSetEss(null, null),
-    moreMenu: (d, el) => menu(el, ROUTES.filter(r => !MOBILE.includes(r[0])).map(r => ({ label: r[1], icon: r[2], run: () => go(r[0]) })).concat(['-', { label: 'Log out', icon: 'logout', run: () => logOut() }])),
     logout: () => logOut(),
     quickAdd: (d, el) => menu(el, [{ label: 'Add expense', icon: 'cash', run: () => expenseModal() }, { label: 'Add bill', icon: 'bills', run: () => addBill() }, { label: 'Bonus / extra income', icon: 'wallet', run: () => extraIncomeModal() }, { label: 'Transfer / savings', icon: 'move', run: () => transferModal() }]),
   };
@@ -3191,7 +3257,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   function bindGlobal() {
     document.addEventListener('click', e => {
       if (calendarAfter.suppressClick) return;
-      const nav = e.target.closest('[data-nav-btn]'); if (nav && nav.dataset.navBtn !== 'more') { go(nav.dataset.navBtn); return; }
+      const nav = e.target.closest('[data-nav-btn]'); if (nav) { const h = HUBS.find(x => x.id === nav.dataset.hub); go(h && hubOf(ui.route) !== h ? hubLanding(h) : nav.dataset.navBtn); return; }
       const ng = e.target.closest('[data-nav-go]'); if (ng) { go(ng.dataset.navGo); return; }
       const a = e.target.closest('[data-act]');
       if (a && !(a.tagName === 'SELECT' || a.tagName === 'INPUT') && DEMO.on && DEMO_ADD.includes(a.dataset.act)) { e.preventDefault(); const nm = a.dataset.act, ds = Object.assign({}, a.dataset); demoGuard(nm).then(go2 => { if (go2 && A[nm]) A[nm](ds, a, e); }); return; }
@@ -3220,6 +3286,8 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     });
     // tooltips
     const tip = () => $('#tip');
+    // <details data-remember="key">: remember open/closed per device (toggle doesn't bubble, so listen in the capture phase)
+    document.addEventListener('toggle', e => { const d = e.target; const k = d && d.dataset && d.dataset.remember; if (k && /^[A-Za-z]{1,30}$/.test(k) && !!ui[k] !== d.open) { ui[k] = d.open; saveUi(); } }, true);
     document.addEventListener('mouseover', e => { const t = e.target.closest('[data-tip]'); const el = tip(); if (!el) return; if (t) { el.textContent = t.dataset.tip; el.style.opacity = 1; } else el.style.opacity = 0; });
     document.addEventListener('mousemove', e => { const el = tip(); if (el && el.style.opacity === '1') { el.style.left = Math.min(window.innerWidth - el.offsetWidth - 8, e.clientX + 12) + 'px'; el.style.top = (e.clientY - 36) + 'px'; } });
     document.addEventListener('touchstart', e => { const t = e.target.closest && e.target.closest('[data-tip]'); const el = tip(); if (!el) return; if (t) { const r = t.getBoundingClientRect(); el.textContent = t.dataset.tip; el.style.opacity = 1; el.style.left = Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, r.left)) + 'px'; el.style.top = (r.top - 38) + 'px'; clearTimeout(tip.t); tip.t = setTimeout(() => el.style.opacity = 0, 1800); } }, { passive: true });

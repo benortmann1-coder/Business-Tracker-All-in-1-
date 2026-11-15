@@ -42,6 +42,8 @@ async function open(browser, bridge) {
     await go('#/reports'); ok(await page.locator('.pro-page').count() === 0 && /Reports/.test(await page.locator('#main h1').textContent()), 'browser: Reports opens');
     await go('#/smart'); ok(await page.locator('.pro-page').count() === 0, 'browser: Smart Budget opens');
     await go('#/debts'); ok(await page.locator('#pxtra').count() === 1, 'browser: debt payoff planner shows');
+    ok(await page.locator('#spDebt').count() === 1 && await page.locator('#main .pro-lock').count() === 0, 'browser: the debt payoff plan (from Smart Budget) shows on the Debt page');
+    await go('#/paychecks'); ok(await page.locator('#spPaychecks').count() === 1 && await page.locator('#main .pro-lock').count() === 0, 'browser: the paycheck-by-paycheck plan shows on the Paychecks page');
     await go('#/settings/pro'); ok(/unlocked/i.test(await page.locator('#main').textContent()), 'browser: Pro settings say everything is unlocked');
     ok(errors.length === 0, 'browser: no page errors ' + errors.join(' | '));
   }
@@ -61,6 +63,13 @@ async function open(browser, bridge) {
     await go('#/debts');
     ok(await page.locator('#pxtra').count() === 0 && await page.locator('.pro-lock [data-act=proUpgrade]').count() === 1, 'Play, free: payoff planner locked, debt accounts still listed');
     ok(await page.locator('.debt-row:not(.debt-head)').count() > 0, 'Play, free: debts themselves are still shown');
+    // the plans that moved out of Smart Budget stay Pro on their new pages
+    ok(await page.locator('#spDebt').count() === 0 && await page.locator('#debtWhatIf').count() === 0, 'Play, free: the debt payoff plan and the what-if calculator are both locked');
+    await go('#/paychecks');
+    ok(await page.locator('#spPaychecks').count() === 0 && await page.locator('#main .sp-card').count() === 0 && await page.locator('#pcPlan .pro-lock [data-act=proUpgrade]').count() === 1, 'Play, free: the paycheck-by-paycheck plan is locked on the Paychecks page');
+    ok(await page.locator('.pc-statement').count() === 1 && await page.locator('.pc-bills, .pc-lists').count() >= 1, 'Play, free: the paycheck planner itself is still free');
+    await go('#/smart/spPaychecks'); ok(await page.evaluate(() => WTApp.ui.route) === 'paychecks' && await page.locator('#spPaychecks').count() === 0 && await page.locator('#pcPlan .pro-lock').count() === 1, 'Play, free: an old link to the paycheck plan opens Paychecks with the plan locked');
+    await go('#/smart/spDebt'); ok(await page.evaluate(() => WTApp.ui.route) === 'debts' && await page.locator('#spDebt').count() === 0 && await page.locator('.pro-lock [data-act=proUpgrade]').count() === 1, 'Play, free: an old link to the debt plan opens Debt with the plan locked');
     await go('#/bills'); ok(await page.locator('.pro-page').count() === 0, 'Play, free: Bills is free');
     await go('#/history'); ok(await page.locator('.pro-page').count() === 0, 'Play, free: History list is free');
     // export -> upgrade dialog instead of a file
@@ -93,7 +102,8 @@ async function open(browser, bridge) {
     await hide(); await page.waitForTimeout(150);
     ok(await page.evaluate(() => window.__pro.backups) >= 1, 'after buying: Drive backup runs');
     await go('#/reports'); ok(await page.locator('.pro-page').count() === 0, 'after buying: Reports opens');
-    await go('#/debts'); ok(await page.locator('#pxtra').count() === 1, 'after buying: payoff planner shows');
+    await go('#/debts'); ok(await page.locator('#pxtra').count() === 1 && await page.locator('#spDebt').count() === 1, 'after buying: payoff planner shows');
+    await go('#/paychecks'); ok(await page.locator('#spPaychecks').count() === 1 && await page.locator('#pcPlan .pro-lock').count() === 0, 'after buying: paycheck-by-paycheck plan shows');
     await go('#/settings/pro'); ok(/Pro is on/.test(await page.locator('#main').textContent()), 'after buying: Settings says Pro is on');
     ok(errors.length === 0, 'Play: no page errors ' + errors.join(' | '));
   }

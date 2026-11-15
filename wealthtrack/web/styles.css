@@ -1049,7 +1049,11 @@ body[data-month] .month-sel .m-label::before { content: ""; display: inline-bloc
 .sb-sug-g + .sb-sug-g { margin-top: 10px; }
 .sb-sug-h { margin: 8px 0 0; }
 .sb-sug-i.opt > svg { color: var(--ink-3); }
-.sb-plan > .section:first-child { margin-top: 30px; }
+/* the paycheck plan (Paychecks page) and the payoff plan + what-if calculator (Debt page) */
+.pc-plan, .debt-payoff { margin-top: 30px; }
+.pc-plan .section, .debt-payoff .section, .whatif { scroll-margin-top: 8px; }
+.whatif { margin-top: 16px; }
+.whatif > summary { overflow-wrap: anywhere; }
 @media (pointer: coarse), (max-width: 900px) { .sb-remain { bottom: calc(var(--nav-h) + 8px + env(safe-area-inset-bottom)); } }
 @media (min-width: 901px) { .sb-remain { bottom: 12px; } }
 @media (max-width: 760px) {
@@ -1195,7 +1199,7 @@ body[data-month] .month-sel .m-label::before { content: ""; display: inline-bloc
 .sb-secnote:empty { display: none; }
 .sb-panel[hidden] { display: none !important; }
 .sb-panel > .section:first-child { margin-top: 14px; }
-.sb-panel .section, .sb-plan .section { scroll-margin-top: 8px; }
+.sb-panel .section { scroll-margin-top: 8px; }
 .sb-plan-split { margin-top: 30px; }
 .sb-recsum { padding: 13px 15px; }
 .sb-recsum .eyebrow { display: block; }
@@ -1461,3 +1465,19 @@ label.field > span { font-weight: 650; }
   .section .tbl:not(.tbl-cards) td:first-child, .section .tbl:not(.tbl-cards) th:first-child { padding-left: 6px; }
   .section .tbl:not(.tbl-cards) td:last-child, .section .tbl:not(.tbl-cards) th:last-child { padding-right: 6px; }
 }
+
+/* ---------- areas: page tabs under the title, log out in Settings */
+.hub-tabs { display: flex; gap: 4px; margin: -6px 0 14px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.hub-tabs::-webkit-scrollbar { display: none; }
+.hub-tabs button { flex: 0 0 auto; position: relative; min-height: 44px; padding: 8px 14px 11px; border: 0; background: none; font-weight: 650; font-size: 14.5px; color: var(--ink-3); cursor: pointer; white-space: nowrap; transition: color .12s; }
+.hub-tabs button:hover { color: var(--ink); }
+.hub-tabs button.on { color: var(--ink); font-weight: 750; }
+.hub-tabs button.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: var(--page, var(--brand)); }
+@media (max-width: 640px) { .hub-tabs { margin-left: -14px; margin-right: -14px; padding: 0 8px; } .hub-tabs button { padding: 8px 11px 11px; font-size: 14px; } }
+.set-logout { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: 760px; min-height: 48px; margin-top: 14px; border: 0; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-card); color: var(--over); font-weight: 700; font-size: 14.5px; cursor: pointer; }
+.set-logout svg { width: 17px; height: 17px; }
+.set-logout:hover { background: var(--over-soft); }
+body[data-route="smart"], body[data-route="paychecks"] { --page: var(--c-budget); }
+body[data-route="expenses"], body[data-route="reports"], body[data-route="history"] { --page: var(--c-spend); }
+body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] { --page: var(--c-worth); }
+#sbMoved { display: flex; flex-wrap: wrap; align-items: center; gap: 0 5px; padding: 4px 6px; }

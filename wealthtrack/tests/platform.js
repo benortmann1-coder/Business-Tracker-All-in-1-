@@ -134,17 +134,14 @@ const stored = page => page.evaluate(() => new Promise(res => { const r = indexe
     ok(await page.evaluate(() => location.hash) === '#/settings', 'Settings button opens Settings');
     ok(await page.locator('#main [data-act=customizeDash]').count() === 0, 'no second gear on the dashboard');
     // Log out with no PIN yet: offers to create one
-    await page.click('[data-act=moreMenu]'); await page.waitForTimeout(150);
-    const items = await page.locator('#menu button').allTextContents();
-    ok(items[items.length - 1].trim() === 'Log out', 'More menu ends with Log out');
-    await page.locator('#menu button', { hasText: 'Log out' }).click(); await page.waitForTimeout(250);
+    ok(await page.locator('[data-act=moreMenu]').count() === 0 && (await page.locator('#main .set-logout').textContent()).trim() === 'Log out', 'Log out is at the bottom of Settings (no More menu)');
+    await page.click('#main .set-logout'); await page.waitForTimeout(250);
     ok(/Set a PIN first/.test(await page.locator('.overlay').textContent()), 'no PIN: Log out offers to create one');
     await page.keyboard.press('Escape'); await page.waitForTimeout(150);
     // with a PIN: confirm, then the lock screen greets by first name
     await page.evaluate(async () => { WT.saveSettings({ profile: { first: 'Sam', last: 'Rivers' } }); WTApp.refresh(); await WTStore.changeLock('246813', WT.D); });
     await page.waitForTimeout(300);
-    await page.click('[data-act=moreMenu]'); await page.waitForTimeout(150);
-    await page.locator('#menu button', { hasText: 'Log out' }).click(); await page.waitForTimeout(250);
+    await go(page, 'settings'); await page.click('#main .set-logout'); await page.waitForTimeout(250);
     ok(/Log out\?/.test(await page.locator('.overlay').textContent()) && /PIN/.test(await page.locator('.overlay').textContent()), 'Log out asks to confirm');
     await page.locator('.overlay .btn.primary, .overlay button[type=submit]').last().click();
     await page.waitForSelector('.auth .pin-dots', { timeout: 8000 });

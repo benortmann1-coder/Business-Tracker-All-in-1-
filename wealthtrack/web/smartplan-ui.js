@@ -1,4 +1,4 @@
-// Smart Budget: paycheck-by-paycheck planner + debt payoff screens (WTPlanUI).
+// Smart Budget's paycheck-by-paycheck planner (shown on the Paychecks page) + debt payoff plan (shown on the Debt page): WTPlanUI.
 // Renders through window.WTUI helpers (app.js) and the WTPlan engine (smartplan.js). Read-only over WT data:
 // the only writes happen on Save — WT.assignInstance (which paycheck funds a bill) and settings.smartBudget.
 (function () {
@@ -242,10 +242,10 @@
     try { r = plan(); } catch (e) { console.error(e); r = null; }
     if (!r) return { meta: '', html: `<p class="small muted" style="margin:10px 0 0">The paycheck planner isn't available right now. Your bills and paychecks are not affected.</p>` };
     const pcs = r.paychecks.filter(p => p && p.key && p.date);
-    if (!pcs.length) return { meta: '', html: `<div class="empty"><b>No paychecks coming up</b>Add your income to plan each paycheck.<div style="margin-top:10px"><a class="btn" href="#/paychecks">Paychecks</a></div></div>` };
+    if (!pcs.length) return { meta: '', html: `<div class="empty"><b>No paychecks coming up</b>Add or check your income to plan each paycheck.<div style="margin-top:10px"><button type="button" class="btn" data-act="addIncome">Add income</button></div></div>` };
     const src = reserveSources(pcs), tgt = reserveTargets(pcs, src);
     const top = (Array.isArray(r.warnings) ? r.warnings : []).filter(w => typeof w === 'string' && w);
-    return { meta: 'Next ' + pcs.length, html: `<p class="small muted" style="margin:10px 0 12px">Each paycheck pays the bills listed under it. Paid bills are shown but not counted again. Money left over carries into the next paycheck.</p>
+    return { meta: 'Next ' + pcs.length, html: `<p class="small muted sp-intro" style="margin:10px 0 12px">How the money left after bills is split for each paycheck under your <a href="#/smart">Smart Budget</a>. Paid bills are shown but not counted again. Money left over carries into the next paycheck.</p>
       ${top.length ? `<div class="gap-s" style="margin-bottom:12px;display:grid;gap:8px">${top.map(w => `<div class="callout small">${ic('alert')}<div>${esc(w)}</div></div>`).join('')}</div>` : ''}
       ${unassignedHtml(r, pcs)}
       <div class="sp-cards">${pcs.map((p, i) => card(p, i, pcs, src, tgt)).join('')}</div>${pcBar()}` };
@@ -253,7 +253,7 @@
   function renderPaychecks(ctx) {
     css(); getCtx(ctx);
     const r = pcInner();
-    return `<section class="section sp sp-pcs" id="spPaychecks">${sectionH('Paycheck by paycheck', r.meta || 'Paychecks', 'href="#/paychecks"')}<div data-f="pcbody">${r.html}</div></section>`;
+    return `<section class="section sp sp-pcs" id="spPaychecks">${sectionH('Paycheck by paycheck', r.meta || '')}<div data-f="pcbody">${r.html}</div></section>`;
   }
   function rerenderPc() { const box = $('#spPaychecks [data-f=pcbody]'); if (box) box.innerHTML = pcInner().html; }
 
@@ -349,12 +349,12 @@
     const ms = r.methods, sel = ms[d.method] || ms.avalanche;
     let order = sel && Array.isArray(sel.order) ? sel.order : [];
     if (d.method === 'custom') { const by = new Map(order.map(x => [x.id, x])); order = customIds(d, order).map(id => by.get(id)).filter(Boolean); }
-    if (!order.length && !(ms.avalanche && ms.avalanche.order && ms.avalanche.order.length)) return `<div class="empty"><b>No debts to pay off</b>Debts with a balance show here. Bills that aren't debts are never included.<div style="margin-top:10px"><a class="btn" href="#/debts">Debts</a></div></div>`;
+    if (!order.length && !(ms.avalanche && ms.avalanche.order && ms.avalanche.order.length)) return `<div class="empty"><b>No debts to pay off</b>Debts with a balance show here. Bills that aren't debts are never included.</div>`;
     const missing = Array.isArray(r.missing) ? r.missing : [];
     const rows = [['avalanche', 'Avalanche'], ['snowball', 'Snowball'], ['custom', 'Custom'], ['minimum', 'Minimums only']].filter(([k]) => ms[k]);
     const best = r.best;
     const notes = (sel && Array.isArray(sel.notes) ? sel.notes : []).filter(n => typeof n === 'string' && n && !/ has no /.test(n));
-    return `${missing.length ? `<div class="callout red small sp-missing" style="margin-top:12px">${ic('alert')}<div><b>Some debts are missing details, so dates are estimates.</b> Fill these in on the <a href="#/debts">Debts page</a>:<ul>${missing.map(x => `<li data-debt="${esc(x.id)}"><b>${esc(x.name)}</b>: add the ${(x.fields || []).map(f => FIELD[f] || f).join(', ')}</li>`).join('')}</ul></div></div>` : ''}
+    return `${missing.length ? `<div class="callout red small sp-missing" style="margin-top:12px">${ic('alert')}<div><b>Some debts are missing details, so dates are estimates.</b> Fill these in under <b>Accounts</b> above (tap ⋯, then Edit):<ul>${missing.map(x => `<li data-debt="${esc(x.id)}"><b>${esc(x.name)}</b>: add the ${(x.fields || []).map(f => FIELD[f] || f).join(', ')}</li>`).join('')}</ul></div></div>` : ''}
       ${debtFigs(r, sel)}
       ${notes.length ? `<div style="display:grid;gap:6px;margin-top:10px">${notes.map(n => `<div class="small muted sp-note">${ic('info')}<span>${esc(n)}</span></div>`).join('')}</div>` : ''}
       <div class="sp-h4" style="margin-top:18px">Side by side</div>
@@ -372,20 +372,22 @@
     return `<div class="sp-bar" data-f="dbar"><span class="grow small muted">${dd ? '<span class="pill sp-dirty">Not saved yet</span> Tap Save to keep this plan.' : 'This is a plan only. It never changes your debts or payments.'}</span>
       <button class="btn" data-act="spDebtCancel"${dd ? '' : ' disabled'}>Cancel</button><button class="btn primary" data-act="spDebtSave"${dd ? '' : ' disabled'}>${ic('check')}Save</button></div>`;
   }
-  function renderDebt(ctx) {
+  // opts.after: extra HTML the page shows at the bottom of this card (the Debt page's what-if calculator)
+  function renderDebt(ctx, opts) {
     css(); getCtx(ctx);
+    const after = opts && typeof opts.after === 'string' ? opts.after : '';
     const d = debtDraft();
     const avail = has('debtPlans');
     const desc = (METHODS.find(m => m[0] === d.method) || METHODS[0])[2];
-    return `<section class="section sp sp-debts" id="spDebt">${sectionH('Debt payoff plan', 'Debts', 'href="#/debts"')}
+    return `<section class="section sp sp-debts" id="spDebt">${sectionH('Debt payoff plan', 'Feeds your Smart Budget', 'href="#/smart"')}
       ${avail ? `<div class="sp-tabs" role="tablist" aria-label="Payoff method">${METHODS.map(([k, n]) => `<button type="button" role="tab" class="${k === d.method ? 'on' : ''}" aria-selected="${k === d.method}" data-act="spDebtMethod" data-m="${k}">${n}</button>`).join('')}</div>
       <p class="small muted" style="margin:8px 0 0" data-f="mdesc">${esc(desc)}</p>
       <div class="sp-extra"><label><span class="small"><b>Extra payment each month</b> <span class="faint">(optional, on top of minimums)</span></span>${moneyIn(d.extra, 'data-act-input="spDebtExtra" data-act-change="spBlur" data-k="extra"', 'Extra debt payment each month')}</label></div>` : ''}
-      <div data-f="dbody">${debtBody()}</div>${avail ? debtBar() : ''}</section>`;
+      <div data-f="dbody">${debtBody()}</div>${avail ? debtBar() : ''}<div data-f="dafter">${after}</div></section>`;
   }
   function rerenderDebt(full) {
     const sec = $('#spDebt'); if (!sec) return;
-    if (full) { const ae = document.activeElement; const wasExtra = ae && ae.dataset && ae.dataset.k === 'extra'; sec.outerHTML = renderDebt(); if (wasExtra) { const n = $('#spDebt input[data-k=extra]'); if (n) n.focus(); } return; }
+    if (full) { const ae = document.activeElement; const wasExtra = ae && ae.dataset && ae.dataset.k === 'extra'; const keep = $('[data-f=dafter]', sec); sec.outerHTML = renderDebt(); const slot = $('#spDebt [data-f=dafter]'); if (keep && slot) slot.replaceWith(keep); /* the page's extra block stays as it is */ if (wasExtra) { const n = $('#spDebt input[data-k=extra]'); if (n) n.focus(); } return; }
     const b = $('[data-f=dbody]', sec); if (b) b.innerHTML = debtBody();
     const bar = $('[data-f=dbar]', sec); if (bar) bar.outerHTML = debtBar();
   }
@@ -448,6 +450,6 @@
 
   window.WTExt = window.WTExt || {};
   window.WTExt.plan = { act };
-  // dirty(): unsaved paycheck or debt-plan changes (app.js keeps them while the Smart Budget section changes)
+  // dirty(): unsaved paycheck or debt-plan changes (drafts stay in memory while you look at other pages, until Save or Cancel)
   window.WTPlanUI = { ready: true, renderPaychecks, renderDebt, dirty: () => pcDirty() || !!draft.debtDirty, _draft: draft };
 })();

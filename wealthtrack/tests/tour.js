@@ -99,7 +99,7 @@ async function layout(p, label) {
     await p.click('[data-act=appTour]'); await p.waitForTimeout(300);
     ok(await card(p).isVisible(), 'App tour replays it');
     await p.keyboard.press('ArrowRight'); await p.waitForTimeout(350);
-    ok(/Dashboard/.test(await title(p)), 'right arrow goes forward');
+    ok(/Home/.test(await title(p)), 'right arrow goes forward');
     await p.keyboard.press('ArrowLeft'); await p.waitForTimeout(350);
     ok(/Welcome/.test(await title(p)), 'left arrow goes back');
     await p.keyboard.press('Escape'); await p.waitForTimeout(250);
@@ -126,7 +126,7 @@ async function layout(p, label) {
   // ---- Pro features are labelled for free users
   {
     const { c, p } = await open(browser, url, { previewFree: true });
-    const idx = await p.evaluate(() => WTTour.STEPS.findIndex(s => s[2] === 'Debt'));
+    const idx = await p.evaluate(() => WTTour.STEPS.findIndex(s => s[2] === 'Wealth: Debt'));
     for (let k = 0; k < idx; k++) { await p.click('.tour-card [data-tour=next]'); await p.waitForTimeout(300); }
     ok(/Debt/.test(await title(p)) && await p.locator('.tour-card .tour-pro').count() === 1, 'free user: Debt payoff step shows a Pro label');
     await p.click('.tour-card [data-tour=back]'); await p.waitForTimeout(300);
@@ -135,7 +135,7 @@ async function layout(p, label) {
   }
   {
     const { c, p } = await open(browser, url, {});
-    const idx = await p.evaluate(() => WTTour.STEPS.findIndex(s => s[2] === 'Debt'));
+    const idx = await p.evaluate(() => WTTour.STEPS.findIndex(s => s[2] === 'Wealth: Debt'));
     for (let k = 0; k < idx; k++) { await p.click('.tour-card [data-tour=next]'); await p.waitForTimeout(300); }
     ok(await p.locator('.tour-card .tour-pro').count() === 0, 'Pro unlocked: no Pro labels');
     await c.close();

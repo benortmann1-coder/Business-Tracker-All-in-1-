@@ -50,12 +50,11 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   ok(await page.evaluate(() => !!(window.WTSmart && WTSmart.analyze)), 'engine loaded (window.WTSmart)');
   const before = await page.evaluate(DATA);
 
-  // reachable: phone More menu (the old Budgets page is gone)
-  await page.click('[data-act=moreMenu]'); await page.waitForTimeout(150);
-  const menuItems = await page.locator('#menu button').allTextContents();
-  ok(menuItems.some(t => /Smart Budget/.test(t)) && !menuItems.some(t => /^\s*Budgets\s*$/.test(t)), 'More menu lists Smart Budget, no separate Budgets');
-  await page.locator('#menu button', { hasText: 'Smart Budget' }).click(); await page.waitForTimeout(300);
-  ok(await page.evaluate(() => location.hash) === '#/smart' && /Smart Budget/.test(await page.locator('#main h1').textContent()), 'More → Smart Budget opens #/smart');
+  // reachable: the Plan area in the bottom nav (the old Budgets page is gone)
+  const navItems = await page.locator('.bottom-nav button').allTextContents();
+  ok(navItems.some(t => /Plan/.test(t)) && !navItems.some(t => /^\s*Budgets\s*$/.test(t)), 'bottom nav has Plan, no separate Budgets');
+  await page.evaluate(() => { WTApp.ui.hubLast = {}; }); await page.click('.bottom-nav [data-hub=plan]'); await page.waitForTimeout(300);
+  ok(await page.evaluate(() => location.hash) === '#/smart' && /Smart Budget/.test(await page.locator('#main h1').textContent()), 'Plan opens Smart Budget at #/smart');
   await go(page, 'budgets');
   ok(await page.evaluate(() => WTApp.ui.route) === 'smart', 'old Budgets link opens Smart Budget');
   await go(page, 'dashboard');
@@ -65,11 +64,11 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   await go(page, 'smart');
   ok(!/Something went wrong/.test(await mainText(page)), 'page renders with sample data');
   // sections: a labeled "Section" dropdown right under the page title, 3 choices, My plan first
-  const SEC_CARDS = { plan: ['#sbPlans', '#sbRecSum', '#sbVa', '#sbSug', '#sbHist'], compare: ['#sbWhy', '#sbStrats', '#sbCmp'], customize: ['#sbEdit', '#sbSaved', '#spPaychecks', '#spDebt'] };
+  const SEC_CARDS = { plan: ['#sbPlans', '#sbRecSum', '#sbVa', '#sbSug', '#sbHist'], compare: ['#sbWhy', '#sbStrats', '#sbCmp'], customize: ['#sbEdit', '#sbSaved'] };
   const secInfo = () => page.evaluate(() => { const s = document.querySelector('#sbSec'), l = document.querySelector('label[for=sbSec]'), tb = document.querySelector('#main .topbar');
     return s && { tag: s.tagName, label: l && l.textContent.trim(), opts: [...s.options].map(o => o.value + '=' + o.textContent), val: s.value, under: tb.getBoundingClientRect().bottom <= s.getBoundingClientRect().top && !!(tb.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(s.compareDocumentPosition(document.querySelector('#sbPlans')) & Node.DOCUMENT_POSITION_FOLLOWING), fs: parseFloat(getComputedStyle(s).fontSize), h: s.getBoundingClientRect().height, w: s.getBoundingClientRect().width, mainW: document.querySelector('.sb').getBoundingClientRect().width }; });
   const si0 = await secInfo();
-  ok(si0 && si0.tag === 'SELECT' && si0.label === 'Section' && si0.opts.join('|') === 'plan=My plan|compare=Strategies & compare|customize=Customize & paychecks', 'Section dropdown with 3 options: ' + (si0 && si0.opts.join(', ')));
+  ok(si0 && si0.tag === 'SELECT' && si0.label === 'Section' && si0.opts.join('|') === 'plan=My plan|compare=Strategies & compare|customize=Customize', 'Section dropdown with 3 options: ' + (si0 && si0.opts.join(', ')));
   ok(si0.val === 'plan' && si0.under, 'dropdown sits under the page title, before the plan; opens on My plan');
   ok(si0.fs >= 16 && si0.h >= 40 && si0.w >= si0.mainW - 1, 'phone: dropdown is full width, 16px text, at least 40px tall (' + Math.round(si0.w) + '/' + Math.round(si0.mainW) + 'px, ' + Math.round(si0.h) + 'px)');
   const visMap = () => page.evaluate(C => { const o = {}; for (const k in C) o[k] = C[k].map(s => { const e = document.querySelector(s); return e ? (e.getClientRects().length > 0 ? 1 : 0) : -1; }); return o; }, SEC_CARDS);
@@ -93,7 +92,16 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   // deep links: a section name or a card id opens the right section and scrolls to the card
   await go(page, 'smart/sbEdit'); await page.waitForTimeout(150);
   const dl = await page.evaluate(() => ({ val: document.querySelector('#sbSec').value, top: Math.round(document.querySelector('#sbEdit').getBoundingClientRect().top), hash: location.hash }));
-  ok(dl.val === 'customize' && dl.top >= -2 && dl.top < 120 && dl.hash === '#/smart/customize', 'deep link #/smart/sbEdit opens Customize & paychecks at the editor ' + JSON.stringify(dl));
+  ok(dl.val === 'customize' && dl.top >= -2 && dl.top < 120 && dl.hash === '#/smart/customize', 'deep link #/smart/sbEdit opens Customize at the editor ' + JSON.stringify(dl));
+  // the paycheck plan and the debt payoff plan moved out of Smart Budget: old links to those cards open their new page at the card
+  ok(await page.locator('#main #spPaychecks, #main #spDebt, #main #sbPlanSec, #main .sb-pc').count() === 0 && !/Paycheck by paycheck|Debt payoff plan/.test(await mainText(page)), 'Smart Budget no longer contains the paycheck plan or the debt payoff plan');
+  ok(await page.locator('#sbSec-customize #sbMoved a[href="#/paychecks/spPaychecks"]').count() === 1 && await page.locator('#sbSec-customize #sbMoved a[href="#/debts/spDebt"]').count() === 1, 'Customize points to the Paychecks page and the Debt page for those plans');
+  for (const [old, route, card] of [['smart/spPaychecks', 'paychecks', 'spPaychecks'], ['smart/sbPlanSec', 'paychecks', 'spPaychecks'], ['smart/spDebt', 'debts', 'spDebt'], ['debts/debtWhatIf', 'debts', 'debtWhatIf']]) {
+    await go(page, 'dashboard'); await go(page, old); await page.waitForTimeout(150);
+    const ml = await page.evaluate(id => { const n = document.getElementById(id); return { route: WTApp.ui.route, hash: location.hash, top: n ? Math.round(n.getBoundingClientRect().top) : null, n: document.querySelectorAll('#main #' + id).length, sb: !!document.querySelector('#sbSec') }; }, card);
+    ok(ml.route === route && ml.hash === '#/' + route && ml.n === 1 && ml.top >= -2 && ml.top < 160 && !ml.sb, 'link #/' + old + ' opens the ' + route + ' page at #' + card + ' ' + JSON.stringify(ml));
+  }
+  await page.evaluate(() => { const d = document.querySelector('#debtWhatIf'); if (d) d.open = false; }); await page.waitForTimeout(100);
   await go(page, 'smart/plan');
   ok(await page.locator('#sbSec').inputValue() === 'plan' && await page.locator('#sbPlans').isVisible(), 'deep link #/smart/plan opens My plan');
   // My plan: the essentials come first on a phone, with a short recommendation summary that links to the details
@@ -427,8 +435,28 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   const vaUi = await page.locator('.sb-va[data-bucket=needs] .num.small b').textContent();
   ok(cents(vaUi) === vaEng.actual, 'needs actual matches the engine (' + vaUi + ')');
   const planUi = await page.evaluate(() => !!(window.WTPlanUI && WTPlanUI.ready));
-  if (planUi) ok(await page.locator('#main #spPaychecks').count() === 1 && await page.locator('#main #spDebt').count() === 1 && await page.locator('.sb-pc').count() === 0, 'paycheck + debt sections from WTPlanUI replace the old paycheck list');
+  // the paycheck plan lives on the Paychecks page (once), the payoff plan on the Debt page (once, with a closed what-if calculator)
+  await go(page, 'paychecks');
+  if (planUi) ok(await page.locator('#main #spPaychecks').count() === 1 && await page.locator('#main #spDebt').count() === 0 && await page.locator('.sb-pc').count() === 0 && (await mainText(page)).split('Paycheck by paycheck').length === 2, 'Paychecks page: the WTPlanUI paycheck plan shows once (no old paycheck list)');
   else { const pcs = await page.locator('.sb-pc').count(); ok(pcs >= 1 && pcs <= 3, 'paycheck plan (fallback) shows the next ' + pcs + ' paychecks'); }
+  ok(await page.evaluate(() => { const pl = document.querySelector('#pcPlan'), ls = document.querySelector('.pc-lists'); return !!pl && !!ls && !!(ls.compareDocumentPosition(pl) & Node.DOCUMENT_POSITION_FOLLOWING) && !!document.querySelector('.pc-line') && !!document.querySelector('.pc-statement'); }) && /Smart Budget/.test(await page.locator('#pcPlan .sp-intro, #pcPlan').first().textContent()), 'Paychecks page: timeline, statement, jobs and bonuses stay; the plan comes after them with a one-line intro');
+  await go(page, 'debts');
+  const dpg = await page.evaluate(() => { const q = s => document.querySelectorAll('#main ' + s).length; const w = document.querySelector('#debtWhatIf'), acc = document.querySelector('.debt-list'), pl = document.querySelector('#spDebt');
+    return { plan: q('#spDebt'), pc: q('#spPaychecks'), wi: q('#debtWhatIf'), open: w && w.open, sum: w && w.querySelector('summary').textContent.trim(), sumH: w && Math.round(w.querySelector('summary').getBoundingClientRect().height), inWi: w && !!w.querySelector('#pxtra') && !!w.querySelector('.plan-tbl') && !!w.querySelector('.payoff-order') && !!w.querySelector('svg') && w.querySelectorAll('[data-act=payoffPreset]').length === 5,
+      heads: [...document.querySelectorAll('#main .section-h h2')].map(h => h.textContent.trim()), order: !!acc && !!pl && !!(acc.compareDocumentPosition(pl) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(pl.compareDocumentPosition(w) & Node.DOCUMENT_POSITION_FOLLOWING), pxVis: document.querySelector('#pxtra').checkVisibility() ? 1 : 0 }; });
+  if (planUi) {
+    ok(dpg.plan === 1 && dpg.pc === 0 && dpg.heads.filter(h => /payoff plan/i.test(h)).length === 1 && dpg.heads.join('|') === 'Accounts|Debt payoff plan', 'Debt page: Accounts, then one "Debt payoff plan" (' + dpg.heads.join(', ') + ')');
+    ok(dpg.wi === 1 && dpg.open === false && dpg.pxVis === 0 && /^What-if calculator/.test(dpg.sum) && dpg.inWi && dpg.order && dpg.sumH >= 40, 'Debt page: the what-if calculator sits under the plan, closed, with the chips, table, chart and order lists inside ' + JSON.stringify({ open: dpg.open, sum: dpg.sum, h: dpg.sumH }));
+    const sbBefore = await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {}));
+    await page.click('#debtWhatIf > summary'); await page.waitForTimeout(150);
+    await page.click('[data-act=payoffPreset][data-v="25000"]'); await page.waitForTimeout(150);
+    ok(await page.evaluate(() => document.querySelector('#debtWhatIf').open && WTApp.ui.payoffExtra === 25000 && WTApp.ui.whatIfOpen === true && document.querySelector('#pxtra').checkVisibility() && WTPlanUI.dirty() === false) && await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {})) === sbBefore, 'what-if: stays open after picking an amount, remembers open state, and is not the saved plan');
+    await go(page, 'dashboard'); await go(page, 'debts');
+    ok(await page.evaluate(() => document.querySelector('#debtWhatIf').open), 'what-if: open state is remembered when you come back');
+    await page.click('#debtWhatIf > summary'); await page.waitForTimeout(150);
+    ok(await page.evaluate(() => !document.querySelector('#debtWhatIf').open && WTApp.ui.whatIfOpen === false), 'what-if: closing is remembered too');
+  }
+  await go(page, 'smart');
   const groups = await page.locator('.sb-sug-g').evaluateAll(els => els.map(e => e.dataset.urgency));
   ok(groups.length >= 1 && groups.join() === ['now', 'soon', 'later'].filter(u => groups.includes(u)).join(), 'suggestions grouped by urgency in order: ' + groups.join(', '));
   const scenEng = await page.evaluate(() => { const s = WT.settings().smartBudget; const A = WTSmart.analyze(); const st = WTSmart.strategies(A).find(x => x.id === s.strategyId); return WTSmart.suggestions(A, st).filter(x => x.kind === 'scenario' || x.optional).length; });
@@ -500,20 +528,32 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   await page.evaluate(() => { window.WTSmart = Object.assign({}, window.__sb, { suggestions: () => { throw new Error('boom'); } }); WTApp.refresh(); }); await page.waitForTimeout(150);
   ok(await page.locator('.sb-hero').count() === 1 && await page.locator('.sb-custom').count() === 1 && /couldn't be worked out/.test(await mainText(page)), 'one part failing leaves the rest of the page');
   await page.evaluate(() => { window.__pu = window.WTPlanUI; window.WTPlanUI = { ready: true, renderPaychecks: () => { throw new Error('boom'); }, renderDebt: () => '<section class="section" id="spDebtFake">debt</section>' }; window.WTSmart = window.__sb; WTApp.refresh(); }); await page.waitForTimeout(150);
-  ok(await page.locator('#spDebtFake').count() === 1 && await page.locator('.sb-custom').count() === 1 && /couldn't be worked out/.test(await mainText(page)), 'a failing plan section is contained');
+  await go(page, 'paychecks');
+  ok(await page.locator('.pc-statement').count() === 1 && await page.locator('.pc-lists').count() === 1 && /couldn't be worked out/.test(await page.locator('#pcPlan').textContent()), 'a failing paycheck plan is contained: the rest of the Paychecks page still shows');
+  await go(page, 'debts');
+  ok(await page.locator('#spDebtFake').count() === 1 && await page.locator('.debt-list').count() === 1 && await page.locator('#debtWhatIf').count() === 1, 'Debt page renders the plan section it is given, with the what-if calculator under it');
+  await page.evaluate(() => { window.WTPlanUI.renderDebt = () => { throw new Error('boom'); }; WTApp.refresh(); }); await page.waitForTimeout(150);
+  ok(await page.locator('.debt-list').count() === 1 && await page.locator('#pxtra').count() === 1 && /couldn't be worked out/.test(await page.locator('#debtPayoff').textContent()), 'a failing debt plan is contained: accounts and the what-if calculator still show');
   await page.evaluate(() => { window.WTPlanUI = undefined; WTApp.refresh(); }); await page.waitForTimeout(150);
-  ok(await page.locator('.sb-pc, .empty').count() >= 1 && await page.locator('#spPaychecks').count() === 0, 'no WTPlanUI: falls back to the old paycheck section');
-  await page.evaluate(() => { window.WTPlanUI = window.__pu; WTApp.refresh(); }); await page.waitForTimeout(150);
+  ok(await page.locator('#spDebt').count() === 0 && await page.evaluate(() => { const w = document.querySelector('#debtWhatIf'); return !!w && w.open && document.querySelector('#pxtra').checkVisibility(); }) && (await page.locator('#main .section-h h2').allTextContents()).filter(h => /payoff plan/i.test(h)).length === 1, 'no WTPlanUI: the Debt page shows the what-if calculator open under one "Debt payoff plan" heading');
+  await go(page, 'paychecks');
+  ok(await page.locator('#pcPlan .sb-pc, #pcPlan .empty').count() >= 1 && await page.locator('#spPaychecks').count() === 0, 'no WTPlanUI: the Paychecks page falls back to the old paycheck section');
+  await page.evaluate(() => { window.WTSmart = Object.assign({}, window.__sb, { analyze: () => { throw new Error('boom'); } }); window.WTPlanUI = window.__pu; WTApp.refresh(); }); await page.waitForTimeout(150);
+  ok(await page.locator('.pc-statement').count() === 1 && await page.locator('#pcPlan').count() === 0 && !/Something went wrong/.test(await mainText(page)), 'Smart Budget can\'t compute: the Paychecks page shows without the plan');
+  await go(page, 'debts');
+  ok(await page.locator('#spDebt').count() === 0 && await page.evaluate(() => { const w = document.querySelector('#debtWhatIf'); return !!w && w.open; }) && !/Something went wrong/.test(await mainText(page)), 'Smart Budget can\'t compute: the Debt page shows the what-if calculator open');
+  await page.evaluate(() => { window.WTSmart = window.__sb; window.WTPlanUI = window.__pu; WTApp.refresh(); }); await page.waitForTimeout(150);
+  await go(page, 'smart');
   await page.evaluate(() => { window.WTSmart = window.__sb; WTApp.refresh(); }); await page.waitForTimeout(150);
   await ctx.close();
 
-  // sections: "Customize this" jumps to Customize & paychecks; unsaved editor changes survive switching sections
+  // sections: "Customize this" jumps to Customize; unsaved editor changes survive switching sections
   {
     const { ctx, page } = await open();
     await go(page, 'smart'); await sec(page, 'compare');
     await page.locator('.sb-card[data-strategy=balanced] [data-act=sbCustomize]').click(); await page.waitForTimeout(250);
     const cj = await page.evaluate(() => ({ val: document.querySelector('#sbSec').value, vis: document.querySelector('#sbEdit').getClientRects().length > 0, top: Math.round(document.querySelector('#sbEdit').getBoundingClientRect().top), cmp: document.querySelector('#sbCmp').getClientRects().length, hash: location.hash, dirty: document.querySelector('#sbDirty').textContent }));
-    ok(cj.val === 'customize' && cj.vis && cj.cmp === 0 && cj.top >= -2 && cj.top < 120 && cj.hash === '#/smart/customize', '"Customize this" switches to Customize & paychecks and scrolls to the editor ' + JSON.stringify(cj));
+    ok(cj.val === 'customize' && cj.vis && cj.cmp === 0 && cj.top >= -2 && cj.top < 120 && cj.hash === '#/smart/customize', '"Customize this" switches to Customize and scrolls to the editor ' + JSON.stringify(cj));
     const bal = await page.evaluate(() => { const A = WTSmart.analyze(); const s = WTSmart.strategies(A).find(x => x.id === 'balanced'); return ['needs', 'debt', 'savings', 'wants'].map(k => WT.parseMoney(document.querySelector('#sbf-' + k).value) === s.amounts[k]).every(Boolean); });
     ok(bal && /Unsaved/.test(cj.dirty), 'and loads that strategy into the editor (unsaved)');
     // type, switch away and back: the typed amounts, locks and the Unsaved state are kept
@@ -551,6 +591,23 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
       ok(r.small === 0, `360px "${v}": buttons, sliders and the dropdown are at least 40px tall`);
       await shot(page, 'smart-360-' + v, true);
     }
+    // the moved plans on their new pages (the what-if calculator measured open as well)
+    const small360 = sel => page.evaluate(sel => [...document.querySelectorAll(sel)].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).map(e => e.className || e.tagName).slice(0, 5), sel);
+    await go(page, 'paychecks');
+    let r360 = await fit360(), sm = await small360('#pcPlan .btn, #pcPlan input, #pcPlan select, #pcPlan .sp-fund-btn');
+    ok(await page.locator('#spPaychecks .sp-card[data-key]').count() >= 1 && r360.sw <= 360 && r360.vw === 360 && r360.wide === 0, `360px Paychecks page with the paycheck plan: no horizontal overflow (scrollWidth ${r360.sw}, wide ${r360.wide})`);
+    ok(sm.length === 0, '360px Paychecks page: plan buttons and fields are at least 40px tall ' + sm.join(', '));
+    await shot(page, 'paychecks-360-plan', true);
+    await go(page, 'debts');
+    r360 = await fit360();
+    ok(await page.locator('#spDebt').count() === 1 && r360.sw <= 360 && r360.vw === 360 && r360.wide === 0, `360px Debt page with the payoff plan: no horizontal overflow (scrollWidth ${r360.sw}, wide ${r360.wide})`);
+    await page.click('#debtWhatIf > summary'); await page.waitForTimeout(150);
+    r360 = await fit360(); sm = await small360('#debtPayoff .btn, #debtPayoff input, #debtPayoff .sp-tabs button, #debtPayoff .chip, #debtWhatIf > summary');
+    const cut = await page.evaluate(() => { const w = document.querySelector('#debtWhatIf .tbl-wrap'); return w.scrollWidth - w.clientWidth; });
+    ok(await page.locator('#pxtra').isVisible() && r360.sw <= 360 && r360.wide === 0 && cut <= 2, `360px Debt page, what-if open: no horizontal overflow, table not cut off (scrollWidth ${r360.sw}, wide ${r360.wide}, cut ${cut})`);
+    ok(sm.length === 0 && await page.$eval('#pxtra', e => parseFloat(getComputedStyle(e).fontSize) >= 16), '360px Debt page: plan + what-if controls are at least 40px tall, 16px input ' + sm.join(', '));
+    await shot(page, 'debts-360-plan', true);
+    await go(page, 'smart');
     // editing on a phone: big amount fits, Remaining bar stays on screen, still no sideways scroll
     await sec(page, 'customize');
     await page.locator('#sbf-needs').scrollIntoViewIfNeeded();
@@ -587,7 +644,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
     ok(await page.locator('#sbCmp .sb-ftbl thead').isVisible() && await page.locator('.sb-cards').evaluate(e => getComputedStyle(e).display) === 'grid', 'desktop: strategy cards in a grid and a comparison table');
     ok(await page.locator('nav.nav-group a[data-nav=smart]').count() === 1, 'desktop nav has Smart Budget');
     const ord = await page.locator('nav.nav-group a').evaluateAll(a => a.map(x => x.dataset.nav));
-    ok(ord.indexOf('smart') === ord.indexOf('expenses') + 1 && !ord.includes('budgets'), 'nav: Smart Budget right after Expenses; no Budgets');
+    ok(ord.indexOf('paychecks') === ord.indexOf('smart') + 1 && !ord.includes('budgets'), 'nav: Smart Budget and Paychecks sit together under Plan; no Budgets');
     await shot(page, 'smart-desktop', true);
     await ctx.close();
   }

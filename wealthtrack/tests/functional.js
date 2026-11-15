@@ -263,8 +263,10 @@ function serve() {
   ok(await page.locator('.overlay tbody tr').count() >= 4, 'debt history');
   await page.locator('.overlay [data-act=voidDebtTxn]').first().click(); await submit();
   ok(await W(() => WT.debtBalance(Object.values(WT.D.debts).find(d => d.name === 'Medical bill').id)) !== 40000, 'void debt entry');
+  // the what-if calculator sits under the payoff plan, closed (open when there is no plan to save): open it first
+  if (!(await page.locator('#pxtra').isVisible())) { await page.click('#debtWhatIf > summary'); await page.waitForTimeout(100); }
   await page.click('[data-act=payoffPreset][data-v="25000"]'); await page.waitForTimeout(100);
-  ok((await page.locator('#main').textContent()).includes('Avalanche order'), 'payoff calculator');
+  ok((await page.locator('#main').textContent()).includes('Avalanche order') && await page.locator('#pxtra').isVisible() && await page.evaluate(() => WTApp.ui.payoffExtra) === 25000, 'payoff calculator');
   await page.locator('#main input[data-act-change=payoffExtra]').fill('abc'); await page.locator('#main input[data-act-change=payoffExtra]').press('Enter'); await page.locator('#main h1').click(); await page.waitForTimeout(100);
   ok(!(await page.locator('#main').textContent()).includes('Something went wrong'), 'invalid extra amount handled');
 
@@ -434,8 +436,19 @@ function serve() {
   await mp.goto(url); await mp.waitForFunction(() => window.__wtReady);
   await mp.locator('.bottom-nav [data-nav-btn=bills]').tap(); await mp.waitForTimeout(100);
   ok(await mp.evaluate(() => location.hash) === '#/bills', 'bottom nav');
-  await mp.locator('.bottom-nav [data-act=moreMenu]').tap(); await mp.locator('#menu button', { hasText: 'Debt' }).tap(); await mp.waitForTimeout(100);
-  ok(await mp.evaluate(() => location.hash) === '#/debts', 'more menu navigation');
+  ok(await mp.locator('.bottom-nav button').count() === 5 && await mp.locator('.bottom-nav [data-act=moreMenu]').count() === 0, 'five areas in the bottom nav, no More menu');
+  await mp.locator('.bottom-nav [data-hub=wealth]').tap(); await mp.waitForTimeout(100);
+  ok(await mp.evaluate(() => location.hash) === '#/progress', 'Wealth opens on Net worth');
+  await mp.locator('.hub-tabs [data-nav-go=debts]').tap(); await mp.waitForTimeout(100);
+  ok(await mp.evaluate(() => location.hash) === '#/debts' && /on/.test(await mp.locator('.hub-tabs [data-nav-go=debts]').getAttribute('class')), 'area tabs navigation (Wealth → Debt)');
+  await mp.locator('.bottom-nav [data-hub=bills]').tap(); await mp.waitForTimeout(100);
+  await mp.locator('.bottom-nav [data-hub=wealth]').tap(); await mp.waitForTimeout(100);
+  ok(await mp.evaluate(() => location.hash) === '#/debts', 'an area reopens on the tab you last used');
+  await mp.locator('.bottom-nav [data-hub=bills]').tap(); await mp.waitForTimeout(100);
+  await mp.locator('.hub-tabs [data-nav-go=calendar]').tap(); await mp.waitForTimeout(100);
+  ok(await mp.evaluate(() => location.hash) === '#/calendar' && /active/.test(await mp.locator('.bottom-nav [data-hub=bills]').getAttribute('class')), 'Calendar is a Bills tab');
+  await mp.locator('.hub-tabs [data-act=billsTab][data-tab=manage]').tap(); await mp.waitForTimeout(100);
+  ok(await mp.evaluate(() => location.hash) === '#/bills' && await mp.locator('#main table.ledger').count() >= 1, 'from Calendar, the All bills tab opens the bills list');
   await mp.locator('.fab').tap(); await mp.locator('#menu button', { hasText: 'Add expense' }).tap(); await mp.waitForTimeout(100);
   ok(await mp.locator('.overlay').count() === 1, 'FAB quick add');
   ok(await mp.evaluate(() => window.onAndroidBack()) === true && await mp.locator('.overlay').count() === 0, 'android back closes modal');

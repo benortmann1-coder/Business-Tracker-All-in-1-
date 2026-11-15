@@ -237,7 +237,7 @@
     css();
     recordNew();
     const on = Wealth().notifyEnabled();
-    return `<div class="topbar"><div><h1>Progress</h1><div class="sub">Net worth, milestones and saved tips.</div></div></div>
+    return `<div class="topbar"><div><h1>Net worth</h1><div class="sub">Net worth, milestones and saved tips.</div></div></div>
       <div class="fade-in hm-progress">${summaryBlock()}${achBlock()}
       <div class="hm-sec"><h2>Notifications</h2><div class="hm-list"><label class="hm-set"><span><b class="small">Milestone notifications</b><div class="tiny faint">A short message when you reach a new milestone.</div></span><span class="switch"><input type="checkbox" data-act-change="hmNotify" aria-label="Milestone notifications" ${on ? 'checked' : ''}><span></span></span></label></div></div>
       ${savedTipsBlock()}

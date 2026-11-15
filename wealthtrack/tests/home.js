@@ -83,7 +83,7 @@ const shot = (page, name, full) => SHOTS ? page.screenshot({ path: path.join(SHO
   {
     const { ctx, page } = await mk();
     await go(page, 'progress');
-    ok(/Progress/.test(await page.locator('.topbar h1').textContent()), 'Progress topbar');
+    ok(/Net worth/.test(await page.locator('.topbar h1').textContent()), 'Net worth topbar');
     const ids = await page.locator('[data-ach]').evaluateAll(els => els.map(e => e.dataset.ach));
     const all = await page.evaluate(() => WTWealth.MILESTONES.map(m => m.id));
     ok(ids.length === 22 && all.length === 22 && all.every(i => ids.includes(i)), 'Progress lists all 22 milestones');
