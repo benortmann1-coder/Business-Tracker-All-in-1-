@@ -183,6 +183,19 @@ function serve() {
   // ---------------- Paychecks
   await go('paychecks');
   ok(await page.locator('#main .pc-statement .big').count() === 1, 'planner renders');
+  // Paychecks has two views: This paycheck (default) and Plan ahead
+  const pcv = () => page.evaluate(() => ({ seg: [...document.querySelectorAll('.pc-views button')].map(b => b.textContent.trim() + (b.classList.contains('on') ? '*' : '')), now: !!document.getElementById('pcNow') && !document.getElementById('pcNow').hidden, plan: !!document.getElementById('pcPlan') && !document.getElementById('pcPlan').hidden, hash: location.hash }));
+  let pv = await pcv();
+  ok(JSON.stringify(pv.seg) === JSON.stringify(['This paycheck*', 'Plan ahead']) && pv.now && !pv.plan, 'Paychecks opens on This paycheck; Plan ahead is one tap away');
+  await page.click('.pc-views [data-v=plan]'); await page.waitForTimeout(150); pv = await pcv();
+  ok(pv.plan && !pv.now && pv.seg[1] === 'Plan ahead*' && await page.locator('#spPaychecks').isVisible(), 'Plan ahead shows the paycheck-by-paycheck plan only');
+  await go('bills'); await go('paychecks'); pv = await pcv();
+  ok(pv.plan && !pv.now, 'the view you chose is remembered');
+  await go('paychecks/now'); pv = await pcv();
+  ok(pv.now && !pv.plan && pv.hash === '#/paychecks', '#/paychecks/now opens This paycheck');
+  await go('bills'); await go('paychecks/plan'); pv = await pcv();
+  ok(pv.plan && pv.hash === '#/paychecks', '#/paychecks/plan opens Plan ahead');
+  await page.click('.pc-views [data-v=now]'); await page.waitForTimeout(150);
   await page.locator('[data-act=receiveCheck]').first().click(); await fill('amount', '1612.25'); await submit();
   ok(await W(() => Object.values(WT.D.deposits).some(d => d.amountCents === 161225 && !d.voided)), 'mark paycheck received with real amount');
   await page.locator('[data-act=undoCheck]').first().click(); await page.waitForTimeout(100);

@@ -35,7 +35,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
     if (wired == null) wired = has;
     if (!has) await p.evaluate(id => { document.querySelector('#main').insertAdjacentHTML('beforeend', id === 'spDebt' ? WTPlanUI.renderDebt() : WTPlanUI.renderPaychecks()); }, id);
   };
-  const go = async (p, r) => { at = r; await p.evaluate(r => { location.hash = '#/' + r; }, r); await p.waitForTimeout(300); await ensure(p); };
+  const go = async (p, r) => { at = r.split('/')[0]; await p.evaluate(r => { location.hash = '#/' + r; }, r); await p.waitForTimeout(300); await ensure(p); };
   const sec = async (p, v) => { if (await p.locator('#sbSec').count()) { await p.selectOption('#sbSec', v); await p.waitForTimeout(150); } };
   const shot = async (p, n, sel) => { if (!SHOTS) return; await p.waitForTimeout(200); if (sel) await p.locator(sel).screenshot({ path: path.join(SHOTS, n + '.png') }); else await p.screenshot({ path: path.join(SHOTS, n + '.png'), fullPage: true }); };
   const settle = async p => { await p.waitForTimeout(250); await ensure(p); };
@@ -69,7 +69,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   ok(await page.evaluate(() => !!(window.WTPlan && WTPlan.ready)), 'WTPlan engine ready');
   const paidId = await page.evaluate(() => { const pcs = WTPlan.paycheckPlan({ count: 4 }).paychecks; const b = pcs[1].bills.find(x => !x.paid && x.remaining > 0) || pcs[0].bills.find(x => !x.paid); WT.markPaid(b.instId, WT.todayStr()); return b.instId; });
   await page.evaluate(() => WTStore.flush && WTStore.flush());
-  await go(page, 'paychecks');
+  await go(page, 'paychecks/plan');
   const before = await page.evaluate(DATA);
   const settings0 = await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {}));
   ok(await page.locator('#main #spPaychecks').count() === 1 && await page.locator('#main #spDebt').count() === 0, 'the paycheck plan renders on #/paychecks' + (wired ? ' (via app.js)' : ' (injected: app.js does not call WTPlanUI yet)'));
@@ -113,13 +113,21 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
     await go(page, 'smart/plan');
     ok(await page.locator('#spPaychecks').count() === 0 && await page.locator('#sbPlans').isVisible() && !/unsaved changes/i.test(await page.locator('#sbSecNote').textContent()), 'Smart Budget has no paycheck plan and no note about another page\'s changes');
     await go(page, 'debts'); await page.evaluate(() => WTApp.refresh()); await page.waitForTimeout(150);
-    await go(page, 'paychecks');
+    await go(page, 'paychecks/plan');
     const kv = [await page.$eval(net0, el => el.value), await page.$eval(sav0, el => el.value)];
     ok(kv[0] === '1800.50' && /^100(\.00)?$/.test(kv[1]) && await page.locator('#spPaychecks [data-act=spPcSave]').isEnabled() && /Not saved yet/.test(await page.locator('#spPaychecks [data-f=pcbar]').textContent()) && await page.evaluate(() => JSON.stringify(WT.settings().smartBudget || {})) === settings0, 'unsaved paycheck edits survive leaving the page and a re-render, still unsaved');
     await matchesEngine(page, 'after coming back: numbers still match WTPlan');
     // the planner above (pick another paycheck = full re-render) keeps them too
     const other = await page.evaluate(() => { const b = [...document.querySelectorAll('.pc-stop')].find(x => x.getAttribute('aria-pressed') !== 'true'); return b ? b.dataset.key : null; });
-    if (other) { await page.click(`.pc-stop[data-key="${other}"]`); await page.waitForTimeout(200); ok(await page.$eval(net0, el => el.value) === '1800.50' && await page.evaluate(() => WTPlanUI.dirty() === true), 'using the planner above keeps the unsaved plan changes'); }
+    if (other) {
+      // switch to "This paycheck", use the planner (a full re-render), come back to "Plan ahead"
+      await page.click('.pc-views [data-v=now]'); await page.waitForTimeout(150);
+      ok(await page.locator('#pcNow').isVisible() && !(await page.locator('#pcPlan').isVisible()), 'This paycheck view shows the planner and hides the plan');
+      await page.click(`.pc-stop[data-key="${other}"]`); await page.waitForTimeout(200);
+      ok(await page.locator('#pcNow').isVisible() && !(await page.locator('#pcPlan').isVisible()), 'picking a paycheck stays on This paycheck');
+      await page.click('.pc-views [data-v=plan]'); await page.waitForTimeout(150);
+      ok(await page.locator('#pcPlan').isVisible() && !(await page.locator('#pcNow').isVisible()) && await page.$eval(net0, el => el.value) === '1800.50' && await page.evaluate(() => WTPlanUI.dirty() === true), 'switching views and using the planner keeps the unsaved plan changes');
+    }
   }
   // overallocation warning
   const k3 = c0.ui[3].key;
@@ -138,7 +146,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   ok(sb.paycheckIncome && sb.paycheckIncome[k0] === 180050 && sb.paycheckAlloc && sb.paycheckAlloc[k0] && sb.paycheckAlloc[k0].savings === 10000, 'Save writes paycheckIncome + paycheckAlloc');
   ok(Object.keys(JSON.parse(settings0)).every(k => k === 'paycheckIncome' || k === 'paycheckAlloc' || JSON.stringify(JSON.parse(settings0)[k]) === JSON.stringify(sb[k])), 'Save keeps the other Smart Budget settings');
   await page.evaluate(() => WTStore.flush && WTStore.flush());
-  await page.reload(); await page.waitForFunction(() => window.__wtReady); await go(page, 'paychecks');
+  await page.reload(); await page.waitForFunction(() => window.__wtReady); await go(page, 'paychecks/plan');
   ok(await page.$eval(net0, el => el.value) === '1800.50' && await page.$eval(sav0, el => el.value) === '100.00', 'saved amounts are there after reload');
   ok(/Changed by you/.test(await page.locator(`#spPaychecks .sp-card[data-key="${k0}"]`).textContent()), 'overridden paycheck says "Changed by you"');
   await matchesEngine(page, 'after reload: numbers match WTPlan');
@@ -238,7 +246,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
       small: [...document.querySelectorAll('#spPaychecks .btn, #spPaychecks input, #spPaychecks select, #spPaychecks .link, #spDebt .btn, #spDebt input, #spDebt .sp-tabs button')].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).map(e => e.className || e.tagName).slice(0, 5),
       fonts: [...document.querySelectorAll('#spPaychecks input, #spPaychecks select, #spDebt input')].filter(el => parseFloat(getComputedStyle(el).fontSize) < 16).length,
       table: document.querySelector('#spDebt .sp-tbl thead') ? getComputedStyle(document.querySelector('#spDebt .sp-tbl thead')).display : null }));
-    await go(page, 'paychecks');
+    await go(page, 'paychecks/plan');
     let r = await probe360();
     ok(await page.locator('#spPaychecks .sp-card[data-key]').count() === 4 && r.sw <= r.vw && r.vw === 360 && r.wide.length === 0, `360px paychecks: no horizontal overflow (scrollWidth ${r.sw}${r.wide.length ? ', wide: ' + r.wide.join(' ') : ''})`);
     ok(r.small.length === 0, '360px paychecks: tap targets at least 40px' + (r.small.length ? ' (' + r.small.join(', ') + ')' : ''));
@@ -257,7 +265,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   // ---------------------------------------------------------------- dark mode
   {
     const { ctx, page } = await open({ colorScheme: 'dark' });
-    await go(page, 'paychecks');
+    await go(page, 'paychecks/plan');
     const bg = await page.evaluate(() => getComputedStyle(document.querySelector('#spPaychecks .sp-card[data-key]')).backgroundColor);
     const lum = (bg.match(/\d+/g) || [255, 255, 255]).slice(0, 3).reduce((a, b) => a + +b, 0) / 3;
     const ink = await page.evaluate(() => getComputedStyle(document.querySelector('#spPaychecks .sp-src')).color);
@@ -286,7 +294,7 @@ const DATA = (fix) => { const canon = v => Array.isArray(v) ? v.map(canon) : v &
   // ---------------------------------------------------------------- engine missing: friendly fallback
   {
     const { ctx, page } = await open();
-    await go(page, 'paychecks');
+    await go(page, 'paychecks/plan');
     const html = await page.evaluate(() => { const P = window.WTPlan; window.WTPlan = undefined; try { return WTPlanUI.renderPaychecks() + WTPlanUI.renderDebt(); } finally { window.WTPlan = P; } });
     ok(/isn't available right now/.test(html), 'engine missing: friendly message, no crash');
     await ctx.close();

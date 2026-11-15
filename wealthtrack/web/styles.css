@@ -1481,3 +1481,7 @@ body[data-route="smart"], body[data-route="paychecks"] { --page: var(--c-budget)
 body[data-route="expenses"], body[data-route="reports"], body[data-route="history"] { --page: var(--c-spend); }
 body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] { --page: var(--c-worth); }
 #sbMoved { display: flex; flex-wrap: wrap; align-items: center; gap: 0 5px; padding: 4px 6px; }
+
+.pc-views { display: flex; width: 100%; max-width: 420px; margin: 0 0 14px; }
+.pc-views button { flex: 1 1 0; }
+[hidden] { display: none !important; }

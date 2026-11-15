@@ -436,7 +436,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   ok(cents(vaUi) === vaEng.actual, 'needs actual matches the engine (' + vaUi + ')');
   const planUi = await page.evaluate(() => !!(window.WTPlanUI && WTPlanUI.ready));
   // the paycheck plan lives on the Paychecks page (once), the payoff plan on the Debt page (once, with a closed what-if calculator)
-  await go(page, 'paychecks');
+  await go(page, 'paychecks/plan');
   if (planUi) ok(await page.locator('#main #spPaychecks').count() === 1 && await page.locator('#main #spDebt').count() === 0 && await page.locator('.sb-pc').count() === 0 && (await mainText(page)).split('Paycheck by paycheck').length === 2, 'Paychecks page: the WTPlanUI paycheck plan shows once (no old paycheck list)');
   else { const pcs = await page.locator('.sb-pc').count(); ok(pcs >= 1 && pcs <= 3, 'paycheck plan (fallback) shows the next ' + pcs + ' paychecks'); }
   ok(await page.evaluate(() => { const pl = document.querySelector('#pcPlan'), ls = document.querySelector('.pc-lists'); return !!pl && !!ls && !!(ls.compareDocumentPosition(pl) & Node.DOCUMENT_POSITION_FOLLOWING) && !!document.querySelector('.pc-line') && !!document.querySelector('.pc-statement'); }) && /Smart Budget/.test(await page.locator('#pcPlan .sp-intro, #pcPlan').first().textContent()), 'Paychecks page: timeline, statement, jobs and bonuses stay; the plan comes after them with a one-line intro');
@@ -528,7 +528,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   await page.evaluate(() => { window.WTSmart = Object.assign({}, window.__sb, { suggestions: () => { throw new Error('boom'); } }); WTApp.refresh(); }); await page.waitForTimeout(150);
   ok(await page.locator('.sb-hero').count() === 1 && await page.locator('.sb-custom').count() === 1 && /couldn't be worked out/.test(await mainText(page)), 'one part failing leaves the rest of the page');
   await page.evaluate(() => { window.__pu = window.WTPlanUI; window.WTPlanUI = { ready: true, renderPaychecks: () => { throw new Error('boom'); }, renderDebt: () => '<section class="section" id="spDebtFake">debt</section>' }; window.WTSmart = window.__sb; WTApp.refresh(); }); await page.waitForTimeout(150);
-  await go(page, 'paychecks');
+  await go(page, 'paychecks/plan');
   ok(await page.locator('.pc-statement').count() === 1 && await page.locator('.pc-lists').count() === 1 && /couldn't be worked out/.test(await page.locator('#pcPlan').textContent()), 'a failing paycheck plan is contained: the rest of the Paychecks page still shows');
   await go(page, 'debts');
   ok(await page.locator('#spDebtFake').count() === 1 && await page.locator('.debt-list').count() === 1 && await page.locator('#debtWhatIf').count() === 1, 'Debt page renders the plan section it is given, with the what-if calculator under it');
@@ -536,7 +536,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
   ok(await page.locator('.debt-list').count() === 1 && await page.locator('#pxtra').count() === 1 && /couldn't be worked out/.test(await page.locator('#debtPayoff').textContent()), 'a failing debt plan is contained: accounts and the what-if calculator still show');
   await page.evaluate(() => { window.WTPlanUI = undefined; WTApp.refresh(); }); await page.waitForTimeout(150);
   ok(await page.locator('#spDebt').count() === 0 && await page.evaluate(() => { const w = document.querySelector('#debtWhatIf'); return !!w && w.open && document.querySelector('#pxtra').checkVisibility(); }) && (await page.locator('#main .section-h h2').allTextContents()).filter(h => /payoff plan/i.test(h)).length === 1, 'no WTPlanUI: the Debt page shows the what-if calculator open under one "Debt payoff plan" heading');
-  await go(page, 'paychecks');
+  await go(page, 'paychecks/plan');
   ok(await page.locator('#pcPlan .sb-pc, #pcPlan .empty').count() >= 1 && await page.locator('#spPaychecks').count() === 0, 'no WTPlanUI: the Paychecks page falls back to the old paycheck section');
   await page.evaluate(() => { window.WTSmart = Object.assign({}, window.__sb, { analyze: () => { throw new Error('boom'); } }); window.WTPlanUI = window.__pu; WTApp.refresh(); }); await page.waitForTimeout(150);
   ok(await page.locator('.pc-statement').count() === 1 && await page.locator('#pcPlan').count() === 0 && !/Something went wrong/.test(await mainText(page)), 'Smart Budget can\'t compute: the Paychecks page shows without the plan');
@@ -593,7 +593,7 @@ const DATA = () => { const canon = v => Array.isArray(v) ? v.map(canon) : v && t
     }
     // the moved plans on their new pages (the what-if calculator measured open as well)
     const small360 = sel => page.evaluate(sel => [...document.querySelectorAll(sel)].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.height < 39.5; }).map(e => e.className || e.tagName).slice(0, 5), sel);
-    await go(page, 'paychecks');
+    await go(page, 'paychecks/plan');
     let r360 = await fit360(), sm = await small360('#pcPlan .btn, #pcPlan input, #pcPlan select, #pcPlan .sp-fund-btn');
     ok(await page.locator('#spPaychecks .sp-card[data-key]').count() >= 1 && r360.sw <= 360 && r360.vw === 360 && r360.wide === 0, `360px Paychecks page with the paycheck plan: no horizontal overflow (scrollWidth ${r360.sw}, wide ${r360.wide})`);
     ok(sm.length === 0, '360px Paychecks page: plan buttons and fields are at least 40px tall ' + sm.join(', '));

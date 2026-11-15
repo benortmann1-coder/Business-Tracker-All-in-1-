@@ -1492,6 +1492,10 @@ body[data-route="expenses"], body[data-route="reports"], body[data-route="histor
 body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] { --page: var(--c-worth); }
 #sbMoved { display: flex; flex-wrap: wrap; align-items: center; gap: 0 5px; padding: 4px 6px; }
 
+.pc-views { display: flex; width: 100%; max-width: 420px; margin: 0 0 14px; }
+.pc-views button { flex: 1 1 0; }
+[hidden] { display: none !important; }
+
 </style>
 </head>
 <body>
@@ -6640,7 +6644,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.0'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.1'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -6718,6 +6722,8 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   const PAGE_CARDS = { paychecks: ['spPaychecks'], debts: ['spDebt', 'debtWhatIf'] };
   function readRoute() { const full = (location.hash || '').replace(/^#\/?/, '').split('?')[0]; let [r, sub] = full.split('/'); if (r === 'budgets') r = 'smart'; /* the old Budgets page became Smart Budget */
     if (r === 'smart' && Object.prototype.hasOwnProperty.call(SB_MOVED, sub)) [r, sub] = SB_MOVED[sub];
+    if (r === 'paychecks' && (sub === 'plan' || sub === 'spPaychecks')) { ui.pcView = 'plan'; if (sub === 'plan') { try { if (history.replaceState) history.replaceState(null, '', '#/paychecks'); } catch (e) { /* ignore */ } } }
+    else if (r === 'paychecks' && sub === 'now') { ui.pcView = 'now'; try { if (history.replaceState) history.replaceState(null, '', '#/paychecks'); } catch (e) { /* ignore */ } }
     if (PAGE_CARDS[r] && PAGE_CARDS[r].includes(sub)) { render.jump = sub; try { if (history.replaceState) history.replaceState(null, '', '#/' + r); } catch (e) { /* ignore */ } }
     ui.route = ROUTES.some(x => x[0] === r) ? r : 'dashboard'; ui.setSec = ui.route === 'settings' && SET_SECTIONS.some(x => x[0] === sub) ? sub : ''; }
 
@@ -7575,7 +7581,10 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       : s.remaining > 0 ? `<button class="tick" data-act="markPaid" data-id="${i.id}" aria-label="Mark ${esc(i.name)} paid" title="Mark paid"${s.paid ? ` style="--p:${Math.round(s.paid * 100 / i.amountCents)}%"` : ''}>${ic('check')}</button>`
         : `<button class="tick done" data-act="paidMenu" data-id="${i.id}" aria-label="${esc(i.name)} is paid">${ic('check')}</button>`;
     const metaFor = (i, s) => W.isAutopay(i) ? (s.remaining > 0 ? 'Auto-pays ' + W.shortDate(i.dueDate) : 'Auto-paid · ' + W.shortDate(i.dueDate)) : s.status === 'paid' ? 'Paid · due ' + W.shortDate(i.dueDate) : dueText(i, s);
-    return head(actions) + `
+    // Two views, both on the page so nothing typed is lost when you switch: This paycheck | Plan ahead
+    const ahead = pcPlanSection(); const view = ahead && ui.pcView === 'plan' ? 'plan' : 'now';
+    const viewSeg = ahead ? `<div class="seg boxed pc-views" role="group" aria-label="Paychecks view">${[['now', 'This paycheck'], ['plan', 'Plan ahead']].map(([k, l]) => `<button type="button" class="${view === k ? 'on' : ''}" data-act="pcView" data-v="${k}" aria-pressed="${view === k}">${l}</button>`).join('')}</div>` : '';
+    return head(actions) + viewSeg + `<div id="pcNow"${view === 'now' ? '' : ' hidden'}>
       <div class="pc-line" role="tablist" aria-label="Paychecks">${pcs.map(stop).join('')}</div>
       <div class="split pc-split">
         <section class="pc-statement" aria-label="Paycheck statement">
@@ -7623,7 +7632,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
           ${extras.map(x => `<div class="kv"><span>${esc(x.type[0].toUpperCase() + x.type.slice(1))}${x.note ? ' <span class="faint">· ' + esc(x.note) + '</span>' : ''}<span class="tiny faint" style="display:block">${W.dateLabel(x.date)}</span></span><span class="row" style="gap:10px"><b class="num pos">+${fmt(x.amountCents)}</b><button class="btn sm ghost" data-act="voidExtra" data-id="${x.id}">Remove</button></span></div>`).join('') || '<p class="small muted" style="margin:10px 0 0">Overtime, bonuses and side income you log here count toward the month.</p>'}
         </section>
       </div>
-      ${pcPlanSection()}`;
+      </div>${ahead ? ahead.replace('<div class="pc-plan" id="pcPlan">', `<div class="pc-plan" id="pcPlan"${view === 'plan' ? '' : ' hidden'}>`) : ''}`;
   }
   // "Paycheck by paycheck": how each paycheck's leftover is split under your Smart Budget (WTPlanUI, web/smartplan-ui.js).
   // Part of Smart Budget, so it is a Pro feature here too. Never lets a failure break the Paychecks page.
@@ -9617,6 +9626,13 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       const mk = ui.month; const paid = W.instancesForMonth(mk).filter(i => !W.isAutopay(i) && W.paidFor(i.id) > 0);
       modal({ title: 'Reset ' + W.monthLabel(mk) + ' payment statuses?', submit: 'Reset ' + W.monthLabel(mk, true), body: `<p>This marks <b>${paid.length}</b> paid bill${paid.length === 1 ? '' : 's'} in ${W.monthLabel(mk)} as unpaid.</p><div class="callout small">${ic('alert')}<div>Nothing is erased. The payments are <b>voided</b> and stay in your history. Other months aren't changed.</div></div><label class="field" style="margin-top:12px"><span>Type RESET to confirm</span><input class="input" name="c" autocomplete="off"></label>`,
         onSubmit: f => { if ((f.c || '').trim().toUpperCase() !== 'RESET') throw new UserError('Type RESET to confirm'); const n = W.resetMonthStatuses(mk); toast(n + ' payment' + (n === 1 ? '' : 's') + ' voided for ' + W.monthLabel(mk)); refresh(); } });
+    },
+    pcView: d => { // show one view, keep the other (and any unsaved typing) on the page
+      const v = d.v === 'plan' ? 'plan' : 'now'; ui.pcView = v; saveUi();
+      const a = document.getElementById('pcNow'), b = document.getElementById('pcPlan'); if (!a || !b) return refresh();
+      a.hidden = v !== 'now'; b.hidden = v !== 'plan';
+      $$('.pc-views button').forEach(x => { const on = x.dataset.v === v; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+      window.scrollTo(0, 0);
     },
     pickPc: d => { ui.pcKey = d.key; refresh(); }, pickPcGo: d => { closeAllModals(); ui.pcKey = d.key; go('paychecks'); },
     assign: d => assignModal(d.id),
