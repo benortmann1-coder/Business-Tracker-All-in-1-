@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.1'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.2'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -59,6 +59,7 @@
   // ui comes from localStorage (untrusted): keep only well-formed values
   ['month', 'calMonth', 'repMonth'].forEach(k => { if (!/^\d{4}-\d{2}$/.test(ui[k] || '')) ui[k] = curMonth(); });
   ['histFrom', 'histTo'].forEach(k => { if (!/^(\d{4}-\d{2}-\d{2})?$/.test(ui[k] || '')) ui[k] = ''; });
+  ui.expOpen = Array.isArray(ui.expOpen) ? ui.expOpen.filter(x => typeof x === 'string').slice(0, 30) : [];
   ['billSearch', 'billCat', 'expSearch', 'expCat', 'histSearch', 'histKind', 'billFilter', 'billSort', 'billView', 'billsTab', 'expSort', 'histSort'].forEach(k => { if (typeof ui[k] !== 'string') ui[k] = ''; else ui[k] = ui[k].slice(0, 200); });
   if (!Number.isInteger(ui.payoffExtra) || ui.payoffExtra < 0) ui.payoffExtra = 10000;
   if (ui.pcKey != null && typeof ui.pcKey !== 'string') ui.pcKey = null;
@@ -155,6 +156,7 @@
     // the lock screen can't read encrypted data, so only the first name is kept for its greeting
     try { const fn = (profile().first || '').slice(0, 40); if (fn !== render.greet) { render.greet = fn; S.setGreetName(fn); } } catch (e) { /* storage blocked */ }
     if (render.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
+    if (render.jumpSel) { const n = main.querySelector(render.jumpSel); render.jumpSel = ''; if (n && n.scrollIntoView) n.scrollIntoView({ block: 'center' }); }
     if (render.jump) { // a link to one card on this page (see PAGE_CARDS)
       const card = document.getElementById(render.jump); render.jump = '';
       if (card) { if (card.tagName === 'DETAILS') card.open = true; if (card.scrollIntoView) card.scrollIntoView({ block: 'start' }); }
@@ -398,6 +400,26 @@
     const list = items.slice(0, opts.limit || 8); const rest = items.slice(opts.limit || 8).reduce((a, x) => a + x.value, 0);
     if (rest) list.push({ label: 'Everything else', value: rest });
     return `<div class="rank">${list.map(it => `<span class="lbl" ${it.act ? `data-act="${it.act}" data-cat="${it.id}"` : ''} title="${esc(it.label)}">${esc(it.label)}</span><span class="track" data-tip="${esc(it.label + ': ' + fmt(it.value) + ' (' + Math.round(it.value * 100 / total) + '%)')}"><i style="width:${Math.max(1, it.value * 100 / max)}%"></i></span><span class="val">${fmt(it.value)}</span>`).join('')}</div>`;
+  }
+  // Spending > By category: one row per category; tap to open the bill payments and purchases that add up to it.
+  function catBreakdown(mk, ranked, total) {
+    if (!total) return `<div class="empty"><b>Nothing spent yet</b>Purchases and paid bills appear here.</div>`;
+    const items = W.spendingItems(mk); const max = Math.max(...ranked.map(x => x[1])); const open = new Set(ui.expOpen || []);
+    const KIND = { bill: ['Bill', 'paid'], purchase: ['Purchase', ''], debt: ['Extra payment', 'partial'] };
+    return `<div class="cat-acc">${ranked.map(([id, v]) => {
+      const list = items[id] || []; const isOpen = open.has(id); const pct = Math.round(v * 100 / total);
+      const bills = list.filter(x => x.kind !== 'purchase').length, buys = list.length - bills;
+      const what = [bills ? bills + ' bill' + (bills === 1 ? '' : 's') : '', buys ? buys + ' purchase' + (buys === 1 ? '' : 's') : ''].filter(Boolean).join(' · ');
+      return `<div class="cat-acc-item${isOpen ? ' open' : ''}" data-cat="${esc(id)}">
+        <button type="button" class="cat-acc-h" data-act="catToggle" data-cat="${esc(id)}" aria-expanded="${isOpen}" aria-controls="catp-${esc(id)}">
+          <i class="dot" style="background:${W.catColor(id)}"></i>
+          <span class="cat-acc-n"><b>${esc(W.catName(id))}</b><span class="tiny faint">${what} · ${pct}%</span><span class="track"><i style="width:${Math.max(1, v * 100 / max)}%;background:${W.catColor(id)}"></i></span></span>
+          <span class="cat-acc-v num">${fmt(v)}</span>${ic('down')}
+        </button>
+        ${isOpen ? `<div class="cat-acc-p" id="catp-${esc(id)}">${list.map(x => `<div class="cat-acc-row"><span class="grow"><span class="nm">${esc(x.name)}</span><span class="tiny faint">${x.kind === 'purchase' ? '' : 'Paid '}${W.shortDate(x.date)} · <span class="pill ${KIND[x.kind][1]}">${KIND[x.kind][0]}</span></span></span><b class="num">${fmt(x.amountCents)}</b></div>`).join('')}
+          <div class="cat-acc-row total"><span class="grow">${list.length} item${list.length === 1 ? '' : 's'}</span><b class="num">${fmt(v)}</b></div></div>` : ''}
+      </div>`;
+    }).join('')}</div>`;
   }
   function donut(items, center) { return rankBars(items, { empty: center ? '' : undefined }); }
   // ------------------------------------------------------------ DASHBOARD
@@ -1095,7 +1117,7 @@
         <td class="r num ex-amt">${fmt(e.amountCents)}</td>
         <td class="r ex-act"><button class="btn sm icon ghost" data-act="editExpense" data-id="${e.id}" aria-label="Edit ${esc(e.description || 'expense')}">${ic('edit')}</button><button class="btn sm icon ghost" data-act="deleteExpense" data-id="${e.id}" aria-label="Delete ${esc(e.description || 'expense')}">${ic('trash')}</button></td></tr>`;
     let body = '';
-    if (!ex.length) body = `<tr><td colspan="3"><div class="empty">${ic('cash')}<b>${q || ui.expCat ? 'Nothing matches' : 'No purchases yet'}</b>${q || ui.expCat ? 'Try a different search or category.' : 'Log groceries, gas and everyday spending for ' + W.monthLabel(mk) + '.'}</div></td></tr>`;
+    if (!ex.length) body = `<tr><td colspan="3"><div class="empty">${ic('cash')}<b>${q ? 'Nothing matches' : ui.expCat ? 'No purchases in ' + esc(W.catName(ui.expCat)) : 'No purchases yet'}</b>${q ? 'Try a different search or category.' : ui.expCat ? `This list shows purchases you logged. Bills paid in this category are under By category below. <button class="link" data-act="expAllCats">Show all purchases</button>` : 'Log groceries, gas and everyday spending for ' + W.monthLabel(mk) + '.'}</div></td></tr>`;
     else if (sortKey === 'date') {
       let cur = null; const dayTot = {};
       ex.forEach(e => { dayTot[e.date] = (dayTot[e.date] || 0) + e.amountCents; });
@@ -1120,8 +1142,8 @@
         </section>
         <aside class="section">
           ${sectionH('By category', W.monthLabel(mk, true))}
-          <div style="margin-top:14px">${rankBars(ranked.map(([id, v]) => ({ id, label: W.catName(id), value: v, act: 'catDrill' })), { limit: 8, empty: 'Purchases and paid bills appear here.' })}</div>
-          ${ui.expCat ? `<p class="small" style="margin:14px 0 0">Showing <b>${esc(W.catName(ui.expCat))}</b> only. <button class="link" data-act="expAllCats">Show all</button></p>` : `<p class="tiny faint" style="margin:14px 0 0">Tap a category to filter the ledger. Credit-card payments${card ? ` (${fmt(card)})` : ''} are transfers, so they're left out here; the purchases on the card already count.</p>`}
+          <div style="margin-top:10px">${catBreakdown(mk, ranked, total)}</div>
+          <p class="tiny faint" style="margin:14px 0 0">Tap a category to see the bills and purchases in it. Credit-card payments${card ? ` (${fmt(card)})` : ''} are transfers, so they're left out here; the purchases on the card already count.</p>
         </aside>
       </div>`;
   }
@@ -2996,7 +3018,9 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     openUpcoming: () => { ui.billsTab = 'upcoming'; go('bills'); },
     monthStep: d => setMonth(d.key, W.addMonthKey(ui[d.key], +d.n)), monthToday: d => setMonth(d.key, curMonth()),
     openMonth: d => { ui.month = d.month; ui.billsTab = 'upcoming'; ui.upRange = 'month'; W.ensureGenerated(W.addMonthKey(d.month > curMonth() ? d.month : curMonth(), 1)); go('bills'); },
-    catDrill: d => { ui.expCat = d.cat; if (ui.route === 'expenses') refresh(); else go('expenses'); },
+    // from Home's "Where it went": open Spending with that category's breakdown showing
+    catDrill: d => { ui.expOpen = [d.cat]; ui.expCat = ''; render.jumpSel = '.cat-acc-item.open'; if (ui.route === 'expenses') refresh(); else go('expenses'); },
+    catToggle: d => { const s = new Set(ui.expOpen || []); if (s.has(d.cat)) s.delete(d.cat); else s.add(d.cat); ui.expOpen = [...s].slice(-30); refresh(); },
     expAllCats: () => { ui.expCat = ''; refresh(); },
     genNext: () => { const next = W.addMonthKey(ui.month, 1); const n = W.ensureGenerated(next); toast(n ? `${n} bills created for ${W.monthLabel(next)}` : `${W.monthLabel(next)} bills already exist. Nothing duplicated.`); ui.month = next; refresh(); },
     resetMonth: () => {

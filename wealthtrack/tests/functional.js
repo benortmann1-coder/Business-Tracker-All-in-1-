@@ -226,6 +226,28 @@ function serve() {
   await go('expenses');
   await page.click('#main [data-act=addExpense]'); await fill('amount', '23.45'); await fill('description', 'Shell gas'); await select('category', 'cat_gas'); await submit();
   ok(await W(() => Object.values(WT.D.expenses).some(e => e.description === 'Shell gas' && e.amountCents === 2345)), 'add expense');
+  // By category: every category opens to the bills and purchases that add up to it
+  {
+    const cats = await page.locator('#main .cat-acc-item').evaluateAll(els => els.map(e => e.dataset.cat));
+    const want = await W(() => { const sp = WT.spendingByCategory(WTApp.ui.month); return Object.keys(sp).filter(c => sp[c] > 0).length; });
+    ok(cats.length === want && cats.length > 1 && await page.locator('#main .cat-acc-p').count() === 0, 'By category lists every category with spending, all closed (' + cats.length + ')');
+    const withBills = await W(() => { const it = WT.spendingItems(WTApp.ui.month); return Object.keys(it).find(c => it[c].some(x => x.kind === 'bill')); });
+    await page.click(`#main .cat-acc-h[data-cat="${withBills}"]`); await page.waitForTimeout(200);
+    const open = await page.evaluate(c => { const it = document.querySelector(`.cat-acc-item[data-cat="${c}"]`); const rows = [...it.querySelectorAll('.cat-acc-row:not(.total)')]; return { exp: it.querySelector('.cat-acc-h').getAttribute('aria-expanded'), names: rows.map(r => r.querySelector('.nm').textContent), kinds: rows.map(r => r.querySelector('.pill').textContent), total: it.querySelector('.cat-acc-row.total b').textContent, head: it.querySelector('.cat-acc-v').textContent, h: it.querySelector('.cat-acc-h').getBoundingClientRect().height }; }, withBills);
+    const exp = await W(c => WT.spendingItems(WTApp.ui.month)[c].map(x => x.name), withBills);
+    ok(open.exp === 'true' && JSON.stringify(open.names) === JSON.stringify(exp) && open.kinds.includes('Bill') && open.total === open.head && open.h >= 40, 'tapping a category shows its bills (' + open.names.join(', ') + ') and they add up to ' + open.head);
+    ok(await W(() => !WTApp.ui.expCat) && await page.locator('#main .ex-tbl tr[data-exp]').count() >= 1, 'opening a category does not filter or empty the purchases list');
+    await page.click('#main .cat-acc-h[data-cat="cat_gas"]'); await page.waitForTimeout(200);
+    ok(await page.locator('#main .cat-acc-item.open').count() === 2 && /Shell gas/.test(await page.locator('#main .cat-acc-item[data-cat="cat_gas"] .cat-acc-p').textContent()) && /Purchase/.test(await page.locator('#main .cat-acc-item[data-cat="cat_gas"] .cat-acc-p').textContent()), 'a second category opens too and shows its purchase');
+    await page.click(`#main .cat-acc-h[data-cat="${withBills}"]`); await page.waitForTimeout(200);
+    ok(await page.locator(`#main .cat-acc-item[data-cat="${withBills}"] .cat-acc-p`).count() === 0 && await page.locator('#main .cat-acc-item.open').count() === 1, 'tapping again closes it');
+    await page.click('#main .cat-acc-h[data-cat="cat_gas"]'); await page.waitForTimeout(150);
+    // the purchases filter no longer says "Nothing matches" for a category that only has bills
+    await page.selectOption('#main select[data-bind=expCat]', withBills).catch(() => { }); await page.waitForTimeout(200);
+    const emptyTxt = await page.locator('#main .ex-tbl').textContent();
+    ok(!/Nothing matches/.test(emptyTxt), 'filtering purchases to a bills-only category explains where its bills are');
+    await W(() => { WTApp.ui.expCat = ''; WTApp.refresh(); });
+  }
   await page.click('#main [data-act=addExpense]'); await fill('amount', '30'); await select('source', 'debt:debt_visa'); await fill('description', 'Card buy'); await submit();
   ok(await W(() => WT.debtBalance('debt_visa')) > 520000, 'expense on card raises card balance');
   // as bill payment

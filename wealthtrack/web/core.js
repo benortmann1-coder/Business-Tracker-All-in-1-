@@ -899,6 +899,25 @@
     });
   }
   WT.spendingByCategory = function (mk) { const r = monthlyFlows().get(mk); return r ? Object.assign({}, r.by) : {}; };
+  // What makes up each category's total for a month: the same records monthlyFlows() adds up, one line each
+  // (kind: 'bill' = a bill payment, 'purchase' = a logged expense, 'debt' = an extra loan payment). Card payments
+  // are transfers and stay out, exactly as in spendingByCategory, so each list sums to that category's total.
+  WT.spendingItems = function (mk) {
+    const out = {}; const add = (c, x) => { (out[c] = out[c] || []).push(x); };
+    for (const e of vals('expenses')) if (monthOf(e.date) === mk) add(e.category, { kind: 'purchase', id: e.id, name: e.description || WT.catName(e.category), date: e.date, amountCents: e.amountCents });
+    for (const p of vals('payments')) {
+      if (p.voided || monthOf(p.date) !== mk) continue;
+      const i = WT.D.instances[p.instanceId]; if (!i || cardDebt(i.debtId)) continue;
+      add(i.category, { kind: 'bill', id: p.id, instanceId: i.id, name: i.name, date: p.date, dueDate: i.dueDate, amountCents: p.amountCents });
+    }
+    for (const x of vals('debtTxns')) {
+      if (x.voided || x.type !== 'payment' || monthOf(x.date) !== mk || cardDebt(x.debtId) || !x.sourceId) continue;
+      const d = WT.D.debts[x.debtId];
+      add('cat_loans', { kind: 'debt', id: x.id, debtId: x.debtId, name: (d ? d.name : 'Loan') + ' extra payment', date: x.date, amountCents: -x.amountCents });
+    }
+    for (const c of Object.keys(out)) out[c].sort((a, b) => b.amountCents - a.amountCents || (a.date < b.date ? -1 : 1) || a.name.localeCompare(b.name));
+    return out;
+  };
   WT.cardPaymentsInMonth = function (mk) { const r = monthlyFlows().get(mk); return r ? r.card : 0; };
   WT.totalSpending = mk => Object.values(WT.spendingByCategory(mk)).reduce((a, b) => a + b, 0);
   WT.incomeForMonth = function (mk) {

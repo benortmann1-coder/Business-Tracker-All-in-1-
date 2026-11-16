@@ -651,3 +651,33 @@ test('data check: duplicate bills and orphan payments are listed and cleaned up 
   assert.ok(!WT.D.instances.i_dupA && WT.D.instances.i_dupG && WT.D.payments.pay_orphan && WT.D.instances.i_dupC);
   assert.equal(WT.integrityIssues().length, 2);
 });
+
+test('spendingItems: each category lists the bill payments and purchases that add up to its total', () => {
+  fresh();
+  const mk = WT.monthOf(TODAY);
+  const insts = WT.instancesForMonth(mk).filter(i => i.dueDate <= TODAY);
+  insts.forEach(i => WT.markPaid(i.id));
+  WT.addExpense({ amountCents: 4321, date: TODAY, category: 'cat_groceries', description: 'Weekly shop' });
+  WT.addExpense({ amountCents: 1500, date: TODAY, category: 'cat_housing', description: 'Door lock' });
+  const totals = WT.spendingByCategory(mk), items = WT.spendingItems(mk);
+  const cats = Object.keys(totals).filter(c => totals[c] > 0);
+  assert.ok(cats.length >= 3);
+  assert.deepEqual(Object.keys(items).filter(c => items[c].length).sort(), cats.slice().sort(), 'same categories as the totals');
+  for (const c of cats) assert.equal(items[c].reduce((a, x) => a + x.amountCents, 0), totals[c], WT.catName(c) + ' items add up to its total');
+  // a category can mix bills and purchases, each once, biggest first
+  const util = items.cat_housing;
+  assert.ok(util.some(x => x.kind === 'bill') && util.some(x => x.kind === 'purchase' && x.name === 'Door lock'));
+  assert.ok(util.every((x, n) => n === 0 || util[n - 1].amountCents >= x.amountCents));
+  assert.equal(new Set(util.map(x => x.kind + x.id)).size, util.length);
+  // credit-card payments are transfers: not listed, exactly like the totals
+  const cardPaid = insts.filter(i => i.debtId && WT.D.debts[i.debtId] && WT.D.debts[i.debtId].type === 'credit_card');
+  assert.ok(cardPaid.length > 0);
+  assert.ok(!Object.values(items).flat().some(x => cardPaid.some(i => i.id === x.instanceId)));
+  // an extra loan payment shows under Loans; a voided payment disappears
+  const before = totals.cat_loans || 0;
+  WT.payDebtExtra('debt_car', 5000, TODAY, 'acc_checking');
+  const it2 = WT.spendingItems(mk);
+  assert.ok(it2.cat_loans.some(x => x.kind === 'debt' && x.amountCents === 5000 && /Car Loan extra payment/.test(x.name)));
+  assert.equal(it2.cat_loans.reduce((a, x) => a + x.amountCents, 0), before + 5000);
+  assert.deepEqual(WT.spendingItems('2020-01'), {});
+});
