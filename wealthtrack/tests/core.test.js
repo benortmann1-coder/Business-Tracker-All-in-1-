@@ -680,4 +680,16 @@ test('spendingItems: each category lists the bill payments and purchases that ad
   assert.ok(it2.cat_loans.some(x => x.kind === 'debt' && x.amountCents === 5000 && /Car Loan extra payment/.test(x.name)));
   assert.equal(it2.cat_loans.reduce((a, x) => a + x.amountCents, 0), before + 5000);
   assert.deepEqual(WT.spendingItems('2020-01'), {});
+  // credit-card payments have their own list: every card bill paid plus extra card payments, equal to cardPaymentsInMonth
+  const cp = WT.cardPaymentItems(mk);
+  assert.equal(cp.length, cardPaid.length);
+  assert.equal(cp.reduce((a, x) => a + x.amountCents, 0), WT.cardPaymentsInMonth(mk));
+  assert.ok(cp.every(x => x.kind === 'bill' && WT.D.debts[x.debtId].type === 'credit_card'));
+  const spendBefore = WT.totalSpending(mk);
+  WT.payDebtExtra('debt_visa', 2500, TODAY, 'acc_checking');
+  const cp2 = WT.cardPaymentItems(mk);
+  assert.ok(cp2.some(x => x.kind === 'debt' && x.amountCents === 2500 && /Visa Card extra payment/.test(x.name)));
+  assert.equal(cp2.reduce((a, x) => a + x.amountCents, 0), WT.cardPaymentsInMonth(mk));
+  assert.equal(WT.totalSpending(mk), spendBefore, 'card payments never change the spending total');
+  assert.deepEqual(WT.cardPaymentItems('2020-01'), []);
 });

@@ -1517,6 +1517,10 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .cat-acc-row.total { color: var(--ink-2); font-size: 13px; }
 .cat-acc-row.total b { color: var(--ink); }
 
+.cat-acc-sum { display: flex; justify-content: space-between; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--line-2); font-size: 14px; color: var(--ink-2); }
+.cat-acc-sum b { color: var(--ink); font-weight: 800; }
+.cat-acc-cards .cat-acc-v { color: var(--ink-2); }
+
 </style>
 </head>
 <body>
@@ -2449,6 +2453,22 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     return out;
   };
   WT.cardPaymentsInMonth = function (mk) { const r = monthlyFlows().get(mk); return r ? r.card : 0; };
+  // The credit-card payments behind cardPaymentsInMonth(), one line each (kind: 'bill' = a card's bill paid,
+  // 'debt' = an extra payment to a card). They are transfers, never part of the spending totals; sums to cardPaymentsInMonth.
+  WT.cardPaymentItems = function (mk) {
+    const out = [];
+    for (const p of vals('payments')) {
+      if (p.voided || monthOf(p.date) !== mk) continue;
+      const i = WT.D.instances[p.instanceId]; if (!i || !cardDebt(i.debtId)) continue;
+      out.push({ kind: 'bill', id: p.id, instanceId: i.id, debtId: i.debtId, name: i.name, date: p.date, amountCents: p.amountCents });
+    }
+    for (const x of vals('debtTxns')) {
+      if (x.voided || x.type !== 'payment' || monthOf(x.date) !== mk || !cardDebt(x.debtId)) continue;
+      const d = WT.D.debts[x.debtId];
+      out.push({ kind: 'debt', id: x.id, debtId: x.debtId, name: (d ? d.name : 'Card') + ' extra payment', date: x.date, amountCents: -x.amountCents });
+    }
+    return out.sort((a, b) => b.amountCents - a.amountCents || (a.date < b.date ? -1 : 1) || a.name.localeCompare(b.name));
+  };
   WT.totalSpending = mk => Object.values(WT.spendingByCategory(mk)).reduce((a, b) => a + b, 0);
   WT.incomeForMonth = function (mk) {
     let expected = 0, received = 0, extra = 0;
@@ -6684,7 +6704,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.2'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.3'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -7066,8 +7086,22 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   }
   // Spending > By category: one row per category; tap to open the bill payments and purchases that add up to it.
   function catBreakdown(mk, ranked, total) {
-    if (!total) return `<div class="empty"><b>Nothing spent yet</b>Purchases and paid bills appear here.</div>`;
-    const items = W.spendingItems(mk); const max = Math.max(...ranked.map(x => x[1])); const open = new Set(ui.expOpen || []);
+    const cards = W.cardPaymentItems(mk); const cardTotal = cards.reduce((a, x) => a + x.amountCents, 0);
+    if (!total && !cardTotal) return `<div class="empty"><b>Nothing spent yet</b>Purchases and paid bills appear here.</div>`;
+    const items = W.spendingItems(mk); const max = Math.max(1, ...ranked.map(x => x[1])); const open = new Set(ui.expOpen || []);
+    // Credit-card payments get their own row, kept apart from the spending total: the purchases made on the
+    // cards are already counted in their own categories, so adding the payments too would count them twice.
+    const cardsOpen = open.has('__cards');
+    const cardRow = !cardTotal ? '' : `<div class="cat-acc-item cat-acc-cards${cardsOpen ? ' open' : ''}" data-cat="__cards">
+        <button type="button" class="cat-acc-h" data-act="catToggle" data-cat="__cards" aria-expanded="${cardsOpen}" aria-controls="catp-cards">
+          <i class="dot" style="background:var(--c-debt)"></i>
+          <span class="cat-acc-n"><b>Credit card payments</b><span class="tiny faint">${cards.length} payment${cards.length === 1 ? '' : 's'} · not counted as spending</span></span>
+          <span class="cat-acc-v num">${fmt(cardTotal)}</span>${ic('down')}
+        </button>
+        ${cardsOpen ? `<div class="cat-acc-p" id="catp-cards">${cards.map(x => `<div class="cat-acc-row"><span class="grow"><span class="nm">${esc(x.name)}</span><span class="tiny faint">Paid ${W.shortDate(x.date)} · <span class="pill ${x.kind === 'bill' ? 'paid' : 'partial'}">${x.kind === 'bill' ? 'Bill' : 'Extra payment'}</span></span></span><b class="num">${fmt(x.amountCents)}</b></div>`).join('')}
+          <div class="cat-acc-row total"><span class="grow">${cards.length} payment${cards.length === 1 ? '' : 's'}</span><b class="num">${fmt(cardTotal)}</b></div>
+          <p class="tiny faint" style="margin:2px 0 8px">Paying a card moves money to the card; what you bought with it is already in the categories above.</p></div>` : ''}
+      </div>`;
     const KIND = { bill: ['Bill', 'paid'], purchase: ['Purchase', ''], debt: ['Extra payment', 'partial'] };
     return `<div class="cat-acc">${ranked.map(([id, v]) => {
       const list = items[id] || []; const isOpen = open.has(id); const pct = Math.round(v * 100 / total);
@@ -7082,7 +7116,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
         ${isOpen ? `<div class="cat-acc-p" id="catp-${esc(id)}">${list.map(x => `<div class="cat-acc-row"><span class="grow"><span class="nm">${esc(x.name)}</span><span class="tiny faint">${x.kind === 'purchase' ? '' : 'Paid '}${W.shortDate(x.date)} · <span class="pill ${KIND[x.kind][1]}">${KIND[x.kind][0]}</span></span></span><b class="num">${fmt(x.amountCents)}</b></div>`).join('')}
           <div class="cat-acc-row total"><span class="grow">${list.length} item${list.length === 1 ? '' : 's'}</span><b class="num">${fmt(v)}</b></div></div>` : ''}
       </div>`;
-    }).join('')}</div>`;
+    }).join('')}${total && cardTotal ? `<div class="cat-acc-sum"><span>Total spending</span><b class="num">${fmt(total)}</b></div>` : ''}${cardRow}</div>`;
   }
   function donut(items, center) { return rankBars(items, { empty: center ? '' : undefined }); }
   // ------------------------------------------------------------ DASHBOARD
@@ -7806,7 +7840,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
         <aside class="section">
           ${sectionH('By category', W.monthLabel(mk, true))}
           <div style="margin-top:10px">${catBreakdown(mk, ranked, total)}</div>
-          <p class="tiny faint" style="margin:14px 0 0">Tap a category to see the bills and purchases in it. Credit-card payments${card ? ` (${fmt(card)})` : ''} are transfers, so they're left out here; the purchases on the card already count.</p>
+          <p class="tiny faint" style="margin:14px 0 0">Tap a category to see the bills and purchases in it.${card ? ' Credit card payments are listed on their own and kept out of the spending total, because the purchases on the cards already count.' : ''}</p>
         </aside>
       </div>`;
   }

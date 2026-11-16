@@ -1506,3 +1506,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .cat-acc-row b { flex: none; font-weight: 700; }
 .cat-acc-row.total { color: var(--ink-2); font-size: 13px; }
 .cat-acc-row.total b { color: var(--ink); }
+
+.cat-acc-sum { display: flex; justify-content: space-between; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--line-2); font-size: 14px; color: var(--ink-2); }
+.cat-acc-sum b { color: var(--ink); font-weight: 800; }
+.cat-acc-cards .cat-acc-v { color: var(--ink-2); }

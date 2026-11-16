@@ -247,6 +247,18 @@ function serve() {
     const emptyTxt = await page.locator('#main .ex-tbl').textContent();
     ok(!/Nothing matches/.test(emptyTxt), 'filtering purchases to a bills-only category explains where its bills are');
     await W(() => { WTApp.ui.expCat = ''; WTApp.refresh(); });
+    // credit card payments: their own row under the spending total, opens to each payment, never added to spending
+    await W(() => { const i = WT.instancesForMonth(WTApp.ui.month).find(x => x.debtId === 'debt_store' && WT.instStatus(x).remaining > 0); if (i) WT.markPaid(i.id); WTApp.refresh(); });
+    await page.waitForTimeout(200);
+    const cardWant = await W(() => ({ total: WT.cardPaymentsInMonth(WTApp.ui.month), names: WT.cardPaymentItems(WTApp.ui.month).map(x => x.name), spend: WT.totalSpending(WTApp.ui.month) }));
+    ok(cardWant.total > 0 && await page.locator('#main .cat-acc-cards').count() === 1 && await page.locator('#main .cat-acc-item').last().getAttribute('data-cat') === '__cards', 'Credit card payments row sits last, apart from the categories');
+    const sumTxt = await page.locator('#main .cat-acc-sum b').textContent();
+    ok(sumTxt === await W(() => WT.fmt(WT.totalSpending(WTApp.ui.month))) && /not counted as spending/.test(await page.locator('#main .cat-acc-cards .cat-acc-h').textContent()), 'Total spending (' + sumTxt + ') leaves card payments out and says so');
+    await page.click('#main .cat-acc-h[data-cat="__cards"]'); await page.waitForTimeout(200);
+    const cr = await page.evaluate(() => { const it = document.querySelector('.cat-acc-cards'); return { names: [...it.querySelectorAll('.cat-acc-row:not(.total) .nm')].map(n => n.textContent), total: it.querySelector('.cat-acc-row.total b').textContent, head: it.querySelector('.cat-acc-v').textContent }; });
+    ok(JSON.stringify(cr.names) === JSON.stringify(cardWant.names) && cr.total === cr.head && cr.head === await W(() => WT.fmt(WT.cardPaymentsInMonth(WTApp.ui.month))), 'it opens to each card payment (' + cr.names.join(', ') + ') adding up to ' + cr.head);
+    ok(await W(() => WT.totalSpending(WTApp.ui.month)) === cardWant.spend, 'spending total unchanged');
+    await page.click('#main .cat-acc-h[data-cat="__cards"]'); await page.waitForTimeout(150);
   }
   await page.click('#main [data-act=addExpense]'); await fill('amount', '30'); await select('source', 'debt:debt_visa'); await fill('description', 'Card buy'); await submit();
   ok(await W(() => WT.debtBalance('debt_visa')) > 520000, 'expense on card raises card balance');

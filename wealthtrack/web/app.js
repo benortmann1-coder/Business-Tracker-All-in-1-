@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.2'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.3'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -403,8 +403,22 @@
   }
   // Spending > By category: one row per category; tap to open the bill payments and purchases that add up to it.
   function catBreakdown(mk, ranked, total) {
-    if (!total) return `<div class="empty"><b>Nothing spent yet</b>Purchases and paid bills appear here.</div>`;
-    const items = W.spendingItems(mk); const max = Math.max(...ranked.map(x => x[1])); const open = new Set(ui.expOpen || []);
+    const cards = W.cardPaymentItems(mk); const cardTotal = cards.reduce((a, x) => a + x.amountCents, 0);
+    if (!total && !cardTotal) return `<div class="empty"><b>Nothing spent yet</b>Purchases and paid bills appear here.</div>`;
+    const items = W.spendingItems(mk); const max = Math.max(1, ...ranked.map(x => x[1])); const open = new Set(ui.expOpen || []);
+    // Credit-card payments get their own row, kept apart from the spending total: the purchases made on the
+    // cards are already counted in their own categories, so adding the payments too would count them twice.
+    const cardsOpen = open.has('__cards');
+    const cardRow = !cardTotal ? '' : `<div class="cat-acc-item cat-acc-cards${cardsOpen ? ' open' : ''}" data-cat="__cards">
+        <button type="button" class="cat-acc-h" data-act="catToggle" data-cat="__cards" aria-expanded="${cardsOpen}" aria-controls="catp-cards">
+          <i class="dot" style="background:var(--c-debt)"></i>
+          <span class="cat-acc-n"><b>Credit card payments</b><span class="tiny faint">${cards.length} payment${cards.length === 1 ? '' : 's'} · not counted as spending</span></span>
+          <span class="cat-acc-v num">${fmt(cardTotal)}</span>${ic('down')}
+        </button>
+        ${cardsOpen ? `<div class="cat-acc-p" id="catp-cards">${cards.map(x => `<div class="cat-acc-row"><span class="grow"><span class="nm">${esc(x.name)}</span><span class="tiny faint">Paid ${W.shortDate(x.date)} · <span class="pill ${x.kind === 'bill' ? 'paid' : 'partial'}">${x.kind === 'bill' ? 'Bill' : 'Extra payment'}</span></span></span><b class="num">${fmt(x.amountCents)}</b></div>`).join('')}
+          <div class="cat-acc-row total"><span class="grow">${cards.length} payment${cards.length === 1 ? '' : 's'}</span><b class="num">${fmt(cardTotal)}</b></div>
+          <p class="tiny faint" style="margin:2px 0 8px">Paying a card moves money to the card; what you bought with it is already in the categories above.</p></div>` : ''}
+      </div>`;
     const KIND = { bill: ['Bill', 'paid'], purchase: ['Purchase', ''], debt: ['Extra payment', 'partial'] };
     return `<div class="cat-acc">${ranked.map(([id, v]) => {
       const list = items[id] || []; const isOpen = open.has(id); const pct = Math.round(v * 100 / total);
@@ -419,7 +433,7 @@
         ${isOpen ? `<div class="cat-acc-p" id="catp-${esc(id)}">${list.map(x => `<div class="cat-acc-row"><span class="grow"><span class="nm">${esc(x.name)}</span><span class="tiny faint">${x.kind === 'purchase' ? '' : 'Paid '}${W.shortDate(x.date)} · <span class="pill ${KIND[x.kind][1]}">${KIND[x.kind][0]}</span></span></span><b class="num">${fmt(x.amountCents)}</b></div>`).join('')}
           <div class="cat-acc-row total"><span class="grow">${list.length} item${list.length === 1 ? '' : 's'}</span><b class="num">${fmt(v)}</b></div></div>` : ''}
       </div>`;
-    }).join('')}</div>`;
+    }).join('')}${total && cardTotal ? `<div class="cat-acc-sum"><span>Total spending</span><b class="num">${fmt(total)}</b></div>` : ''}${cardRow}</div>`;
   }
   function donut(items, center) { return rankBars(items, { empty: center ? '' : undefined }); }
   // ------------------------------------------------------------ DASHBOARD
@@ -1143,7 +1157,7 @@
         <aside class="section">
           ${sectionH('By category', W.monthLabel(mk, true))}
           <div style="margin-top:10px">${catBreakdown(mk, ranked, total)}</div>
-          <p class="tiny faint" style="margin:14px 0 0">Tap a category to see the bills and purchases in it. Credit-card payments${card ? ` (${fmt(card)})` : ''} are transfers, so they're left out here; the purchases on the card already count.</p>
+          <p class="tiny faint" style="margin:14px 0 0">Tap a category to see the bills and purchases in it.${card ? ' Credit card payments are listed on their own and kept out of the spending total, because the purchases on the cards already count.' : ''}</p>
         </aside>
       </div>`;
   }

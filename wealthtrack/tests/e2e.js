@@ -76,7 +76,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) failure
   await page.locator('.bill', { hasText: 'Student Loan Payment' }).locator('[data-act=billMenu]').click();
   await page.locator('.menu button', { hasText: 'partial' }).click();
   await page.fill('input[name=amount]', '100'); await page.click('.modal button[type=submit]'); await page.waitForTimeout(200);
-  ok(await page.locator('.bill.s-partial', { hasText: 'Student Loan Payment' }).count() === 1, 'Student Loan Payment partly paid');
+  ok(await page.locator('.bill.s-partial, .bill.s-overdue-partial', { hasText: 'Student Loan Payment' }).count() === 1, 'Student Loan Payment partly paid');
   ok((await page.locator('.bill', { hasText: 'Student Loan Payment' }).textContent()).includes('$75.00 left'), 'Student Loan Payment shows $75.00 left ($175 - $100)');
   // add an expense
   await page.click('.fab'); await page.locator('.menu button', { hasText: 'Add expense' }).click();
@@ -86,7 +86,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) failure
   await page.reload(); await page.waitForFunction(() => window.__wtReady);
   await page.evaluate(() => { location.hash = '#/bills'; }); await page.waitForTimeout(200);
   ok(await page.locator('.bill.s-paid', { hasText: 'Car Loan Payment' }).count() === 1, 'after restart: Car Loan Payment still paid');
-  ok(await page.locator('.bill.s-partial', { hasText: 'Student Loan Payment' }).count() === 1, 'after restart: Student Loan Payment still partly paid');
+  ok(await page.locator('.bill.s-partial, .bill.s-overdue-partial', { hasText: 'Student Loan Payment' }).count() === 1, 'after restart: Student Loan Payment still partly paid');
   const counts = await page.evaluate(() => ({ inst: Object.keys(WT.D.instances).length, issues: WT.integrity().length, exp: Object.values(WT.D.expenses).filter(e => e.description === 'Groceries test').length }));
   ok(counts.issues === 0, 'no duplicate bills after restart');
   ok(counts.exp === 1, 'expense saved');

@@ -919,6 +919,22 @@
     return out;
   };
   WT.cardPaymentsInMonth = function (mk) { const r = monthlyFlows().get(mk); return r ? r.card : 0; };
+  // The credit-card payments behind cardPaymentsInMonth(), one line each (kind: 'bill' = a card's bill paid,
+  // 'debt' = an extra payment to a card). They are transfers, never part of the spending totals; sums to cardPaymentsInMonth.
+  WT.cardPaymentItems = function (mk) {
+    const out = [];
+    for (const p of vals('payments')) {
+      if (p.voided || monthOf(p.date) !== mk) continue;
+      const i = WT.D.instances[p.instanceId]; if (!i || !cardDebt(i.debtId)) continue;
+      out.push({ kind: 'bill', id: p.id, instanceId: i.id, debtId: i.debtId, name: i.name, date: p.date, amountCents: p.amountCents });
+    }
+    for (const x of vals('debtTxns')) {
+      if (x.voided || x.type !== 'payment' || monthOf(x.date) !== mk || !cardDebt(x.debtId)) continue;
+      const d = WT.D.debts[x.debtId];
+      out.push({ kind: 'debt', id: x.id, debtId: x.debtId, name: (d ? d.name : 'Card') + ' extra payment', date: x.date, amountCents: -x.amountCents });
+    }
+    return out.sort((a, b) => b.amountCents - a.amountCents || (a.date < b.date ? -1 : 1) || a.name.localeCompare(b.name));
+  };
   WT.totalSpending = mk => Object.values(WT.spendingByCategory(mk)).reduce((a, b) => a + b, 0);
   WT.incomeForMonth = function (mk) {
     let expected = 0, received = 0, extra = 0;
