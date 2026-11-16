@@ -1,5 +1,8 @@
 # Auto-upload APK to Google Drive
 
+> **WealthTrack on a personal Gmail account:** use [`wealthtrack/DRIVE-SETUP.md`](wealthtrack/DRIVE-SETUP.md) instead. Service accounts can't store files in a personal My Drive (Google rejects the upload with a storage-quota error), so that guide uses your own account's permanent sign-in key.
+
+
 One-time setup so every push to `claude/**`, `main`, or `master` (and every
 manual `workflow_dispatch` run) builds the APK and drops it in your
 **Bevelry — Woodworking App Blueprint** Drive folder, with no further
@@ -42,7 +45,7 @@ the Drive folder, plus two GitHub Actions secrets.
 
 ## 3. Add the two GitHub secrets
 
-In your repo (`benortmann1-coder/business-tracker-all-in-1-`) go to
+In your repository on GitHub, go to
 **Settings → Secrets and variables → Actions → New repository secret**
 and add two secrets:
 

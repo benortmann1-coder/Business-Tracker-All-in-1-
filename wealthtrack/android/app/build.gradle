@@ -1,0 +1,89 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The web app lives in wealthtrack/web/ and is bundled as-is into the APK's
+// assets, so every build ships the latest index.html / JS / CSS.
+def webDir = file("${rootDir}/../web")
+
+android {
+    namespace 'com.wealthtrack.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.wealthtrack.app'
+        minSdk 24
+        targetSdk 36
+        versionCode 43
+        versionName '1.8.4'
+        // WealthTrack Pro is only enforced in the Google Play build: ./gradlew bundleRelease -PplayBuild=true
+        // Sideloaded APKs (Drive upload) and the browser version keep every feature unlocked,
+        // because Play Billing only works for apps installed from Google Play.
+        buildConfigField 'boolean', 'PRO_ENFORCED', (project.findProperty('playBuild') == 'true') ? 'true' : 'false'
+    }
+
+    buildFeatures {
+        buildConfig true // VERSION_NAME for the address lookup's User-Agent
+    }
+
+    // Release builds must always be signed with the same key, or Android refuses
+    // to install an update over the app ("App not installed"). CI decodes the
+    // WT_KEYSTORE_B64 secret to a file and passes it in through these env vars.
+    // Without them (local builds) it falls back to the debug key.
+    def ksFile = System.getenv('WT_KEYSTORE_FILE')
+    def ksPass = System.getenv('WT_KEYSTORE_PASSWORD')
+    def haveReleaseKey = ksFile && ksPass && file(ksFile).exists()
+    signingConfigs {
+        if (haveReleaseKey) {
+            release {
+                storeFile file(ksFile)
+                storePassword ksPass
+                keyAlias 'wealthtrack'
+                keyPassword ksPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig haveReleaseKey ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += webDir
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+tasks.register('checkWebAssets') {
+    doLast {
+        if (!new File(webDir, 'index.html').exists()) {
+            logger.warn("WARNING: ${webDir}/index.html not found - the APK will show a blank page.")
+        }
+    }
+}
+preBuild.dependsOn 'checkWebAssets'
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.18.0'
+    implementation 'androidx.core:core:1.17.0'
+    // Sign in with Google -> Drive backup
+    implementation 'com.google.android.gms:play-services-auth:21.6.0'
+    // WealthTrack Pro one-time purchase (Play requires Billing Library 8+ since Aug 31 2026)
+    implementation 'com.android.billingclient:billing:8.3.0'
+    // keep every kotlin-stdlib-jdk7/jdk8 at one version (avoids duplicate-class build errors)
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}

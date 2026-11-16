@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark (follows the system setting): dark system bars with light icons. -->
+    <style name="Theme.WealthTrack" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/brand_green</item>
+        <item name="android:colorPrimaryDark">@color/bg</item>
+        <item name="android:colorAccent">@color/brand_green</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+</resources>
