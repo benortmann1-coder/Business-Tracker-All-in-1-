@@ -1510,3 +1510,11 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .cat-acc-sum { display: flex; justify-content: space-between; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--line-2); font-size: 14px; color: var(--ink-2); }
 .cat-acc-sum b { color: var(--ink); font-weight: 800; }
 .cat-acc-cards .cat-acc-v { color: var(--ink-2); }
+
+.cc-group + .cc-group { border-top: 1px solid var(--line-2); }
+.cc-group-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 10px 0 2px; font-size: 14.5px; }
+.cc-row { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-height: 48px; }
+.cc-row:hover .nm { text-decoration: underline; }
+.cc-group .cc-row:last-child { border-bottom: 0; }
+.cc-row.repeat b { color: var(--over); }
+.callout .link { display: inline; min-height: 0; vertical-align: baseline; font-size: inherit; }

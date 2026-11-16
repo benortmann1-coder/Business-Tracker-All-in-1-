@@ -692,4 +692,25 @@ test('spendingItems: each category lists the bill payments and purchases that ad
   assert.equal(cp2.reduce((a, x) => a + x.amountCents, 0), WT.cardPaymentsInMonth(mk));
   assert.equal(WT.totalSpending(mk), spendBefore, 'card payments never change the spending total');
   assert.deepEqual(WT.cardPaymentItems('2020-01'), []);
+  // each card bill payment says which month's bill it paid; only the same bill paid twice is flagged
+  const cp3 = WT.cardPaymentItems(mk).filter(x => x.kind === 'bill');
+  assert.ok(cp3.every(x => /^\d{4}-\d{2}-\d{2}$/.test(x.dueDate) && x.templateId && !x.repeat), 'one payment per bill: nothing flagged');
+  const nextInst = WT.instancesForMonth(WT.addMonthKey(mk, 1)).find(i => i.debtId === 'debt_visa') || (WT.ensureGenerated(WT.addMonthKey(mk, 1)), WT.instancesForMonth(WT.addMonthKey(mk, 1)).find(i => i.debtId === 'debt_visa'));
+  WT.recordPayment(nextInst.id, { amountCents: nextInst.amountCents, date: TODAY });
+  const visa = WT.cardPaymentItems(mk).filter(x => x.debtId === 'debt_visa' && x.kind === 'bill');
+  assert.equal(visa.length, 2, 'this month\'s and next month\'s Visa bill both paid this month');
+  assert.notEqual(visa[0].dueDate.slice(0, 7), visa[1].dueDate.slice(0, 7));
+  assert.ok(visa.every(x => !x.repeat), 'two different months are not a duplicate');
+  const thisInst = WT.D.instances[visa.find(x => x.dueDate.slice(0, 7) === mk).instanceId];
+  WT.recordPayment(thisInst.id, { amountCents: thisInst.amountCents, date: TODAY });
+  const visa2 = WT.cardPaymentItems(mk).filter(x => x.instanceId === thisInst.id);
+  assert.equal(visa2.length, 2); assert.ok(visa2.every(x => x.repeat && !x.over), 'the same bill paid in full twice is flagged');
+  // partial payments that add up to the bill are normal; one payment bigger than the bill is "over", not "twice"
+  const gc = WT.instancesForMonth(WT.addMonthKey(mk, 1)).find(i => i.debtId === 'debt_gascard'); // not paid yet
+  WT.recordPayment(gc.id, { amountCents: 1000, date: TODAY }); WT.recordPayment(gc.id, { amountCents: gc.amountCents - 1000, date: TODAY });
+  assert.ok(WT.cardPaymentItems(mk).filter(x => x.instanceId === gc.id).every(x => !x.repeat && !x.over), 'two partial payments are not flagged');
+  WT.recordPayment(nextInst.id, { amountCents: 500, date: TODAY });
+  const nx = WT.cardPaymentItems(mk).filter(x => x.instanceId === nextInst.id);
+  assert.ok(nx.every(x => x.over && !x.repeat), 'a little extra on one bill is "more than the bill", not "paid twice"');
+  assert.ok(!WT.cardPaymentItems(mk).find(x => x.instanceId === nextInst.id).repeat, 'the other month stays unflagged');
 });

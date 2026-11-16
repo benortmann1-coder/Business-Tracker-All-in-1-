@@ -926,7 +926,17 @@
     for (const p of vals('payments')) {
       if (p.voided || monthOf(p.date) !== mk) continue;
       const i = WT.D.instances[p.instanceId]; if (!i || !cardDebt(i.debtId)) continue;
-      out.push({ kind: 'bill', id: p.id, instanceId: i.id, debtId: i.debtId, name: i.name, date: p.date, amountCents: p.amountCents });
+      out.push({ kind: 'bill', id: p.id, instanceId: i.id, templateId: i.templateId, debtId: i.debtId, name: i.name, date: p.date, dueDate: i.dueDate, amountCents: p.amountCents });
+    }
+    // flag what looks like a double entry: the same month's bill paid more than once, or paid past its amount
+    const byInst = {};
+    for (const x of out) (byInst[x.instanceId] = byInst[x.instanceId] || []).push(x);
+    for (const id of Object.keys(byInst)) {
+      const ps = byInst[id]; const inst = WT.D.instances[id];
+      const paidAll = vals('payments').filter(p => !p.voided && p.instanceId === id).reduce((a, p) => a + p.amountCents, 0);
+      // several payments that together cover the bill more than once = probably entered twice; one payment
+      // bigger than the bill = overpaid; several smaller ones that add up to the bill are normal partial payments
+      if (inst && paidAll > inst.amountCents) ps.forEach(x => { if (ps.length > 1 && paidAll >= 2 * inst.amountCents) x.repeat = true; else x.over = true; });
     }
     for (const x of vals('debtTxns')) {
       if (x.voided || x.type !== 'payment' || monthOf(x.date) !== mk || !cardDebt(x.debtId)) continue;

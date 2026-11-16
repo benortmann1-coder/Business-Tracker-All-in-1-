@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.3'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.4'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -415,7 +415,7 @@
           <span class="cat-acc-n"><b>Credit card payments</b><span class="tiny faint">${cards.length} payment${cards.length === 1 ? '' : 's'} · not counted as spending</span></span>
           <span class="cat-acc-v num">${fmt(cardTotal)}</span>${ic('down')}
         </button>
-        ${cardsOpen ? `<div class="cat-acc-p" id="catp-cards">${cards.map(x => `<div class="cat-acc-row"><span class="grow"><span class="nm">${esc(x.name)}</span><span class="tiny faint">Paid ${W.shortDate(x.date)} · <span class="pill ${x.kind === 'bill' ? 'paid' : 'partial'}">${x.kind === 'bill' ? 'Bill' : 'Extra payment'}</span></span></span><b class="num">${fmt(x.amountCents)}</b></div>`).join('')}
+        ${cardsOpen ? `<div class="cat-acc-p" id="catp-cards">${cardGroups(cards)}
           <div class="cat-acc-row total"><span class="grow">${cards.length} payment${cards.length === 1 ? '' : 's'}</span><b class="num">${fmt(cardTotal)}</b></div>
           <p class="tiny faint" style="margin:2px 0 8px">Paying a card moves money to the card; what you bought with it is already in the categories above.</p></div>` : ''}
       </div>`;
@@ -434,6 +434,21 @@
           <div class="cat-acc-row total"><span class="grow">${list.length} item${list.length === 1 ? '' : 's'}</span><b class="num">${fmt(v)}</b></div></div>` : ''}
       </div>`;
     }).join('')}${total && cardTotal ? `<div class="cat-acc-sum"><span>Total spending</span><b class="num">${fmt(total)}</b></div>` : ''}${cardRow}</div>`;
+  }
+  // Card payments grouped by card. Each line says which month's bill it paid, so two payments in one month
+  // read as "Oct bill" + "Nov bill" (normal) or get a "Paid twice?" flag (same bill paid again). Tap a line to
+  // see that payment or mark the bill unpaid.
+  function cardGroups(cards) {
+    const groups = []; const by = {};
+    for (const x of cards) { const k = x.debtId || x.name; if (!by[k]) { by[k] = { name: (W.D.debts[x.debtId] || {}).name || x.name, items: [] }; groups.push(by[k]); } by[k].items.push(x); }
+    groups.forEach(g => g.items.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const forWhat = x => x.kind !== 'bill' ? 'Extra payment' : `For the ${W.MONTHS[+x.dueDate.slice(5, 7) - 1]} bill · due ${W.shortDate(x.dueDate)}`;
+    return groups.map(g => {
+      const sum = g.items.reduce((a, x) => a + x.amountCents, 0);
+      return `<div class="cc-group">${g.items.length > 1 ? `<div class="cc-group-h"><b>${esc(g.name)}</b><span class="tiny faint">${g.items.length} payments · ${fmt(sum)}</span></div>` : ''}
+        ${g.items.map(x => `<button type="button" class="cat-acc-row cc-row${x.repeat ? ' repeat' : ''}" ${x.kind === 'bill' ? `data-act="paidMenu" data-id="${esc(x.instanceId)}"` : 'data-nav-go="debts"'} aria-label="${esc(x.name)}, ${fmt(x.amountCents)}, paid ${W.shortDate(x.date)}">
+          <span class="grow"><span class="nm">${g.items.length > 1 ? 'Paid ' + W.shortDate(x.date) : esc(x.name)}</span><span class="tiny faint">${g.items.length > 1 ? '' : 'Paid ' + W.shortDate(x.date) + ' · '}${forWhat(x)}${x.repeat ? ' · <span class="pill over">Paid twice?</span>' : x.over ? ' · <span class="pill due">More than the bill</span>' : ''}</span></span><b class="num">${fmt(x.amountCents)}</b></button>`).join('')}</div>`;
+    }).join('') + (cards.some(x => x.repeat) ? `<div class="callout red small" style="margin:8px 0">${ic('alert')}<div><b>Paid twice?</b> The same month's bill was paid in full more than once. If one was entered by mistake, open <button class="link" data-nav-go="history">Spending → History</button> and tap <b>Void</b> on the extra payment. The other payment stays.</div></div>` : '');
   }
   function donut(items, center) { return rankBars(items, { empty: center ? '' : undefined }); }
   // ------------------------------------------------------------ DASHBOARD
