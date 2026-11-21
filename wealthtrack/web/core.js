@@ -541,6 +541,21 @@
     return { total, paid, remaining, count, paidCount, overdue };
   };
 
+  // Totals for any list of bills ({ i: instance, s: instStatus }), counted the same way as billsSummary:
+  // skipped bills are left out of the money (reported on their own), payments count up to the bill amount.
+  WT.billTotals = function (items) {
+    const r = { count: 0, total: 0, paid: 0, remaining: 0, overdue: 0, unpaidCount: 0, autoRemaining: 0, autoCount: 0, skippedCount: 0, skippedTotal: 0 };
+    for (const x of items || []) {
+      const i = x.i, s = x.s || WT.instStatus(i);
+      if (i.skipped || s.status === 'skipped') { r.skippedCount++; r.skippedTotal += i.amountCents; continue; }
+      r.count++; r.total += i.amountCents; r.paid += Math.min(s.paid, i.amountCents); r.remaining += s.remaining;
+      if (s.remaining > 0) r.unpaidCount++;
+      if (s.overdue) r.overdue += s.remaining;
+      if (WT.isAutopay(i)) { r.autoCount++; r.autoRemaining += s.remaining; }
+    }
+    return r;
+  };
+
   // ---------------------------------------------------------------- payments
   WT.recordPayment = function (instId, f) {
     const i = WT.D.instances[instId]; if (!i) throw new Error('No bill');

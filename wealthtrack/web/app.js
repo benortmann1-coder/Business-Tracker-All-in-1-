@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.4'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.8.5'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -687,7 +687,7 @@
       </div>`}
       <div class="meter" style="margin:12px 0 4px"><div class="bar"><i style="width:${pct}%"></i></div></div>
       ${prevOver.length ? `<div class="group-h" style="padding-top:18px"><span class="t over">Still unpaid from earlier months</span><span class="s"><b>${fmt(prevOver.reduce((a, x) => a + x.s.remaining, 0))}</b></span></div><div class="list">${prevOver.map(x => billRow(x.i)).join('')}</div>` : ''}
-      ${billToolbar(counts, true)}
+      ${billToolbar(counts, true, filterSummary(items))}
       <div>${items.length ? renderBillGroups(items, group, { month: mk }) : `<div class="empty">${W.instancesForMonth(mk).length ? '<b>No bills match</b>Try a different filter or search.' : '<b>No bills for ' + W.monthLabel(mk) + '</b>Generate the month or add a bill.'}</div>`}</div>
       <div class="foot-actions"><button class="btn sm ghost" data-act="refreshMonth">${ic('cal')}Refresh due dates</button><button class="btn sm ghost" data-act="genNext">${ic('plus')}Generate next month</button><button class="btn sm ghost danger" data-act="resetMonth">${ic('undo')}Reset this month…</button></div>`;
   }
@@ -731,14 +731,35 @@
     if (q) items = items.filter(x => x.i.name.toLowerCase().includes(q) || W.catName(x.i.category).toLowerCase().includes(q) || (x.i.note || '').toLowerCase().includes(q) || W.centsToStr(x.i.amountCents).includes(q));
     return items;
   }
-  function billToolbar(counts, showFilters) {
+  // The line under the filter buttons: what the bills in the chosen filter add up to (same math as the totals above,
+  // so All always matches "paid of" there). Follows the search box too.
+  function filterSummary(items) {
+    const f = BILL_FILTERS[ui.billFilter] ? ui.billFilter : 'all';
+    const t = W.billTotals(items);
+    const n = f === 'skipped' ? t.skippedCount : t.count;
+    const bills = k => k + (k === 1 ? ' bill' : ' bills');
+    const left = ' <span>left</span>';
+    let main, sub, neg = false;
+    if (f === 'all') { main = fmt(t.remaining) + left; sub = t.unpaidCount ? bills(t.unpaidCount) + ' still to pay' : 'Everything is paid'; }
+    else if (f === 'unpaid') { main = fmt(t.remaining) + left; sub = t.autoRemaining ? fmt(t.autoRemaining) + ' of it pays itself (auto-pay)' : (n ? 'All of it needs paying by you' : 'Nothing left to pay'); }
+    else if (f === 'overdue') { main = fmt(t.overdue) + ' <span>overdue</span>'; neg = t.overdue > 0; sub = n ? 'Pay these first' : 'Nothing overdue'; }
+    else if (f === 'soon') { main = fmt(t.remaining) + ' <span>due</span>'; sub = n ? 'In the next 7 days' : 'Nothing due in the next 7 days'; }
+    else if (f === 'partial') { main = fmt(t.remaining) + left; sub = fmt(t.paid) + ' already paid on these'; }
+    else if (f === 'paid') { main = fmt(t.paid) + ' <span>paid</span>'; sub = n ? 'Done for this month' : 'Nothing paid yet'; }
+    else if (f === 'auto') { main = fmt(t.autoRemaining) + ' <span>to come</span>'; sub = fmt(t.paid) + ' paid of ' + fmt(t.total) + ' on auto-pay'; }
+    else { main = fmt(t.skippedTotal) + ' <span>skipped</span>'; sub = 'Not counted in this month\'s totals'; }
+    if (ui.billSearch) sub += ' · matching your search';
+    // amount first and on the left, so the floating + button on phones never covers it
+    return `<div class="filter-sum" role="status" aria-live="polite"><div class="fs-v num${neg ? ' neg' : ''}">${main}</div><div class="fs-l"><span class="fs-k">${esc(BILL_FILTERS[f][0])} · ${bills(n)}</span><span class="fs-s">${esc(sub)}</span></div></div>`;
+  }
+  function billToolbar(counts, showFilters, summary) {
     const cur = billView();
     const opts = kind => Object.entries(BILL_VIEWS).filter(([, x]) => x[2] === kind).map(([v, [l]]) => opt(v, l, cur)).join('');
     return `<div class="toolbar" style="padding-top:20px">
         <div class="search">${ic('search')}<input class="input" placeholder="Search name, category or amount" value="${esc(ui.billSearch)}" data-bind="billSearch" aria-label="Search bills"></div>
         <select class="input bill-view" data-bind="billView" aria-label="Sort and group bills"><optgroup label="Sort by">${opts('sort')}</optgroup><optgroup label="Group by">${opts('group')}</optgroup></select>
       </div>
-      ${showFilters ? `<div class="chips" style="padding-bottom:8px">${Object.entries(BILL_FILTERS).map(([k, [l]]) => `<button class="chip ${ui.billFilter === k ? 'on' : ''}" data-act="billFilter" data-f="${k}">${l}<span class="n">${counts[k]}</span></button>`).join('')}</div>` : ''}`;
+      ${showFilters ? `<div class="chips" style="padding-bottom:8px">${Object.entries(BILL_FILTERS).map(([k, [l]]) => `<button class="chip ${ui.billFilter === k ? 'on' : ''}" data-act="billFilter" data-f="${k}">${l}<span class="n">${counts[k]}</span></button>`).join('')}</div>${summary || ''}` : ''}`;
   }
   function renderBillGroups(items, group, ctx) {
     const t = today();

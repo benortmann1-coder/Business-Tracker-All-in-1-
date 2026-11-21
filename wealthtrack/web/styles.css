@@ -457,6 +457,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .mob-only { display: none !important; }
 .m-sum { font-size: 14px; color: var(--ink-2); padding: 2px 0 2px; font-variant-numeric: tabular-nums; }
 .m-sum b { color: var(--ink); }
+.filter-sum { margin: 2px 0 10px; padding: 10px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.filter-sum .fs-v { font-weight: 700; font-size: 20px; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; }
+.filter-sum .fs-v span { font-weight: 500; font-size: 14px; color: var(--ink-2); }
+.filter-sum .fs-v.neg, .filter-sum .fs-v.neg span { color: var(--over); }
+.filter-sum .fs-l { display: flex; flex-direction: column; margin-top: 2px; font-size: 13px; color: var(--ink-2); padding-right: 64px; }
+.filter-sum .fs-k { font-weight: 600; color: var(--ink); }
+@media (min-width: 901px) { .filter-sum .fs-l { padding-right: 0; } }
 @media (max-width: 900px) {
   .desk-only { display: none !important; }
   .mob-only { display: revert !important; }

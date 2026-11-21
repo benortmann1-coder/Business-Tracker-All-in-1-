@@ -714,3 +714,24 @@ test('spendingItems: each category lists the bill payments and purchases that ad
   assert.ok(nx.every(x => x.over && !x.repeat), 'a little extra on one bill is "more than the bill", not "paid twice"');
   assert.ok(!WT.cardPaymentItems(mk).find(x => x.instanceId === nextInst.id).repeat, 'the other month stays unflagged');
 });
+
+test('billTotals: per-filter totals match billsSummary and handle skipped, partial, overdue and auto-pay', () => {
+  fresh(); const W = WT;
+  const mk = TODAY.slice(0, 7);
+  const list = W.instancesForMonth(mk);
+  W.recordPayment(list[0].id, { amountCents: list[0].amountCents, date: TODAY }); // one paid in full
+  W.recordPayment(list[1].id, { amountCents: 1000, date: TODAY }); // one partly paid
+  const sm = W.billsSummary(mk);
+  const items = W.instancesForMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
+  const t = W.billTotals(items);
+  assert.ok(t.count > 3 && t.paid > 0 && t.remaining > 0 && t.autoCount > 0, 'month has paid, unpaid and auto-pay bills');
+  assert.equal(t.total, sm.total); assert.equal(t.paid, sm.paid); assert.equal(t.remaining, sm.remaining); assert.equal(t.overdue, sm.overdue);
+  assert.equal(t.paid + t.remaining, t.total);
+  const unpaid = W.billTotals(items.filter(x => x.s.remaining > 0 && x.s.status !== 'skipped'));
+  assert.equal(unpaid.remaining, sm.remaining, 'Unpaid filter adds up to the month\'s "left to pay"');
+  const sk = W.billTotals([{ i: { amountCents: 5000, skipped: true }, s: { status: 'skipped', paid: 0, remaining: 5000 } }]);
+  assert.deepEqual([sk.count, sk.total, sk.skippedCount, sk.skippedTotal], [0, 0, 1, 5000]);
+  const part = W.billTotals([{ i: { amountCents: 10000 }, s: { status: 'partial', paid: 12000, remaining: 0, overdue: false } }]);
+  assert.equal(part.paid, 10000, 'overpayment counts only up to the bill amount');
+  assert.deepEqual(W.billTotals([]), { count: 0, total: 0, paid: 0, remaining: 0, overdue: 0, unpaidCount: 0, autoRemaining: 0, autoCount: 0, skippedCount: 0, skippedTotal: 0 });
+});
