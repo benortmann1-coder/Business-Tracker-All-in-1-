@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.8.5'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.0'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -651,45 +651,68 @@
     return head + viewUpcoming();
   }
   // "This month" (Overview's default choice): the whole month, paid and unpaid, with month-to-month browsing.
-  // For the current month it also shows the cash outlook (paychecks, available, projected after).
+  // One summary answers three questions: how much is still to pay, how much money is there, and is the month covered.
+  // Every figure comes from W.monthOutlook (one definition each); the bill list, filters and tools follow.
   function viewBillMonth(rangeSeg) {
-    const mk = ui.month; const sm = W.billsSummary(mk); const pct = sm.total ? Math.round(sm.paid * 100 / sm.total) : 0;
+    const mk = ui.month; const o = W.monthOutlook(mk); const sm = o.month;
+    const pct = sm.total ? Math.min(100, Math.round(sm.paid * 100 / sm.total)) : 0;
     let items = W.instancesForMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
     items = applyBillSearch(items);
     const counts = {}; Object.keys(BILL_FILTERS).forEach(k => counts[k] = items.filter(BILL_FILTERS[k][1]).length);
     items = items.filter((BILL_FILTERS[ui.billFilter] || BILL_FILTERS.all)[1]);
     items.sort(viewSorter());
-    const prevOver = mk === curMonth() ? W.overdue().filter(x => W.monthOf(x.i.dueDate) < mk) : [];
+    const prevOver = o.isCurrent ? W.overdue().filter(x => W.monthOf(x.i.dueDate) < mk) : [];
     const group = viewGroup(false);
-    let cash = '';
-    if (mk === curMonth()) {
-      const t = today(), end = W.monthEnd(mk);
-      const pays = W.paychecksBetween(t, end).filter(p => !p.received);
-      const incoming = pays.reduce((a, p) => a + p.amountCents, 0);
-      const left = W.instancesBetween(t, end).concat(W.overdue().map(x => x.i)).filter((i, n, a) => a.findIndex(j => j.id === i.id) === n)
-        .reduce((a, i) => { const st = W.instStatus(i); return a + (st.status === 'skipped' ? 0 : st.remaining); }, 0);
-      const avail = W.availableBalance(t); const after = avail + incoming - left;
-      cash = `<div class="figures" style="--n:4;margin-top:12px">
-        ${fig('Left to pay this month', fmt(left), sm.overdue ? fmt(sm.overdue) + ' overdue' : (sm.count - sm.paidCount) + ' bills to go', sm.overdue ? 'neg' : '')}
-        ${fig('Paychecks coming', fmt(incoming), pays.length ? pays.map(p => W.shortDate(p.date)).join(', ') : 'none before ' + W.shortDate(end))}
-        ${fig('Available now', fmt(avail), 'checking + cash')}
-        ${fig('Projected after', fmt(after), after < 0 ? 'short, plan ahead' : 'if everything clears', after < 0 ? 'neg' : 'pos')}
-      </div>`;
-    }
     return rangeSeg + `
-      <div class="toolbar" style="padding-top:12px">${monthSel('month', mk)}<span class="grow"></span><span class="small muted">${sm.paidCount} of ${sm.count} paid</span></div>
-      ${cash}<div class="mob-only m-sum"><b>${fmt(sm.paid)}</b> paid of ${fmt(sm.total)}${sm.overdue ? ` · <span class="neg"><b>${fmt(sm.overdue)}</b> overdue</span>` : ''}</div>
-      ${cash ? '' : `<div class="figures desk-only" style="--n:4;margin-bottom:6px">
-        ${fig('Total', fmt(sm.total), sm.count + ' bills')}
-        ${fig('Paid', fmt(sm.paid), pct + '% done', 'pos')}
-        ${fig('Left to pay', fmt(sm.remaining), sm.count - sm.paidCount + ' to go')}
-        ${fig('Overdue', fmt(sm.overdue), sm.overdue ? 'pay these first' : 'none', sm.overdue ? 'neg' : '')}
-      </div>`}
-      <div class="meter" style="margin:12px 0 4px"><div class="bar"><i style="width:${pct}%"></i></div></div>
-      ${prevOver.length ? `<div class="group-h" style="padding-top:18px"><span class="t over">Still unpaid from earlier months</span><span class="s"><b>${fmt(prevOver.reduce((a, x) => a + x.s.remaining, 0))}</b></span></div><div class="list">${prevOver.map(x => billRow(x.i)).join('')}</div>` : ''}
+      <div class="toolbar" style="padding-top:12px">${monthSel('month', mk)}</div>
+      ${billSummary(o, pct)}
+      ${prevOver.length ? `<div class="group-h" style="padding-top:14px"><span class="t over">Still unpaid from earlier months</span><span class="s"><b>${fmt(prevOver.reduce((a, x) => a + x.s.remaining, 0))}</b></span></div><div class="list">${prevOver.map(x => billRow(x.i)).join('')}</div>` : ''}
       ${billToolbar(counts, true, filterSummary(items))}
       <div>${items.length ? renderBillGroups(items, group, { month: mk }) : `<div class="empty">${W.instancesForMonth(mk).length ? '<b>No bills match</b>Try a different filter or search.' : '<b>No bills for ' + W.monthLabel(mk) + '</b>Generate the month or add a bill.'}</div>`}</div>
-      <div class="foot-actions"><button class="btn sm ghost" data-act="refreshMonth">${ic('cal')}Refresh due dates</button><button class="btn sm ghost" data-act="genNext">${ic('plus')}Generate next month</button><button class="btn sm ghost danger" data-act="resetMonth">${ic('undo')}Reset this month…</button></div>`;
+      <details class="month-tools"${ui.monthToolsOpen ? ' open' : ''}><summary>${ic('gear')}Month tools</summary><div class="foot-actions"><button class="btn sm ghost" data-act="refreshMonth">${ic('cal')}Refresh due dates</button><button class="btn sm ghost" data-act="genNext">${ic('plus')}Generate next month</button><button class="btn sm ghost danger" data-act="resetMonth">${ic('undo')}Reset this month…</button></div></details>`;
+  }
+  // Month tools stay open across re-renders once you open them (so Generate next month doesn't snap it shut)
+  document.addEventListener('toggle', e => { if (e.target && e.target.classList && e.target.classList.contains('month-tools')) ui.monthToolsOpen = e.target.open; }, true);
+  function billSummary(o, pct) {
+    const sm = o.month; const mName = W.MONTHS[+o.mk.slice(5, 7) - 1];
+    const bills = n => n + (n === 1 ? ' bill' : ' bills');
+    const md = d => W.MONTHS[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + (+d.slice(8, 10)); // "Nov 30": the year is obvious here
+    const endLabel = md(W.monthEnd(o.mk));
+    const sub = o.unpaidCount ? `${bills(o.unpaidCount)} left` + (o.next ? ` · next: <b>${esc(o.next.name)}</b>, ${esc(md(o.next.date))}` : '')
+      : sm.count ? `<span class="pos">${ic('check')}Everything for ${mName} is paid</span>` : `No bills in ${mName}`;
+    // overdue: for this month it includes bills carried over from earlier months; other months show their own
+    const overN = o.isCurrent ? o.overdueCount : 0, overAmt = o.isCurrent ? o.overdueTotal : sm.overdue;
+    const overdue = overAmt > 0 ? `<div class="bsum-over">${ic('alert')}<span class="grow"><b>${fmt(overAmt)} overdue</b>${overN ? ' · ' + bills(overN) : ''}. Pay these first.</span><button class="btn sm" data-act="billFilter" data-f="overdue">Show</button></div>` : '';
+    let outlook = '';
+    if (o.isCurrent) {
+      if (o.available == null) {
+        outlook = `<div class="bsum-cover none"><span class="grow">Add what's in your account to see whether ${mName} is covered.</span><button class="btn sm primary" data-act="setBalance" data-id="${esc(o.balanceMissing[0] || 'acc_checking')}">Add balance</button></div>`;
+      } else {
+        const short = o.after < 0;
+        const why = short ? `<p class="bsum-why">Bills still to come out of your account (${fmt(o.cashLeft)}) are more than the ${fmt(o.available)} you have now${o.incoming ? ' plus ' + fmt(o.incoming) + ' in paychecks before ' + endLabel : ', and no paychecks are expected before ' + endLabel}.</p>` : '';
+        outlook = `<div class="bsum-stats">
+            <div><span>Available now</span><b class="num">${fmt(o.available)}</b></div>
+            <div><span>After bills, ${esc(endLabel)}</span><b class="num ${short ? 'neg' : 'pos'}">${fmt(o.after)}</b></div>
+          </div>
+          <div class="bsum-cover ${short ? 'short' : 'ok'}">${ic(short ? 'alert' : 'check')}<span>${short ? `<b>Not enough</b> for the rest of ${mName}.` : `You're covered for ${mName}.`}</span></div>
+          ${why}
+          <details class="bsum-math"><summary>How this is worked out</summary>
+            <div class="bsum-row"><span>Money in checking and cash now</span><b class="num">${fmt(o.available)}</b></div>
+            <div class="bsum-row"><span>+ Paychecks expected by ${esc(endLabel)}${o.paychecks.length ? ' (' + o.paychecks.map(p => esc(md(p.date))).join(', ') + ')' : ''}</span><b class="num">${fmt(o.incoming)}</b></div>
+            <div class="bsum-row"><span>− Bills to pay from your account${o.earlierOverdue ? ', incl. ' + fmt(o.earlierOverdue) + ' from earlier months' : ''}</span><b class="num">${fmt(o.cashLeft)}</b></div>
+            <div class="bsum-row total"><span>= Left after bills</span><b class="num ${short ? 'neg' : ''}">${fmt(o.after)}</b></div>
+            <p class="tiny muted">Only paychecks you've entered count, and only ones not marked received yet.${o.cardLeft ? ' ' + fmt(o.cardLeft) + ' of your bills go on a credit card, so they aren\'t taken from cash here.' : ''} Everyday spending isn't included.</p>
+          </details>`;
+      }
+    }
+    return `<section class="bsum" aria-label="${esc(mName)} bills">
+        <div class="bsum-k">Still to pay in ${esc(mName)}</div>
+        <div class="bsum-v num">${fmt(sm.remaining)}</div>
+        <div class="bsum-s">${sub}</div>
+        <div class="meter bsum-meter" role="img" aria-label="${pct}% paid"><div class="bar"><i style="width:${pct}%"></i></div></div>
+        <div class="bsum-p"><b class="num">${fmt(sm.paid)}</b> of ${fmt(sm.total)} paid${sm.count ? ' · ' + sm.paidCount + ' of ' + sm.count + ' bills' : ''}</div>
+        ${outlook}
+      </section>${overdue}`;
   }
   const BILL_FILTERS = {
     all: ['All', () => true],
@@ -759,7 +782,7 @@
         <div class="search">${ic('search')}<input class="input" placeholder="Search name, category or amount" value="${esc(ui.billSearch)}" data-bind="billSearch" aria-label="Search bills"></div>
         <select class="input bill-view" data-bind="billView" aria-label="Sort and group bills"><optgroup label="Sort by">${opts('sort')}</optgroup><optgroup label="Group by">${opts('group')}</optgroup></select>
       </div>
-      ${showFilters ? `<div class="chips" style="padding-bottom:8px">${Object.entries(BILL_FILTERS).map(([k, [l]]) => `<button class="chip ${ui.billFilter === k ? 'on' : ''}" data-act="billFilter" data-f="${k}">${l}<span class="n">${counts[k]}</span></button>`).join('')}</div>${summary || ''}` : ''}`;
+      ${showFilters ? `<div class="chips" style="padding-bottom:8px">${Object.entries(BILL_FILTERS).filter(([k]) => ['all', 'unpaid', 'soon', 'paid'].includes(k) || counts[k] > 0 || ui.billFilter === k).map(([k, [l]]) => `<button class="chip ${ui.billFilter === k ? 'on' : ''}" data-act="billFilter" data-f="${k}">${l}<span class="n">${counts[k]}</span></button>`).join('')}</div>${summary || ''}` : ''}`;
   }
   function renderBillGroups(items, group, ctx) {
     const t = today();

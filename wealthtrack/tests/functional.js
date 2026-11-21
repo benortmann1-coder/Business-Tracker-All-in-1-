@@ -148,6 +148,7 @@ function serve() {
 
   // generate next month (idempotent) + reset month
   const before = await W(() => Object.keys(WT.D.instances).length);
+  await page.click('.month-tools summary'); await page.waitForTimeout(100); // the month buttons live under Month tools
   await page.click('[data-act=genNext]'); await page.waitForTimeout(150);
   await page.click('[data-act=monthStep][data-n="-1"]'); await page.click('[data-act=genNext]'); await page.waitForTimeout(150);
   ok(/already exist|created/.test(await lastToast()), 'generate next month reports: ' + (await lastToast()).trim());

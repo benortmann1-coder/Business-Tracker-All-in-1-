@@ -1525,3 +1525,35 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .cc-group .cc-row:last-child { border-bottom: 0; }
 .cc-row.repeat b { color: var(--over); }
 .callout .link { display: inline; min-height: 0; vertical-align: baseline; font-size: inherit; }
+
+/* Bills summary (Bills → This month): one card, most important number first */
+.bsum { margin: 4px 0 12px; padding: 18px 18px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.bsum-k { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.bsum-v { font-size: 34px; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; color: var(--ink); margin: 2px 0 2px; font-variant-numeric: tabular-nums; }
+.bsum-s { font-size: 14px; color: var(--ink-2); }
+.bsum-s b { color: var(--ink); font-weight: 600; }
+.bsum-s .pos svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.bsum-meter { margin: 12px 0 6px; }
+.bsum-p { font-size: 13px; color: var(--ink-2); }
+.bsum-p b { color: var(--ink); }
+.bsum-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.bsum-stats span { display: block; font-size: 13px; color: var(--ink-2); }
+.bsum-stats b { display: block; font-size: 19px; font-weight: 700; color: var(--ink); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.bsum-stats b.pos { color: var(--paid); } .bsum-stats b.neg { color: var(--over); }
+.bsum-cover { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+.bsum-cover svg { width: 18px; height: 18px; flex: none; }
+.bsum-cover.ok { background: color-mix(in srgb, var(--paid) 10%, transparent); color: var(--ink); } .bsum-cover.ok svg { color: var(--paid); }
+.bsum-cover.short { background: color-mix(in srgb, var(--over) 10%, transparent); color: var(--ink); } .bsum-cover.short svg, .bsum-cover.short b { color: var(--over); }
+.bsum-cover.none { background: var(--sunken); color: var(--ink-2); margin-top: 14px; }
+.bsum-why { margin: 8px 2px 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.bsum-math { margin-top: 10px; font-size: 13px; }
+.bsum-math summary { cursor: pointer; color: var(--brand); font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+.bsum-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); color: var(--ink-2); }
+.bsum-row b { color: var(--ink); white-space: nowrap; } .bsum-row b.neg { color: var(--over); }
+.bsum-row.total { border-bottom: 0; font-weight: 600; color: var(--ink); }
+.bsum-over { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 12px 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--over) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--over) 30%, transparent); font-size: 14px; color: var(--ink); }
+.bsum-over svg { width: 18px; height: 18px; color: var(--over); flex: none; } .bsum-over b { color: var(--over); }
+.month-tools { margin: 18px 0 6px; }
+.month-tools summary { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.month-tools summary svg { width: 16px; height: 16px; }
+.month-tools .foot-actions { margin-top: 4px; }

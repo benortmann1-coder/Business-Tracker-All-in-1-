@@ -735,3 +735,43 @@ test('billTotals: per-filter totals match billsSummary and handle skipped, parti
   assert.equal(part.paid, 10000, 'overpayment counts only up to the bill amount');
   assert.deepEqual(W.billTotals([]), { count: 0, total: 0, paid: 0, remaining: 0, overdue: 0, unpaidCount: 0, autoRemaining: 0, autoCount: 0, skippedCount: 0, skippedTotal: 0 });
 });
+
+test('monthOutlook: one definition per figure, card bills kept out of cash, missing balance not guessed', () => {
+  fresh(); const W = WT; const mk = TODAY.slice(0, 7);
+  const o = W.monthOutlook(mk, TODAY);
+  const sm = W.billsSummary(mk);
+  assert.equal(o.isCurrent, true);
+  assert.deepEqual(o.month, sm, 'month figures are exactly billsSummary');
+  // overdue = every carried-forward bill; earlier part is from previous months only
+  const over = W.overdue(TODAY);
+  assert.equal(o.overdueTotal, over.reduce((a, x) => a + x.s.remaining, 0));
+  assert.equal(o.earlierOverdue, over.filter(x => x.i.dueDate.slice(0, 7) < mk).reduce((a, x) => a + x.s.remaining, 0));
+  // cash + card = everything unpaid through month end, with no bill counted twice
+  const end = W.monthEnd(mk); const ids = new Set();
+  let all = 0; for (const x of over) { ids.add(x.i.id); all += x.s.remaining; }
+  for (const i of W.instancesBetween(TODAY, end)) { if (ids.has(i.id) || i.skipped) continue; all += W.instStatus(i, TODAY).remaining; }
+  assert.equal(o.cashLeft + o.cardLeft, all);
+  // paychecks: only ones still expected
+  assert.ok(o.paychecks.every(p => p.date >= TODAY && p.date <= end));
+  assert.equal(o.incoming, o.paychecks.reduce((a, p) => a + p.amountCents, 0));
+  // balance: when every available account has a balance, after = available + paychecks - cash bills
+  if (o.available != null) assert.equal(o.after, o.available + o.incoming - o.cashLeft);
+  // a bill moved to a credit card leaves cash and joins cardLeft
+  const tpl = W.instancesBetween(TODAY, end).find(i => !i.skipped && W.instStatus(i, TODAY).remaining > 0);
+  if (tpl) {
+    const before = W.monthOutlook(mk, TODAY);
+    const amt = W.instStatus(tpl, TODAY).remaining;
+    W.D.instances[tpl.id].accountId = 'debt:test_card';
+    const after = W.monthOutlook(mk, TODAY);
+    assert.equal(after.cashLeft, before.cashLeft - amt); assert.equal(after.cardLeft, before.cardLeft + amt);
+    assert.equal(after.month.remaining, before.month.remaining, 'still to pay this month is unchanged');
+  }
+  // a never-entered balance is reported as missing, not as $0
+  const acc = W.accounts().find(a => a.inAvailable);
+  if (acc) { W.D.accounts[acc.id].needsBalance = true; const m = W.monthOutlook(mk, TODAY); assert.equal(m.available, null); assert.equal(m.after, null); assert.ok(m.balanceMissing.includes(acc.id)); delete W.D.accounts[acc.id].needsBalance; }
+  // other months: bills only, no cash forecast
+  const nextMk = W.addMonthKey(mk, 1); const n = W.monthOutlook(nextMk, TODAY);
+  assert.equal(n.isCurrent, false); assert.equal(n.after, undefined); assert.deepEqual(n.month, W.billsSummary(nextMk));
+  // next unpaid bill is the earliest one not yet due
+  if (o.next) assert.ok(o.next.date >= TODAY);
+});

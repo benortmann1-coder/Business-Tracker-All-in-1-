@@ -86,7 +86,7 @@ const stored = page => page.evaluate(() => new Promise(res => { const r = indexe
     const mIds = await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].map(b => b.dataset.inst));
     const allMonth = await page.evaluate(() => WT.instancesForMonth(WT.monthOf(WT.todayStr())).length);
     ok(new Set(mIds).size >= allMonth, 'This month lists every bill of the month, paid ones too (' + new Set(mIds).size + '/' + allMonth + ')');
-    ok(/Left to pay this month/.test(await page.locator('#main').textContent()) && /Paychecks coming/.test(await page.locator('#main').textContent()), 'This month shows the cash outlook (left to pay, paychecks)');
+    { const tx = await page.locator('#main').textContent(); ok(/Still to pay in/.test(tx) && (/Available now/.test(tx) || /Add what's in your account/.test(tx)), 'This month shows the summary (still to pay, money available or a prompt to add it)'); }
     const due = await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].map(b => WT.D.instances[b.dataset.inst].dueDate));
     const eom = await page.evaluate(() => WT.monthEnd(WT.monthOf(WT.todayStr())));
     ok(due.length > 0 && due.every(d => d <= eom), 'This month shows bills due by ' + eom);

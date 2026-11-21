@@ -556,6 +556,43 @@
     return r;
   };
 
+  // One source for the Bills screen summary. Every figure has a single definition:
+  //   month.*        this month's bills only (billsSummary): total, paid, still to pay, overdue within the month
+  //   earlierOverdue unpaid bills from earlier months (carried forward, never duplicated)
+  //   available      checking + cash accounts that count as available (null when a balance was never entered)
+  //   paychecks      paychecks you entered that are still expected from today through month end (not received yet)
+  //   cashLeft       what still has to come out of cash by month end: unpaid bills due by then + all overdue,
+  //                  minus bills charged to a credit card (same rule as the 60-day forecast)
+  //   cardLeft       the part of the unpaid bills that goes on a credit card instead
+  //   after          available + paychecks - cashLeft (only for the current month, only when the balance is known)
+  WT.monthOutlook = function (mk, today) {
+    today = today || todayStr();
+    const month = WT.billsSummary(mk);
+    const cur = mk === monthOf(today);
+    const out = { mk, isCurrent: cur, month, earlierOverdue: 0, earlierOverdueCount: 0, overdueCount: 0, overdueTotal: 0, next: null };
+    const unpaidThisMonth = WT.instancesForMonth(mk).filter(i => !i.skipped).map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0);
+    out.unpaidCount = unpaidThisMonth.length;
+    const upcoming = unpaidThisMonth.filter(x => x.i.dueDate >= today).sort((a, b) => a.i.dueDate < b.i.dueDate ? -1 : 1);
+    out.next = upcoming.length ? { name: upcoming[0].i.name, date: upcoming[0].i.dueDate, amountCents: upcoming[0].s.remaining } : null;
+    if (!cur) return out;
+    const end = WT.monthEnd(mk);
+    const over = WT.overdue(today);
+    for (const x of over) { out.overdueCount++; out.overdueTotal += x.s.remaining; if (monthOf(x.i.dueDate) < mk) { out.earlierOverdue += x.s.remaining; out.earlierOverdueCount++; } }
+    const onCard = i => !!(i.accountId && i.accountId.startsWith('debt:'));
+    let cashLeft = 0, cardLeft = 0; const seen = new Set();
+    const add = (i, s) => { if (seen.has(i.id) || i.skipped || s.remaining <= 0) return; seen.add(i.id); if (onCard(i)) cardLeft += s.remaining; else cashLeft += s.remaining; };
+    for (const x of over) add(x.i, x.s);
+    for (const i of WT.instancesBetween(today, end)) add(i, WT.instStatus(i, today));
+    out.cashLeft = cashLeft; out.cardLeft = cardLeft;
+    out.paychecks = WT.paychecksBetween(today, end).filter(p => !p.received).map(p => ({ date: p.date, amountCents: p.amountCents, name: p.income ? p.income.name : '' }));
+    out.incoming = out.paychecks.reduce((a, p) => a + p.amountCents, 0);
+    const accs = WT.accounts().filter(a => a.inAvailable);
+    out.balanceMissing = accs.filter(a => a.needsBalance).map(a => a.id);
+    out.available = accs.length && !out.balanceMissing.length ? WT.availableBalance(today) : null;
+    out.after = out.available == null ? null : out.available + out.incoming - cashLeft;
+    return out;
+  };
+
   // ---------------------------------------------------------------- payments
   WT.recordPayment = function (instId, f) {
     const i = WT.D.instances[instId]; if (!i) throw new Error('No bill');

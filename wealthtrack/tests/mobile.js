@@ -95,7 +95,7 @@ const MODALS = [
   ['bills', 'payment', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'payment' }).first().click(); }],
   ['bills', 'move date', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'due date' }).click(); }],
   ['bills', 'assign paycheck', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'Choose paycheck' }).click(); }],
-  ['bills', 'reset month', p => p.click('[data-act=resetMonth]')],
+  ['bills', 'reset month', async p => { if (!(await p.locator('.month-tools[open]').count())) await p.click('.month-tools summary'); await p.click('[data-act=resetMonth]'); }],
   ['bills', 'manage tab', async p => { await p.click('[data-act=billsTab][data-tab=manage]'); }, false, true],
   ['bills', 'subs tab', async p => { await p.click('[data-act=billsTab][data-tab=subs]'); }, false, true],
   ['paychecks', 'add income', p => p.locator('#main [data-act=addIncome]:visible').first().click()],
