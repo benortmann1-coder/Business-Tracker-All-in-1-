@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.0'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.1'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -135,7 +135,7 @@
     readRoute(); applyDisplay();
     const main = $('#main'); if (!main) return;
     $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === ui.route));
-    const viewedMonth = ui.route === 'bills' && billsTabOf() === 'upcoming' && upRangeOf() === 'month' && /^\d{4}-\d{2}$/.test(ui.month || '') ? ui.month : curMonth();
+    const viewedMonth = ui.route === 'bills' && billsTabOf() === 'upcoming' && upRangeOf() !== 'date' && /^\d{4}-\d{2}$/.test(ui.month || '') ? ui.month : curMonth();
     const monthTint = monthColorSlot(viewedMonth);
     if (monthTint) document.body.dataset.month = monthTint; else delete document.body.dataset.month;
     document.body.dataset.route = ui.route;
@@ -803,7 +803,9 @@
     }[group];
     return groupedList(items.slice().sort(sorter), fn, { order: ord, row: { showPaycheck: group !== 'paycheck' } });
   }
-  const UP_RANGES = [['date', 'Through a date'], ['month', 'This month'], ['30', '30 days'], ['60', '60 days']];
+  // End of month = this month's bills, Next month = next month's bills (both the month view), Pick a date = everything
+  // unpaid through a day you choose. The old 30 / 60 day choices fall back to End of month.
+  const UP_RANGES = [['month', 'End of month'], ['next', 'Next month'], ['date', 'Pick a date']];
   // the old separate "This month" tab is now Overview > This month
   const billsTabOf = () => ['manage', 'subs'].includes(ui.billsTab) ? ui.billsTab : 'upcoming';
   // remembered per device (ui) and with your data (settings.upRange); older saved choices fall back to End of month
@@ -812,10 +814,12 @@
   const upDateOf = t => (ui.upDate && /^\d{4}-\d{2}-\d{2}$/.test(ui.upDate) && ui.upDate >= t) ? ui.upDate : W.addMonthKey(W.monthOf(t), 1) + '-01';
   function viewUpcoming() {
     const t = today(); const r = upRangeOf();
-    const rangeSeg = `<div class="seg boxed up-range" role="group" aria-label="Show bills" style="margin:16px 0 4px">${UP_RANGES.map(([k, l]) => `<button class="${r === k ? 'on' : ''}" data-act="upRange" data-r="${k}" aria-pressed="${r === k}">${l}</button>`).join('')}</div>`;
-    if (r === 'month') return viewBillMonth(rangeSeg);
+    // in the month view the highlighted button follows the month on screen (the arrows can move to any month)
+    const shown = r === 'date' ? 'date' : ui.month === curMonth() ? 'month' : ui.month === W.addMonthKey(curMonth(), 1) ? 'next' : '';
+    const rangeSeg = `<div class="seg boxed up-range" role="group" aria-label="Show bills" style="margin:16px 0 4px">${UP_RANGES.map(([k, l]) => `<button class="${shown === k ? 'on' : ''}" data-act="upRange" data-r="${k}" aria-pressed="${shown === k}">${l}</button>`).join('')}</div>`;
+    if (r === 'month' || r === 'next') return viewBillMonth(rangeSeg);
     const nxt = W.nextPaycheck(W.addDays(t, 1));
-    const end = r === 'date' ? upDateOf(t) : r === 'month' ? W.monthEnd(W.monthOf(t)) : W.addDays(t, +r);
+    const end = upDateOf(t); // only "Pick a date" reaches this list view
     W.ensureGenerated(W.monthOf(end) > curMonth() ? W.monthOf(end) : undefined);
     let items = W.instancesBetween(t, end).map(i => ({ i, s: W.instStatus(i) }));
     const over = W.overdue().map(x => ({ i: x.i, s: x.s }));
@@ -3086,7 +3090,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     remPro: () => { if (typeof WT_proDialog === 'function') WT_proDialog('reminders'); else toast('Custom reminders are part of WealthTrack Pro'); },
     addBill: () => addBill(), addBillOn: d => { closeAllModals(); addBill(d.date); },
     billsTab: d => { if (d.tab === 'month') { ui.billsTab = 'upcoming'; ui.upRange = 'month'; } else ui.billsTab = d.tab; saveUi(); if (ui.route !== 'bills') go('bills'); else refresh(); }, billFilter: d => { ui.billFilter = d.f; refresh(); },
-    upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; if (v === 'month' && ui.upRange !== 'month') ui.month = curMonth(); ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
+    upRange: d => { const v = UP_RANGES.some(x => x[0] === d.r) ? d.r : 'month'; if (v === 'month') ui.month = curMonth(); if (v === 'next') { ui.month = W.addMonthKey(curMonth(), 1); W.ensureGenerated(ui.month); } ui.upRange = v; saveUi(); if (W.settings().upRange !== v) W.saveSettings({ upRange: v }); refresh(); },
     billTools: () => { ui.billTools = !ui.billTools; refresh(); },
     openUpcoming: () => { ui.billsTab = 'upcoming'; go('bills'); },
     monthStep: d => setMonth(d.key, W.addMonthKey(ui[d.key], +d.n)), monthToday: d => setMonth(d.key, curMonth()),

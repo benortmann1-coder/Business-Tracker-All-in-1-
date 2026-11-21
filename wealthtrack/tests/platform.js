@@ -75,11 +75,11 @@ const stored = page => page.evaluate(() => new Promise(res => { const r = indexe
   {
     const { ctx, page } = await mk(true);
     ok(await page.locator('.demo-bar').count() === 0, 'existing data: no demo');
-    // ---------------- Upcoming: exactly 4 choices, This month by default, remembered; the old This month tab is merged in
+    // ---------------- Upcoming: exactly 3 choices, End of month by default, remembered; the old This month tab is merged in
     await go(page, 'bills'); await page.click('[data-act=billsTab][data-tab=upcoming]'); await page.waitForTimeout(250);
     const labels = await page.locator('.up-range button').allTextContents();
-    ok(JSON.stringify(labels) === JSON.stringify(['Through a date', 'This month', '30 days', '60 days']), 'Upcoming has exactly 4 choices: ' + labels.join(', '));
-    ok(/on/.test(await page.locator('.up-range button[data-r=month]').getAttribute('class')), 'This month is the default');
+    ok(JSON.stringify(labels) === JSON.stringify(['End of month', 'Next month', 'Pick a date']), 'Upcoming has exactly 3 choices: ' + labels.join(', '));
+    ok(/on/.test(await page.locator('.up-range button[data-r=month]').getAttribute('class')), 'End of month is the default');
     const tabs = await page.locator('[data-act=billsTab]').allTextContents();
     ok(JSON.stringify(tabs.map(x => x.trim())) === JSON.stringify(['Overview', 'All bills', 'Subscriptions']), 'Bills has 3 tabs (no separate This month): ' + tabs.join(', '));
     ok(await page.locator('#main .month-sel [data-act=monthStep]').count() === 2, 'This month has the month picker to browse months');
@@ -90,16 +90,22 @@ const stored = page => page.evaluate(() => new Promise(res => { const r = indexe
     const due = await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].map(b => WT.D.instances[b.dataset.inst].dueDate));
     const eom = await page.evaluate(() => WT.monthEnd(WT.monthOf(WT.todayStr())));
     ok(due.length > 0 && due.every(d => d <= eom), 'This month shows bills due by ' + eom);
-    await page.click('.up-range button[data-r="60"]'); await page.waitForTimeout(250);
-    const due60 = await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].map(b => WT.D.instances[b.dataset.inst].dueDate));
-    const lim = await page.evaluate(() => WT.addDays(WT.todayStr(), 60));
-    ok(due60.some(d => d > eom) && due60.every(d => d <= lim), '60 days reaches past the month end, none past ' + lim);
+    ok(await page.locator('.up-range button').count() === 3 && !(await page.locator('.up-range button[data-r="30"], .up-range button[data-r="60"]').count()), 'range choices are End of month, Next month, Pick a date');
+    await page.click('.up-range button[data-r=next]'); await page.waitForTimeout(250);
+    const nmk = await page.evaluate(() => WT.addMonthKey(WT.monthOf(WT.todayStr()), 1));
+    const dueN = await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].map(b => WT.D.instances[b.dataset.inst].dueDate));
+    ok(await page.evaluate(() => WTApp.ui.month) === nmk && dueN.length > 0 && dueN.filter(d => d.slice(0, 7) === nmk).length === dueN.filter(d => d >= nmk).length && /Still to pay in/.test(await page.locator('#main').textContent()), 'Next month shows next month\'s bills with its summary');
+    ok(/on/.test(await page.locator('.up-range button[data-r=next]').getAttribute('class')), 'Next month is highlighted');
+    await page.click('[data-act=monthStep][data-n="-1"]'); await page.waitForTimeout(200);
+    ok(/on/.test(await page.locator('.up-range button[data-r=month]').getAttribute('class')), 'stepping back with the arrow highlights End of month');
+    await page.click('.up-range button[data-r=date]'); await page.waitForTimeout(250);
+    ok(await page.locator('[data-bind=upDate]').count() === 1, 'Pick a date shows the date picker');
     ok(await page.evaluate(() => [...document.querySelectorAll('#main .bill[data-inst]')].every(b => { const i = WT.D.instances[b.dataset.inst]; return WT.instStatus(i).remaining > 0; })), 'paid bills are not shown as outstanding');
     await page.evaluate(() => WTStore.flush()); await page.waitForTimeout(200);
     await page.reload(); await page.waitForFunction(() => window.__wtReady); await go(page, 'bills'); await page.click('[data-act=billsTab][data-tab=upcoming]'); await page.waitForTimeout(250);
-    ok(/on/.test(await page.locator('.up-range button[data-r="60"]').getAttribute('class')), 'the choice is remembered');
-    await page.evaluate(() => { WTApp.ui.upRange = '14'; WT.saveSettings({ upRange: undefined }); WTApp.refresh(); }); await page.waitForTimeout(150);
-    ok(/on/.test(await page.locator('.up-range button[data-r=month]').getAttribute('class')), 'an old saved choice falls back to This month');
+    ok(/on/.test(await page.locator('.up-range button[data-r=date]').getAttribute('class')), 'the choice is remembered');
+    await page.evaluate(() => { WTApp.ui.upRange = '60'; WT.saveSettings({ upRange: '60' }); WTApp.ui.month = WT.monthOf(WT.todayStr()); WTApp.refresh(); }); await page.waitForTimeout(150);
+    ok(/on/.test(await page.locator('.up-range button[data-r=month]').getAttribute('class')), 'an old 30/60-day choice falls back to End of month');
     // ---------------- greeting
     await go(page, 'dashboard');
     const h1 = (await page.locator('#main h1').first().textContent()).trim();
