@@ -1568,6 +1568,11 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .month-tools summary svg { width: 16px; height: 16px; }
 .month-tools .foot-actions { margin-top: 4px; }
 
+/* preferred pay day passed unpaid: amber (not overdue) */
+.missed-pb { color: var(--due); }
+.pay-by-only small { display: block; margin-top: 4px; line-height: 1.4; }
+.ev-due { opacity: .75; font-weight: 400; }
+
 </style>
 </head>
 <body>
@@ -1906,6 +1911,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       versions: [{ from: f.anchor, anchor: f.anchor, amountCents: f.amountCents, frequency: f.frequency || 'monthly', interval: f.interval || 1, unit: f.unit || 'month', eom: !!f.eom }],
     };
     { const rr = WT.cleanReminderRule(f.reminder); if (rr) t.reminder = rr; }
+    { const pd = WT.cleanPayByDay(f.payByDay); if (pd) t.payByDay = pd; }
     if (t.versions[0].frequency === 'once') t.endDate = f.anchor;
     save('templates', t);
     WT.ensureGenerated(maxMonth(addMonthKey(monthOf(todayStr()), 1), monthOf(f.anchor)));
@@ -1975,6 +1981,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     if (ch.autopay !== undefined && !!ch.autopay !== wasAuto) { if (ch.autopay) t.autopaySince = todayStr(); else delete t.autopaySince; }
     ['name', 'category', 'method', 'accountId', 'notes', 'debtId', 'payFrom', 'subscription', 'autopay'].forEach(k => { if (ch[k] !== undefined) t[k] = k === 'name' ? ch[k].trim() : ch[k]; });
     if (ch.reminder !== undefined) { const rr = WT.cleanReminderRule(ch.reminder); if (rr) t.reminder = rr; else delete t.reminder; }
+    if (ch.payByDay !== undefined) { const pd = WT.cleanPayByDay(ch.payByDay); if (pd) t.payByDay = pd; else delete t.payByDay; }
     const cur = ruleAt(t, from);
     const sched = { amountCents: ch.amountCents ?? cur.amountCents, frequency: ch.frequency || cur.frequency, interval: ch.interval ?? cur.interval, unit: ch.unit || cur.unit, anchor: ch.anchor || cur.anchor, eom: ch.eom !== undefined ? !!ch.eom : !!cur.eom };
     const schedChanged = ['amountCents', 'frequency', 'interval', 'unit', 'anchor'].some(k => String(sched[k]) !== String(cur[k])) || sched.eom !== !!cur.eom;
@@ -2081,6 +2088,37 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   };
 
   // ---------------------------------------------------------------- bill status
+  // ---------------------------------------------------------------- preferred pay day
+  // A bill can have a preferred pay day (template.payByDay, 1-31; 31 = the month's last day). Its pay-by date is
+  // the latest such day on or before the real due date (due Dec 1, pay by the 30th -> Nov 30). The real due date
+  // is never changed: overdue, payments, history and month generation all still use it. The pay-by date only
+  // decides where the bill shows on the Bills screen and Calendar (nothing else uses it):
+  //   - unpaid and the pay-by date hasn't passed -> shown on the pay-by date (e.g. in November)
+  //   - paid on or before the pay-by date        -> stays on the pay-by date
+  //   - the pay-by date passed without payment   -> back on the real due date (e.g. in December)
+  // Not used for auto-pay bills (the bank takes them on the due date), for a due date you moved by hand
+  // that month, or for schedules shorter than a month.
+  WT.cleanPayByDay = v => { const n = parseInt(v, 10); return n >= 1 && n <= 31 ? n : null; };
+  WT.payByDate = function (i) {
+    const t = i && WT.D.templates[i.templateId];
+    const day = t && WT.cleanPayByDay(t.payByDay); if (!day) return null;
+    if ((i.custom && i.custom.due) || WT.isAutopay(i)) return null;
+    if (!monthlyish(ruleAt(t, i.periodKey || i.dueDate))) return null;
+    const on = mk => mk + '-' + pad2(Math.min(day, dim(+mk.slice(0, 4), +mk.slice(5, 7))));
+    let d = on(monthOf(i.dueDate)); if (d > i.dueDate) d = on(addMonthKey(monthOf(i.dueDate), -1));
+    return d < i.dueDate ? d : null;
+  };
+  // where the bill belongs right now (see above); today defaults to the app's today
+  WT.effDate = function (i, today) {
+    const pb = WT.payByDate(i); if (!pb) return i.dueDate;
+    today = today || todayStr();
+    const paid = instPaid(i.id);
+    if (paid >= i.amountCents && i.amountCents > 0) { const last = lastPayDate(i.id); return last && last <= pb ? pb : i.dueDate; }
+    return today <= pb ? pb : i.dueDate;
+  };
+  const anyPayBy = () => memo('anyPayBy', () => vals('templates').some(t => !t.deleted && WT.cleanPayByDay(t.payByDay)));
+  function lastPayDate(instId) { let d = null; for (const p of payRecs(instId)) if (!p.voided && (!d || p.date > d)) d = p.date; return d; }
+
   WT.instStatus = function (i, today) {
     today = today || todayStr();
     const paid = instPaid(i.id); const remaining = Math.max(0, i.amountCents - paid);
@@ -2092,7 +2130,11 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     else if (diffDays(today, i.dueDate) <= (WT.settings().dueSoonDays ?? 7)) status = 'due-soon';
     else status = 'upcoming';
     const t = WT.D.templates[i.templateId];
-    return { paid, remaining, status, overdue: status.startsWith('overdue'), deletedBill: !!(t && t.deleted), template: t };
+    const pb = WT.payByDate(i);
+    // payBy: the pay-by date while it still applies; missedPayBy: it passed unpaid (amber, not overdue)
+    const payBy = pb && WT.effDate(i, today) === pb ? pb : null;
+    const missedPayBy = !!(pb && !payBy && remaining > 0 && !i.skipped && today > pb && i.dueDate >= today);
+    return { paid, remaining, status, overdue: status.startsWith('overdue'), deletedBill: !!(t && t.deleted), template: t, payBy, missedPayBy, missedDate: missedPayBy ? pb : null };
   };
   function instOfMonth(mk) { const s = IX.instByMonth.get(mk); if (!s) return []; const out = []; for (const id of s) { const r = WT.D.instances[id]; if (r) out.push(r); } return out; }
   WT.instancesForMonth = function (mk) {
@@ -2104,16 +2146,30 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     else { list = []; for (let mk = monthOf(a); mk <= monthOf(b); mk = addMonthKey(mk, 1)) list.push(...instOfMonth(mk)); }
     return list.filter(i => i.dueDate >= a && i.dueDate <= b).sort((x, y) => x.dueDate < y.dueDate ? -1 : 1);
   };
+  // What the Bills screen and Calendar show: the same bills, but one with a preferred pay day is shown on its pay-by date
+  // (WT.effDate), which can be in the month before its due date. Only those two screens use these; everything else
+  // (paychecks, forecast, reminders, Smart Budget, reports, month reset, exports) keeps using the real due date.
+  // Without any preferred pay days these are exactly instancesForMonth / instancesBetween.
+  const effOrder = (a, b) => { const x = WT.effDate(a), y = WT.effDate(b); return x < y ? -1 : x > y ? 1 : a.name.localeCompare(b.name); };
+  WT.hasPayBy = () => anyPayBy();
+  WT.billsShownInMonth = function (mk) {
+    if (!anyPayBy()) return WT.instancesForMonth(mk);
+    return instOfMonth(mk).concat(instOfMonth(addMonthKey(mk, 1))).filter(i => monthOf(WT.effDate(i)) === mk).sort(effOrder);
+  };
+  WT.billsShownBetween = function (a, b) {
+    if (!anyPayBy()) return WT.instancesBetween(a, b);
+    return WT.instancesBetween(a, addDays(b, 31)).filter(i => { const d = WT.effDate(i); return d >= a && d <= b; }).sort(effOrder);
+  };
   // unpaid instances due before today (carried forward — the same records, never duplicated)
   WT.overdue = function (today) {
     today = today || todayStr();
     return vals('instances').filter(i => i.dueDate < today && !i.skipped).filter(i => { const t = WT.D.templates[i.templateId]; return !(t && t.deleted); })
       .map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0).sort((a, b) => a.i.dueDate < b.i.dueDate ? -1 : 1);
   };
-  WT.billsSummary = function (mk) {
+  WT.billsSummary = function (mk, list) {
     let total = 0, paid = 0, remaining = 0, count = 0, paidCount = 0, overdue = 0;
     const today = todayStr();
-    for (const i of WT.instancesForMonth(mk)) {
+    for (const i of list || WT.instancesForMonth(mk)) {
       if (i.skipped) continue;
       const s = WT.instStatus(i, today);
       total += i.amountCents; paid += Math.min(s.paid, i.amountCents); remaining += s.remaining; count++;
@@ -2148,13 +2204,15 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   //   after          available + paychecks - cashLeft (only for the current month, only when the balance is known)
   WT.monthOutlook = function (mk, today) {
     today = today || todayStr();
-    const month = WT.billsSummary(mk);
+    const shown = WT.billsShownInMonth(mk); // the Bills screen's own list, so the card always matches it
+    const month = WT.billsSummary(mk, shown);
     const cur = mk === monthOf(today);
     const out = { mk, isCurrent: cur, month, earlierOverdue: 0, earlierOverdueCount: 0, overdueCount: 0, overdueTotal: 0, next: null };
-    const unpaidThisMonth = WT.instancesForMonth(mk).filter(i => !i.skipped).map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0);
+    const unpaidThisMonth = shown.filter(i => !i.skipped).map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0);
     out.unpaidCount = unpaidThisMonth.length;
-    const upcoming = unpaidThisMonth.filter(x => x.i.dueDate >= today).sort((a, b) => a.i.dueDate < b.i.dueDate ? -1 : 1);
-    out.next = upcoming.length ? { name: upcoming[0].i.name, date: upcoming[0].i.dueDate, amountCents: upcoming[0].s.remaining } : null;
+    const when = x => WT.effDate(x.i, today);
+    const upcoming = unpaidThisMonth.filter(x => x.i.dueDate >= today).sort((a, b) => when(a) < when(b) ? -1 : 1);
+    out.next = upcoming.length ? { name: upcoming[0].i.name, date: when(upcoming[0]), amountCents: upcoming[0].s.remaining } : null;
     if (!cur) return out;
     const end = WT.monthEnd(mk);
     const over = WT.overdue(today);
@@ -2163,7 +2221,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     let cashLeft = 0, cardLeft = 0; const seen = new Set();
     const add = (i, s) => { if (seen.has(i.id) || i.skipped || s.remaining <= 0) return; seen.add(i.id); if (onCard(i)) cardLeft += s.remaining; else cashLeft += s.remaining; };
     for (const x of over) add(x.i, x.s);
-    for (const i of WT.instancesBetween(today, end)) add(i, WT.instStatus(i, today));
+    for (const i of WT.billsShownBetween(today, end)) add(i, WT.instStatus(i, today));
     out.cashLeft = cashLeft; out.cardLeft = cardLeft;
     out.paychecks = WT.paychecksBetween(today, end).filter(p => !p.received).map(p => ({ date: p.date, amountCents: p.amountCents, name: p.income ? p.income.name : '' }));
     out.incoming = out.paychecks.reduce((a, p) => a + p.amountCents, 0);
@@ -6244,6 +6302,8 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
           if (r && typeof r === 'object' && r.mode === 'off') t.reminder = { mode: 'off' };
           else if (r && typeof r === 'object' && r.mode === 'custom') t.reminder = { mode: 'custom', daysBefore: Array.from(new Set((Array.isArray(r.daysBefore) ? r.daysBefore : []).filter(d => Number.isInteger(d) && d >= 0 && d <= 30))).sort((a, b) => b - a), hour: Number.isInteger(r.hour) && r.hour >= 0 && r.hour < 24 ? r.hour : 9, minute: [0, 15, 30, 45].includes(r.minute) ? r.minute : 0 };
           else delete t.reminder;
+          // preferred pay day (core.js WT.cleanPayByDay): a whole number 1-31, anything else is dropped
+          { const n = Number(t.payByDay); if (Number.isInteger(n) && n >= 1 && n <= 31) t.payByDay = n; else delete t.payByDay; }
           return true;
         })(),
       instances: i => ref(i, 'templateId', true) && date(i, 'periodKey', true) && date(i, 'dueDate', true) && int(i, 'amountCents', true) && str(i, 'name', 200, true) &&
@@ -6813,7 +6873,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.1'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.2'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -7045,6 +7105,13 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // ------------------------------------------------------------ status helpers
   const STATUS = { paid: ['Paid', 'paid'], partial: ['Partly paid', 'partial'], 'due-soon': ['Due soon', 'due'], upcoming: ['Upcoming', 'due'], overdue: ['Overdue', 'over'], 'overdue-partial': ['Overdue · partly paid', 'over'], skipped: ['Skipped', 'skip'] };
   const pill = st => `<span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span>`;
+  // preferred pay day: "Pay by Nov 30 · due Dec 1" (the real due date is always shown too)
+  const md = d => W.MONTHS[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + (+d.slice(8, 10)); // "Nov 30"
+  function payByText(i, st) {
+    const d = W.diffDays(today(), st.payBy);
+    const when = d === 0 ? 'Pay today' : d === 1 ? 'Pay tomorrow' : d <= 14 ? `Pay in ${d} days · by ${md(st.payBy)}` : 'Pay by ' + md(st.payBy);
+    return when + ' · due ' + md(i.dueDate);
+  }
   function dueText(i, st) {
     const d = W.diffDays(today(), i.dueDate);
     if (st.status === 'paid' || st.status === 'skipped') return W.dateLabel(i.dueDate);
@@ -7084,6 +7151,8 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       : auto && st.remaining > 0 && st.status !== 'skipped' ? (i.dueDate === today() ? 'Auto-pays today' : 'Upcoming · auto-pays ' + W.shortDate(i.dueDate))
       : st.status === 'paid' ? 'Paid ' + paidOnTxt + (st.paid > i.amountCents ? ' · ' + fmt(st.paid) : '') + ' · due ' + W.shortDate(i.dueDate)
       : st.status === 'skipped' ? 'Skipped · ' + W.shortDate(i.dueDate)
+      : st.payBy ? payByText(i, st) + (st.paid > 0 ? ' · paid ' + fmt(st.paid) + ' ' + paidOnTxt : '')
+      : st.missedPayBy ? `<span class="missed-pb">${dueText(i, st)} · missed your ${esc(md(st.missedDate))} pay day</span>` + (st.paid > 0 ? ' · paid ' + fmt(st.paid) + ' ' + paidOnTxt : '')
       : dueText(i, st) + (st.paid > 0 ? ' · paid ' + fmt(st.paid) + ' ' + paidOnTxt : '');
     const catTag = `<span class="cat-tag" style="--c:${W.catColor(i.category)}" title="Category">${esc(W.catName(i.category))}</span>`;
     return `<div class="bill s-${st.status}${auto ? ' autopay' : ''}" data-inst="${i.id}" data-tpl="${esc(i.templateId || '')}">
@@ -7446,9 +7515,11 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // One summary answers three questions: how much is still to pay, how much money is there, and is the month covered.
   // Every figure comes from W.monthOutlook (one definition each); the bill list, filters and tools follow.
   function viewBillMonth(rangeSeg) {
-    const mk = ui.month; const o = W.monthOutlook(mk); const sm = o.month;
+    const mk = ui.month;
+    if (W.hasPayBy() && W.addMonthKey(mk, 1) > (W.settings().generatedThrough || '')) W.ensureGenerated(W.addMonthKey(mk, 1)); // bills due next month may show here early
+    const o = W.monthOutlook(mk); const sm = o.month;
     const pct = sm.total ? Math.min(100, Math.round(sm.paid * 100 / sm.total)) : 0;
-    let items = W.instancesForMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
+    let items = W.billsShownInMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
     items = applyBillSearch(items);
     const counts = {}; Object.keys(BILL_FILTERS).forEach(k => counts[k] = items.filter(BILL_FILTERS[k][1]).length);
     items = items.filter((BILL_FILTERS[ui.billFilter] || BILL_FILTERS.all)[1]);
@@ -7460,7 +7531,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       ${billSummary(o, pct)}
       ${prevOver.length ? `<div class="group-h" style="padding-top:14px"><span class="t over">Still unpaid from earlier months</span><span class="s"><b>${fmt(prevOver.reduce((a, x) => a + x.s.remaining, 0))}</b></span></div><div class="list">${prevOver.map(x => billRow(x.i)).join('')}</div>` : ''}
       ${billToolbar(counts, true, filterSummary(items))}
-      <div>${items.length ? renderBillGroups(items, group, { month: mk }) : `<div class="empty">${W.instancesForMonth(mk).length ? '<b>No bills match</b>Try a different filter or search.' : '<b>No bills for ' + W.monthLabel(mk) + '</b>Generate the month or add a bill.'}</div>`}</div>
+      <div>${items.length ? renderBillGroups(items, group, { month: mk }) : `<div class="empty">${W.billsShownInMonth(mk).length ? '<b>No bills match</b>Try a different filter or search.' : '<b>No bills for ' + W.monthLabel(mk) + '</b>Generate the month or add a bill.'}</div>`}</div>
       <details class="month-tools"${ui.monthToolsOpen ? ' open' : ''}><summary>${ic('gear')}Month tools</summary><div class="foot-actions"><button class="btn sm ghost" data-act="refreshMonth">${ic('cal')}Refresh due dates</button><button class="btn sm ghost" data-act="genNext">${ic('plus')}Generate next month</button><button class="btn sm ghost danger" data-act="resetMonth">${ic('undo')}Reset this month…</button></div></details>`;
   }
   // Month tools stay open across re-renders once you open them (so Generate next month doesn't snap it shut)
@@ -7613,7 +7684,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     const nxt = W.nextPaycheck(W.addDays(t, 1));
     const end = upDateOf(t); // only "Pick a date" reaches this list view
     W.ensureGenerated(W.monthOf(end) > curMonth() ? W.monthOf(end) : undefined);
-    let items = W.instancesBetween(t, end).map(i => ({ i, s: W.instStatus(i) }));
+    let items = W.billsShownBetween(t, end).map(i => ({ i, s: W.instStatus(i) }));
     const over = W.overdue().map(x => ({ i: x.i, s: x.s }));
     items = over.concat(items);
     if (!ui.upPaid) items = items.filter(x => x.s.remaining > 0 && x.s.status !== 'skipped');
@@ -7685,6 +7756,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   }
 
   // bill add / edit
+  const nth = n => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
   function billForm(o) {
     // o: {mode:'add'|'edit', t, inst, anchor}
     const t = o.t; const r = t ? W.ruleAt(t, o.inst ? o.inst.periodKey : today()) : null;
@@ -7692,7 +7764,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     const v = {
       name: i ? i.name : t ? t.name : '', amount: i ? i.amountCents : r ? r.amountCents : null, anchor: i ? i.dueDate : (o.anchor || (r ? (W.nextOccurrenceOnOrAfter(r, today()) || r.anchor) : today())),
       frequency: r ? r.frequency : 'monthly', interval: r ? r.interval : 1, unit: r ? r.unit : 'month', category: i ? i.category : t ? t.category : 'cat_other',
-      method: t ? t.method : '', source: i ? (i.accountId || t.accountId) : t ? t.accountId : W.defaultAccountId(), debtId: t ? t.debtId : '', payFrom: t ? t.payFrom : 'auto', sub: t ? t.subscription : false, eom: r ? !!r.eom : false, autopay: t ? (t.autopay != null ? t.autopay : t.subscription) : false, notes: i && i.custom && i.custom.note ? i.note : t ? t.notes : '',
+      method: t ? t.method : '', source: i ? (i.accountId || t.accountId) : t ? t.accountId : W.defaultAccountId(), debtId: t ? t.debtId : '', payFrom: t ? t.payFrom : 'auto', payByDay: t ? t.payByDay || null : null, sub: t ? t.subscription : false, eom: r ? !!r.eom : false, autopay: t ? (t.autopay != null ? t.autopay : t.subscription) : false, notes: i && i.custom && i.custom.note ? i.note : t ? t.notes : '',
     };
     return `<div class="form-grid">
       ${o.mode === 'edit' && i ? `<div class="full"><div class="seg" id="scopeSeg"><button type="button" class="on" data-scope="this">Only ${W.monthLabel(W.monthOf(i.periodKey))}</button><button type="button" data-scope="future">This &amp; all future months</button></div><input type="hidden" name="scope" value="this"><div class="tiny muted" style="margin-top:6px" id="scopeHelp">Changes apply to this month only. Other months stay the same.</div></div>` : ''}
@@ -7712,6 +7784,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       <label class="field sched"><span>Pay from paycheck</span><select class="input" name="payFrom">${incomeOptions(v.payFrom)}</select></label>
       <label class="check sched full"><input type="checkbox" name="autopay" ${v.autopay ? 'checked' : ''}> Auto-pay: deducted automatically, marked paid on the due date</label>
       <label class="check sched full"><input type="checkbox" name="sub" ${v.sub ? 'checked' : ''}> Subscription</label>
+      <label class="field sched full pay-by-only"><span>Preferred pay day</span><select class="input" name="payByDay">${opt('', 'None: show it on the due date', v.payByDay ? String(v.payByDay) : '')}${Array.from({ length: 30 }, (_, k) => opt(String(k + 1), 'The ' + nth(k + 1), v.payByDay ? String(v.payByDay) : '')).join('')}${opt('31', 'The last day of the month', v.payByDay ? String(v.payByDay) : '')}</select><small class="tiny muted">The bill shows on this day, before its due date, so you can pay it early (rent due the 1st, paid by the 30th). If the day passes unpaid, it goes back to the due date. Not for auto-pay bills.</small></label>
       ${billReminderField(t)}
       ${field('Notes', `<textarea class="input" name="notes" placeholder="Optional">${esc(v.notes)}</textarea>`, 'full')}
     </div>`;
@@ -7733,6 +7806,8 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       $('.eom-inline', form).style.display = on ? '' : 'none';
       if (on) { const mk = /^\d{4}-\d{2}$/.test(form.eomMonth.value) ? form.eomMonth.value : W.monthOf(form.anchor.value || today()); const d = W.monthEnd(mk); form.anchor.value = d; $('.eom-due', form).textContent = 'Due ' + W.dateLabel(d, true); }
     };
+    const pbSync = () => { const row = $('.pay-by-only', form); if (!row) return; const ok = MONTHLY_FREQ({ frequency: freq.value, unit: form.unit.value }) && !form.autopay.checked; row.hidden = !ok; };
+    [freq, form.unit, form.autopay].forEach(el => el && el.addEventListener('change', pbSync)); if (form.sub) form.sub.addEventListener('change', pbSync); pbSync();
     form.anchor.addEventListener('change', () => { if (/^\d{4}-\d{2}-\d{2}$/.test(form.anchor.value)) form.eomMonth.value = W.monthOf(form.anchor.value); });
     [freq, form.unit, form.eom].forEach(el => el.addEventListener('change', eomSync));
     form.eomMonth.addEventListener('change', eomSync); form.eomMonth.addEventListener('input', eomSync);
@@ -7750,7 +7825,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     // "last day of each month": only for schedules that repeat by months; the due date moves to its month's last day
     const eom = !!f.eom && MONTHLY_FREQ(f) && f.scope !== 'this';
     const anchor = eom && /^\d{4}-\d{2}$/.test(f.eomMonth || '') ? W.monthEnd(f.eomMonth) : needDate(f.anchor, 'due date');
-    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
+    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, payByDay: MONTHLY_FREQ(f) && !f.autopay && f.payByDay ? +f.payByDay : null, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
   }
   function addBill(anchor) {
     modal({ title: 'Add bill', body: billForm({ mode: 'add', anchor }), submit: 'Add bill', onMount: mountBillForm, onSubmit: f => { const d = readBillForm(f); W.addTemplate(d); W.ensureGenerated(W.addMonthKey(ui.month > curMonth() ? ui.month : curMonth(), 1)); toast(d.name + ' added'); refresh(); } });
@@ -9114,15 +9189,17 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     const mk = ui.calMonth; W.ensureGenerated(mk > curMonth() ? mk : undefined);
     const first = W.monthStart(mk); const start = W.addDays(first, -W.dow(first));
     const t = today(); const end = W.addDays(start, 41);
-    const inst = W.instancesBetween(start, end); const pcs = W.paychecksBetween(start, end);
+    if (W.hasPayBy() && W.monthOf(end) > (W.settings().generatedThrough || '')) W.ensureGenerated(W.monthOf(end));
+    const inst = W.billsShownBetween(start, end); const pcs = W.paychecksBetween(start, end);
     const pays = W.list('payments').filter(p => !p.voided && p.date >= start && p.date <= end);
     const byDay = {}; const dueByDay = {};
     const push = (d, html) => (byDay[d] = byDay[d] || []).push(html);
     pcs.forEach(p => push(p.date, `<div class="ev income" title="${esc(p.income.name)} paycheck ${fmt(p.amountCents)}${p.received ? ' (received)' : ''}">${fmt0(p.amountCents)} payday</div>`));
     inst.forEach(i => {
       const s = W.instStatus(i); const cls = s.status === 'paid' ? 'paid' : s.overdue ? 'over' : s.status === 'partial' ? 'partial' : s.status === 'skipped' ? 'skip' : '';
-      if (s.status !== 'skipped') dueByDay[i.dueDate] = (dueByDay[i.dueDate] || 0) + s.remaining;
-      push(i.dueDate, `<div class="ev bill ${cls}${W.isAutopay(i) ? ' auto' : ''}" data-drag="${i.id}" title="${esc(i.name)} ${fmt(i.amountCents)} · ${STATUS[s.status][0]}${W.isAutopay(i) ? ' · auto-pay' : ''}">${esc(i.name)}</div>`);
+      const day = W.effDate(i); // a preferred pay day shows the bill on that day until it passes unpaid
+      if (s.status !== 'skipped') dueByDay[day] = (dueByDay[day] || 0) + s.remaining;
+      push(day, `<div class="ev bill ${cls}${W.isAutopay(i) ? ' auto' : ''}" data-drag="${i.id}" title="${esc(i.name)} ${fmt(i.amountCents)} · ${STATUS[s.status][0]}${W.isAutopay(i) ? ' · auto-pay' : ''}${s.payBy ? ' · pay by ' + md(s.payBy) + ', due ' + md(i.dueDate) : s.missedPayBy ? ' · due ' + md(i.dueDate) + ', missed your ' + md(s.missedDate) + ' pay day' : ''}">${esc(i.name)}${s.payBy ? '<span class="ev-due"> · due ' + md(i.dueDate) + '</span>' : ''}</div>`);
     });
     let cells = '';
     for (let k = 0; k < 42; k++) {
@@ -9130,7 +9207,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       const owe = dueByDay[d] || 0; const oweTxt = fmt0(Math.round(owe / 100) * 100).replace(/\.\d\d$/, '');
       cells += `<div class="day ${W.monthOf(d) !== mk ? 'other' : ''} ${d === t ? 'today' : ''} ${d < t ? 'past' : ''}" data-day="${d}" role="button" tabindex="0" aria-label="${W.dateLabel(d, true)}${evs.length ? ', ' + evs.length + ' item' + (evs.length > 1 ? 's' : '') : ''}"><div class="day-top"><span class="dnum">${W.parts(d).d}</span>${owe ? `<span class="owe ${d < t ? 'neg' : ''}" title="${fmt(owe)} still due">${oweTxt}</span>` : pd ? `<span class="owe pos" title="${pd} payment${pd > 1 ? 's' : ''} recorded">✓</span>` : ''}</div>${evs.slice(0, 4).join('')}${evs.length > 4 ? `<div class="more">+${evs.length - 4} more</div>` : ''}</div>`;
     }
-    const sm = W.billsSummary(mk);
+    const sm = W.billsSummary(mk, W.billsShownInMonth(mk));
     const mpcs = W.paychecksBetween(W.monthStart(mk), W.monthEnd(mk));
     return `<div class="topbar"><div><h1>Calendar</h1><div class="sub">Tap a day to pay or add bills. Drag a bill to another day to move it for this month only.</div></div>${monthSel('calMonth', mk)}</div>
       <div class="cal-sum">
@@ -9142,7 +9219,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
   }
   function dayModal(d) {
-    const inst = W.instancesBetween(d, d); const pcs = W.paychecksBetween(d, d);
+    const inst = W.billsShownBetween(d, d); const pcs = W.paychecksBetween(d, d);
     const pays = W.list('payments').filter(p => !p.voided && p.date === d);
     const exps = W.list('expenses').filter(e => e.date === d);
     const owe = inst.reduce((a, i) => a + (i.skipped ? 0 : W.instStatus(i).remaining), 0);
@@ -11848,12 +11925,18 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   const isDone = () => ls.get(lsKey()) === '1';
   const markDone = () => ls.set(lsKey(), '1');
 
-  // [route or null, where to point (first visible wins), title, text, pro feature?]
+  // Bills cards need Bills → Overview → End of month on screen (the page remembers the last tab you used)
+  const overview = () => { const u = U().ui; if (!u) return; u.billsTab = 'upcoming'; u.upRange = 'month'; u.month = new Date(Date.now()).toISOString().slice(0, 7); try { u.month = window.WT.monthOf(window.WT.todayStr()); } catch (e) { /* keep */ } };
+  // [route or null, where to point (first visible wins), title, text, pro feature?, prepare the page?]
   const STEPS = [
-    [null, [], 'Welcome to WealthTrack', 'Here\'s a one-minute tour of everything the app does. You can skip it now and replay it any time from Settings.'],
+    [null, [], 'Welcome to WealthTrack', 'Here\'s a quick tour of everything the app does. You can skip it now and replay it any time from Settings.'],
     ['dashboard', ['[data-hub=home]', '[data-nav=dashboard]'], 'Home', 'Your money at a glance: what\'s left after bills, income, bills paid and unpaid, what\'s coming up and a 60-day cash forecast. Choose and reorder its sections in Settings.'],
     ['dashboard', ['.fab'], 'The + button', 'Add an expense, a bill or extra income from any page. It\'s the quickest way to keep things up to date.'],
     ['bills', ['[data-hub=bills]', '[data-nav=bills]'], 'Bills', 'Add bills once and they repeat: weekly, monthly, yearly or your own schedule. Tap Mark paid when you pay, make partial payments, skip or move a month, and sort or group the list. The tabs at the top switch between the overview, calendar, all bills and subscriptions.'],
+    ['bills', ['.bsum .bsum-v', '.bsum'], 'Your month at a glance', 'The card at the top of Bills answers three things: how much is still to pay this month, how much money you have now, and what\'s left after bills by the end of the month. If it won\'t be enough, it says why in plain words, and "How this is worked out" shows the math. Overdue bills get a red banner with a Show button.', null, overview],
+    ['bills', ['.up-range'], 'This month, next month or any date', 'End of month shows this month\'s bills, Next month shows next month\'s, and Pick a date lists everything unpaid through a day you choose. The arrows beside the month go further back or ahead.', null, overview],
+    ['bills', ['.chips', '.filter-sum'], 'Filters with totals', 'Tap Unpaid, Due in 7 days, Paid or Auto-pay to narrow the list. The line under the buttons adds up the bills you picked: what\'s left, due or paid. Refresh, generate and reset tools are under Month tools at the bottom.', null, overview],
+    ['bills', ['#main .bill .more', '.fab'], 'Preferred pay day', 'Like to pay a bill early, say rent due the 1st but paid by the 30th? Edit the bill and choose a preferred pay day. It shows both dates ("Pay by Nov 30 · due Dec 1") and sits in that month until the day passes. If you miss it, it goes back to its real due date, marked in amber, and only turns overdue after the due date.', null, overview],
     ['calendar', ['.hub-tabs [data-nav-go=calendar]', '[data-nav=calendar]'], 'Calendar', 'Bills, paydays and payments by day. Tap a day to pay or add a bill, or drag a bill to another day to move it for that month.'],
     ['smart', ['[data-hub=plan]', '[data-nav=smart]'], 'Plan: Smart Budget', 'A plan for needs, debt, savings and fun money built from your own numbers, with strategies to compare and a split you can customize.', 'smart'],
     ['paychecks', ['.hub-tabs [data-nav-go=paychecks]', '[data-nav=paychecks]'], 'Plan: Paychecks', 'Each bill is assigned to the paycheck before it\'s due, so you see what every check has to cover and what\'s left. Add set-asides like gas and groceries; it warns you when a check will come up short.'],
@@ -11862,7 +11945,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     ['progress', ['[data-hub=wealth]', '[data-nav=progress]'], 'Wealth: Net worth', 'Your net worth over time and milestones you earn from what you record, like your first debt paid off or a $1,000 emergency fund.'],
     ['debts', ['.hub-tabs [data-nav-go=debts]', '[data-nav=debts]'], 'Wealth: Debt', 'Credit cards and loans with APR, minimum payment and utilization. Interest is added each month, and paying a linked bill lowers the balance. The payoff planner compares snowball and avalanche.', 'payoff'],
     ['goals', ['.hub-tabs [data-nav-go=goals]', '[data-nav=goals]'], 'Wealth: Savings goals', 'Set a target and watch your progress and projected finish date. Moving money to a goal isn\'t counted as spending.'],
-    ['settings', ['.quick-set', '[data-nav=settings]'], 'Settings', 'The gear at the top right of every page opens Settings: bill reminders, PIN and fingerprint lock, color themes, backups to a file or Google Drive, and accounts. On Android you can also add WealthTrack widgets to your home screen.', 'themes'],
+    ['settings', ['.quick-set', '[data-nav=settings]'], 'Settings', 'The gear at the top right of every page opens Settings: bill reminders (with your own days and times), PIN and fingerprint lock, color themes, backups to a file or Google Drive, and separate accounts on one phone. On Android you can also add WealthTrack widgets to your home screen.', 'themes'],
     [null, [], 'You\'re all set', 'Start by adding a paycheck and a few bills, or run Setup in Settings → Your data. Replay this tour any time from Settings → Your data → App tour.'],
   ];
 
@@ -11903,12 +11986,20 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     const place = () => {
       const st = STEPS[i]; const el = pick(st[1] || []);
       if (!el) { spot.className = 'tour-spot none'; card.classList.remove('top'); return; }
+      // bring it on screen first (below the fold on a phone otherwise); fixed things like the menu are always in view
+      { const q = el.getBoundingClientRect(); if (q.top < 0 || q.bottom > window.innerHeight - 40) { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } }
       const r = el.getBoundingClientRect(); const pad = 6;
       spot.className = 'tour-spot';
       Object.assign(spot.style, { top: (r.top - pad) + 'px', left: (r.left - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
-      // keep the card clear of what it points at: move it to the top when the target is in the lower half
-      const cardBottomZone = window.innerHeight - card.offsetHeight - 120;
-      card.classList.toggle('top', r.top > cardBottomZone);
+      // keep the card clear of what it points at: try the bottom and the top of the screen, use whichever covers less
+      const ch = card.offsetHeight, vh = window.innerHeight;
+      const bottomBox = () => { card.classList.remove('top'); const b = card.getBoundingClientRect(); return [b.top, b.bottom]; };
+      const topBox = () => { card.classList.add('top'); const b = card.getBoundingClientRect(); return [b.top, b.bottom]; };
+      const cover = ([t, b]) => Math.max(0, Math.min(b, r.bottom + pad) - Math.max(t, r.top - pad));
+      const cb = cover(bottomBox()), ct = cover(topBox());
+      // equal (usually neither covers it): top when the target is in the lower part of the screen, as before
+      const useTop = cb === ct ? r.top > vh - ch - 120 : ct < cb;
+      card.classList.toggle('top', useTop);
     };
     const draw = () => {
       const st = STEPS[i]; const last = i === STEPS.length - 1;
@@ -11921,6 +12012,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
           <button type="button" class="btn primary" data-tour="next">${i === 0 ? 'Start' : last ? 'Done' : 'Next'}</button></div>`;
       const nav = st[0];
       const after = () => { place(); const b = card.querySelector('[data-tour=next]'); if (b && !o.noFocus) b.focus({ preventScroll: true }); };
+      if (st[5]) { try { st[5](); } catch (e) { /* the card still shows */ } if (nav && location.hash.startsWith('#/' + nav) && U().refresh) U().refresh(); }
       if (nav && !location.hash.startsWith('#/' + nav)) { (U().go || (r => { location.hash = '#/' + r; }))(nav); window.scrollTo(0, 0); setTimeout(after, 260); }
       else { window.scrollTo(0, 0); setTimeout(after, 30); }
     };

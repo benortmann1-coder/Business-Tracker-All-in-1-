@@ -325,6 +325,7 @@
       versions: [{ from: f.anchor, anchor: f.anchor, amountCents: f.amountCents, frequency: f.frequency || 'monthly', interval: f.interval || 1, unit: f.unit || 'month', eom: !!f.eom }],
     };
     { const rr = WT.cleanReminderRule(f.reminder); if (rr) t.reminder = rr; }
+    { const pd = WT.cleanPayByDay(f.payByDay); if (pd) t.payByDay = pd; }
     if (t.versions[0].frequency === 'once') t.endDate = f.anchor;
     save('templates', t);
     WT.ensureGenerated(maxMonth(addMonthKey(monthOf(todayStr()), 1), monthOf(f.anchor)));
@@ -394,6 +395,7 @@
     if (ch.autopay !== undefined && !!ch.autopay !== wasAuto) { if (ch.autopay) t.autopaySince = todayStr(); else delete t.autopaySince; }
     ['name', 'category', 'method', 'accountId', 'notes', 'debtId', 'payFrom', 'subscription', 'autopay'].forEach(k => { if (ch[k] !== undefined) t[k] = k === 'name' ? ch[k].trim() : ch[k]; });
     if (ch.reminder !== undefined) { const rr = WT.cleanReminderRule(ch.reminder); if (rr) t.reminder = rr; else delete t.reminder; }
+    if (ch.payByDay !== undefined) { const pd = WT.cleanPayByDay(ch.payByDay); if (pd) t.payByDay = pd; else delete t.payByDay; }
     const cur = ruleAt(t, from);
     const sched = { amountCents: ch.amountCents ?? cur.amountCents, frequency: ch.frequency || cur.frequency, interval: ch.interval ?? cur.interval, unit: ch.unit || cur.unit, anchor: ch.anchor || cur.anchor, eom: ch.eom !== undefined ? !!ch.eom : !!cur.eom };
     const schedChanged = ['amountCents', 'frequency', 'interval', 'unit', 'anchor'].some(k => String(sched[k]) !== String(cur[k])) || sched.eom !== !!cur.eom;
@@ -500,6 +502,37 @@
   };
 
   // ---------------------------------------------------------------- bill status
+  // ---------------------------------------------------------------- preferred pay day
+  // A bill can have a preferred pay day (template.payByDay, 1-31; 31 = the month's last day). Its pay-by date is
+  // the latest such day on or before the real due date (due Dec 1, pay by the 30th -> Nov 30). The real due date
+  // is never changed: overdue, payments, history and month generation all still use it. The pay-by date only
+  // decides where the bill shows on the Bills screen and Calendar (nothing else uses it):
+  //   - unpaid and the pay-by date hasn't passed -> shown on the pay-by date (e.g. in November)
+  //   - paid on or before the pay-by date        -> stays on the pay-by date
+  //   - the pay-by date passed without payment   -> back on the real due date (e.g. in December)
+  // Not used for auto-pay bills (the bank takes them on the due date), for a due date you moved by hand
+  // that month, or for schedules shorter than a month.
+  WT.cleanPayByDay = v => { const n = parseInt(v, 10); return n >= 1 && n <= 31 ? n : null; };
+  WT.payByDate = function (i) {
+    const t = i && WT.D.templates[i.templateId];
+    const day = t && WT.cleanPayByDay(t.payByDay); if (!day) return null;
+    if ((i.custom && i.custom.due) || WT.isAutopay(i)) return null;
+    if (!monthlyish(ruleAt(t, i.periodKey || i.dueDate))) return null;
+    const on = mk => mk + '-' + pad2(Math.min(day, dim(+mk.slice(0, 4), +mk.slice(5, 7))));
+    let d = on(monthOf(i.dueDate)); if (d > i.dueDate) d = on(addMonthKey(monthOf(i.dueDate), -1));
+    return d < i.dueDate ? d : null;
+  };
+  // where the bill belongs right now (see above); today defaults to the app's today
+  WT.effDate = function (i, today) {
+    const pb = WT.payByDate(i); if (!pb) return i.dueDate;
+    today = today || todayStr();
+    const paid = instPaid(i.id);
+    if (paid >= i.amountCents && i.amountCents > 0) { const last = lastPayDate(i.id); return last && last <= pb ? pb : i.dueDate; }
+    return today <= pb ? pb : i.dueDate;
+  };
+  const anyPayBy = () => memo('anyPayBy', () => vals('templates').some(t => !t.deleted && WT.cleanPayByDay(t.payByDay)));
+  function lastPayDate(instId) { let d = null; for (const p of payRecs(instId)) if (!p.voided && (!d || p.date > d)) d = p.date; return d; }
+
   WT.instStatus = function (i, today) {
     today = today || todayStr();
     const paid = instPaid(i.id); const remaining = Math.max(0, i.amountCents - paid);
@@ -511,7 +544,11 @@
     else if (diffDays(today, i.dueDate) <= (WT.settings().dueSoonDays ?? 7)) status = 'due-soon';
     else status = 'upcoming';
     const t = WT.D.templates[i.templateId];
-    return { paid, remaining, status, overdue: status.startsWith('overdue'), deletedBill: !!(t && t.deleted), template: t };
+    const pb = WT.payByDate(i);
+    // payBy: the pay-by date while it still applies; missedPayBy: it passed unpaid (amber, not overdue)
+    const payBy = pb && WT.effDate(i, today) === pb ? pb : null;
+    const missedPayBy = !!(pb && !payBy && remaining > 0 && !i.skipped && today > pb && i.dueDate >= today);
+    return { paid, remaining, status, overdue: status.startsWith('overdue'), deletedBill: !!(t && t.deleted), template: t, payBy, missedPayBy, missedDate: missedPayBy ? pb : null };
   };
   function instOfMonth(mk) { const s = IX.instByMonth.get(mk); if (!s) return []; const out = []; for (const id of s) { const r = WT.D.instances[id]; if (r) out.push(r); } return out; }
   WT.instancesForMonth = function (mk) {
@@ -523,16 +560,30 @@
     else { list = []; for (let mk = monthOf(a); mk <= monthOf(b); mk = addMonthKey(mk, 1)) list.push(...instOfMonth(mk)); }
     return list.filter(i => i.dueDate >= a && i.dueDate <= b).sort((x, y) => x.dueDate < y.dueDate ? -1 : 1);
   };
+  // What the Bills screen and Calendar show: the same bills, but one with a preferred pay day is shown on its pay-by date
+  // (WT.effDate), which can be in the month before its due date. Only those two screens use these; everything else
+  // (paychecks, forecast, reminders, Smart Budget, reports, month reset, exports) keeps using the real due date.
+  // Without any preferred pay days these are exactly instancesForMonth / instancesBetween.
+  const effOrder = (a, b) => { const x = WT.effDate(a), y = WT.effDate(b); return x < y ? -1 : x > y ? 1 : a.name.localeCompare(b.name); };
+  WT.hasPayBy = () => anyPayBy();
+  WT.billsShownInMonth = function (mk) {
+    if (!anyPayBy()) return WT.instancesForMonth(mk);
+    return instOfMonth(mk).concat(instOfMonth(addMonthKey(mk, 1))).filter(i => monthOf(WT.effDate(i)) === mk).sort(effOrder);
+  };
+  WT.billsShownBetween = function (a, b) {
+    if (!anyPayBy()) return WT.instancesBetween(a, b);
+    return WT.instancesBetween(a, addDays(b, 31)).filter(i => { const d = WT.effDate(i); return d >= a && d <= b; }).sort(effOrder);
+  };
   // unpaid instances due before today (carried forward — the same records, never duplicated)
   WT.overdue = function (today) {
     today = today || todayStr();
     return vals('instances').filter(i => i.dueDate < today && !i.skipped).filter(i => { const t = WT.D.templates[i.templateId]; return !(t && t.deleted); })
       .map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0).sort((a, b) => a.i.dueDate < b.i.dueDate ? -1 : 1);
   };
-  WT.billsSummary = function (mk) {
+  WT.billsSummary = function (mk, list) {
     let total = 0, paid = 0, remaining = 0, count = 0, paidCount = 0, overdue = 0;
     const today = todayStr();
-    for (const i of WT.instancesForMonth(mk)) {
+    for (const i of list || WT.instancesForMonth(mk)) {
       if (i.skipped) continue;
       const s = WT.instStatus(i, today);
       total += i.amountCents; paid += Math.min(s.paid, i.amountCents); remaining += s.remaining; count++;
@@ -567,13 +618,15 @@
   //   after          available + paychecks - cashLeft (only for the current month, only when the balance is known)
   WT.monthOutlook = function (mk, today) {
     today = today || todayStr();
-    const month = WT.billsSummary(mk);
+    const shown = WT.billsShownInMonth(mk); // the Bills screen's own list, so the card always matches it
+    const month = WT.billsSummary(mk, shown);
     const cur = mk === monthOf(today);
     const out = { mk, isCurrent: cur, month, earlierOverdue: 0, earlierOverdueCount: 0, overdueCount: 0, overdueTotal: 0, next: null };
-    const unpaidThisMonth = WT.instancesForMonth(mk).filter(i => !i.skipped).map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0);
+    const unpaidThisMonth = shown.filter(i => !i.skipped).map(i => ({ i, s: WT.instStatus(i, today) })).filter(x => x.s.remaining > 0);
     out.unpaidCount = unpaidThisMonth.length;
-    const upcoming = unpaidThisMonth.filter(x => x.i.dueDate >= today).sort((a, b) => a.i.dueDate < b.i.dueDate ? -1 : 1);
-    out.next = upcoming.length ? { name: upcoming[0].i.name, date: upcoming[0].i.dueDate, amountCents: upcoming[0].s.remaining } : null;
+    const when = x => WT.effDate(x.i, today);
+    const upcoming = unpaidThisMonth.filter(x => x.i.dueDate >= today).sort((a, b) => when(a) < when(b) ? -1 : 1);
+    out.next = upcoming.length ? { name: upcoming[0].i.name, date: when(upcoming[0]), amountCents: upcoming[0].s.remaining } : null;
     if (!cur) return out;
     const end = WT.monthEnd(mk);
     const over = WT.overdue(today);
@@ -582,7 +635,7 @@
     let cashLeft = 0, cardLeft = 0; const seen = new Set();
     const add = (i, s) => { if (seen.has(i.id) || i.skipped || s.remaining <= 0) return; seen.add(i.id); if (onCard(i)) cardLeft += s.remaining; else cashLeft += s.remaining; };
     for (const x of over) add(x.i, x.s);
-    for (const i of WT.instancesBetween(today, end)) add(i, WT.instStatus(i, today));
+    for (const i of WT.billsShownBetween(today, end)) add(i, WT.instStatus(i, today));
     out.cashLeft = cashLeft; out.cardLeft = cardLeft;
     out.paychecks = WT.paychecksBetween(today, end).filter(p => !p.received).map(p => ({ date: p.date, amountCents: p.amountCents, name: p.income ? p.income.name : '' }));
     out.incoming = out.paychecks.reduce((a, p) => a + p.amountCents, 0);

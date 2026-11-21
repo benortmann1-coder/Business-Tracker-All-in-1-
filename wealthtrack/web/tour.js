@@ -21,12 +21,18 @@
   const isDone = () => ls.get(lsKey()) === '1';
   const markDone = () => ls.set(lsKey(), '1');
 
-  // [route or null, where to point (first visible wins), title, text, pro feature?]
+  // Bills cards need Bills → Overview → End of month on screen (the page remembers the last tab you used)
+  const overview = () => { const u = U().ui; if (!u) return; u.billsTab = 'upcoming'; u.upRange = 'month'; u.month = new Date(Date.now()).toISOString().slice(0, 7); try { u.month = window.WT.monthOf(window.WT.todayStr()); } catch (e) { /* keep */ } };
+  // [route or null, where to point (first visible wins), title, text, pro feature?, prepare the page?]
   const STEPS = [
-    [null, [], 'Welcome to WealthTrack', 'Here\'s a one-minute tour of everything the app does. You can skip it now and replay it any time from Settings.'],
+    [null, [], 'Welcome to WealthTrack', 'Here\'s a quick tour of everything the app does. You can skip it now and replay it any time from Settings.'],
     ['dashboard', ['[data-hub=home]', '[data-nav=dashboard]'], 'Home', 'Your money at a glance: what\'s left after bills, income, bills paid and unpaid, what\'s coming up and a 60-day cash forecast. Choose and reorder its sections in Settings.'],
     ['dashboard', ['.fab'], 'The + button', 'Add an expense, a bill or extra income from any page. It\'s the quickest way to keep things up to date.'],
     ['bills', ['[data-hub=bills]', '[data-nav=bills]'], 'Bills', 'Add bills once and they repeat: weekly, monthly, yearly or your own schedule. Tap Mark paid when you pay, make partial payments, skip or move a month, and sort or group the list. The tabs at the top switch between the overview, calendar, all bills and subscriptions.'],
+    ['bills', ['.bsum .bsum-v', '.bsum'], 'Your month at a glance', 'The card at the top of Bills answers three things: how much is still to pay this month, how much money you have now, and what\'s left after bills by the end of the month. If it won\'t be enough, it says why in plain words, and "How this is worked out" shows the math. Overdue bills get a red banner with a Show button.', null, overview],
+    ['bills', ['.up-range'], 'This month, next month or any date', 'End of month shows this month\'s bills, Next month shows next month\'s, and Pick a date lists everything unpaid through a day you choose. The arrows beside the month go further back or ahead.', null, overview],
+    ['bills', ['.chips', '.filter-sum'], 'Filters with totals', 'Tap Unpaid, Due in 7 days, Paid or Auto-pay to narrow the list. The line under the buttons adds up the bills you picked: what\'s left, due or paid. Refresh, generate and reset tools are under Month tools at the bottom.', null, overview],
+    ['bills', ['#main .bill .more', '.fab'], 'Preferred pay day', 'Like to pay a bill early, say rent due the 1st but paid by the 30th? Edit the bill and choose a preferred pay day. It shows both dates ("Pay by Nov 30 · due Dec 1") and sits in that month until the day passes. If you miss it, it goes back to its real due date, marked in amber, and only turns overdue after the due date.', null, overview],
     ['calendar', ['.hub-tabs [data-nav-go=calendar]', '[data-nav=calendar]'], 'Calendar', 'Bills, paydays and payments by day. Tap a day to pay or add a bill, or drag a bill to another day to move it for that month.'],
     ['smart', ['[data-hub=plan]', '[data-nav=smart]'], 'Plan: Smart Budget', 'A plan for needs, debt, savings and fun money built from your own numbers, with strategies to compare and a split you can customize.', 'smart'],
     ['paychecks', ['.hub-tabs [data-nav-go=paychecks]', '[data-nav=paychecks]'], 'Plan: Paychecks', 'Each bill is assigned to the paycheck before it\'s due, so you see what every check has to cover and what\'s left. Add set-asides like gas and groceries; it warns you when a check will come up short.'],
@@ -35,7 +41,7 @@
     ['progress', ['[data-hub=wealth]', '[data-nav=progress]'], 'Wealth: Net worth', 'Your net worth over time and milestones you earn from what you record, like your first debt paid off or a $1,000 emergency fund.'],
     ['debts', ['.hub-tabs [data-nav-go=debts]', '[data-nav=debts]'], 'Wealth: Debt', 'Credit cards and loans with APR, minimum payment and utilization. Interest is added each month, and paying a linked bill lowers the balance. The payoff planner compares snowball and avalanche.', 'payoff'],
     ['goals', ['.hub-tabs [data-nav-go=goals]', '[data-nav=goals]'], 'Wealth: Savings goals', 'Set a target and watch your progress and projected finish date. Moving money to a goal isn\'t counted as spending.'],
-    ['settings', ['.quick-set', '[data-nav=settings]'], 'Settings', 'The gear at the top right of every page opens Settings: bill reminders, PIN and fingerprint lock, color themes, backups to a file or Google Drive, and accounts. On Android you can also add WealthTrack widgets to your home screen.', 'themes'],
+    ['settings', ['.quick-set', '[data-nav=settings]'], 'Settings', 'The gear at the top right of every page opens Settings: bill reminders (with your own days and times), PIN and fingerprint lock, color themes, backups to a file or Google Drive, and separate accounts on one phone. On Android you can also add WealthTrack widgets to your home screen.', 'themes'],
     [null, [], 'You\'re all set', 'Start by adding a paycheck and a few bills, or run Setup in Settings → Your data. Replay this tour any time from Settings → Your data → App tour.'],
   ];
 
@@ -76,12 +82,20 @@
     const place = () => {
       const st = STEPS[i]; const el = pick(st[1] || []);
       if (!el) { spot.className = 'tour-spot none'; card.classList.remove('top'); return; }
+      // bring it on screen first (below the fold on a phone otherwise); fixed things like the menu are always in view
+      { const q = el.getBoundingClientRect(); if (q.top < 0 || q.bottom > window.innerHeight - 40) { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } }
       const r = el.getBoundingClientRect(); const pad = 6;
       spot.className = 'tour-spot';
       Object.assign(spot.style, { top: (r.top - pad) + 'px', left: (r.left - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
-      // keep the card clear of what it points at: move it to the top when the target is in the lower half
-      const cardBottomZone = window.innerHeight - card.offsetHeight - 120;
-      card.classList.toggle('top', r.top > cardBottomZone);
+      // keep the card clear of what it points at: try the bottom and the top of the screen, use whichever covers less
+      const ch = card.offsetHeight, vh = window.innerHeight;
+      const bottomBox = () => { card.classList.remove('top'); const b = card.getBoundingClientRect(); return [b.top, b.bottom]; };
+      const topBox = () => { card.classList.add('top'); const b = card.getBoundingClientRect(); return [b.top, b.bottom]; };
+      const cover = ([t, b]) => Math.max(0, Math.min(b, r.bottom + pad) - Math.max(t, r.top - pad));
+      const cb = cover(bottomBox()), ct = cover(topBox());
+      // equal (usually neither covers it): top when the target is in the lower part of the screen, as before
+      const useTop = cb === ct ? r.top > vh - ch - 120 : ct < cb;
+      card.classList.toggle('top', useTop);
     };
     const draw = () => {
       const st = STEPS[i]; const last = i === STEPS.length - 1;
@@ -94,6 +108,7 @@
           <button type="button" class="btn primary" data-tour="next">${i === 0 ? 'Start' : last ? 'Done' : 'Next'}</button></div>`;
       const nav = st[0];
       const after = () => { place(); const b = card.querySelector('[data-tour=next]'); if (b && !o.noFocus) b.focus({ preventScroll: true }); };
+      if (st[5]) { try { st[5](); } catch (e) { /* the card still shows */ } if (nav && location.hash.startsWith('#/' + nav) && U().refresh) U().refresh(); }
       if (nav && !location.hash.startsWith('#/' + nav)) { (U().go || (r => { location.hash = '#/' + r; }))(nav); window.scrollTo(0, 0); setTimeout(after, 260); }
       else { window.scrollTo(0, 0); setTimeout(after, 30); }
     };

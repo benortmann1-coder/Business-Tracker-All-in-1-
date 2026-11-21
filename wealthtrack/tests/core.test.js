@@ -775,3 +775,106 @@ test('monthOutlook: one definition per figure, card bills kept out of cash, miss
   // next unpaid bill is the earliest one not yet due
   if (o.next) assert.ok(o.next.date >= TODAY);
 });
+
+test('preferred pay day: shows on the pay-by date until it passes unpaid, then on the real due date', () => {
+  fresh(true); const W = WT;
+  const cat = Object.keys(W.D.categories)[0];
+  const rent = W.addTemplate({ name: 'Rent', amountCents: 70000, anchor: '2026-11-01', frequency: 'monthly', category: cat, accountId: 'acc_checking', payByDay: 30 });
+  W.ensureGenerated('2027-01');
+  const dec = W.billsShownInMonth('2026-11').concat(W.billsShownInMonth('2026-12')).find(i => i.templateId === rent.id && i.dueDate === '2026-12-01');
+  assert.ok(dec, 'December rent exists');
+  assert.equal(dec.dueDate, '2026-12-01', 'the real due date is never changed');
+  assert.equal(W.payByDate(dec), '2026-11-30');
+  // before Nov 30, unpaid: listed in November, on Nov 30
+  W.setToday('2026-11-20');
+  const nov = W.billsShownInMonth('2026-11').filter(i => i.templateId === rent.id).map(i => i.dueDate);
+  assert.ok(nov.includes('2026-12-01'), 'Dec 1 rent shows in November');
+  assert.ok(!W.billsShownInMonth('2026-12').some(i => i.id === dec.id), 'and not in December');
+  let st = W.instStatus(dec); assert.equal(st.payBy, '2026-11-30'); assert.equal(st.overdue, false); assert.equal(st.missedPayBy, false);
+  // counted once across the two months
+  const total = m => W.billsShownInMonth(m).filter(i => i.id === dec.id).length;
+  assert.equal(total('2026-11') + total('2026-12'), 1);
+  // forecast and paycheck plan use the pay-by date
+  assert.ok(W.billsShownBetween('2026-11-20', '2026-11-30').some(i => i.id === dec.id), 'shown on Nov 30 in date ranges');
+  assert.ok(!W.billsShownBetween('2026-12-01', '2026-12-31').some(i => i.id === dec.id));
+  // the pay-by day passes without payment: back to December, amber not red
+  W.setToday('2026-12-01');
+  assert.ok(W.billsShownInMonth('2026-12').some(i => i.id === dec.id), 'missed: now shows in December');
+  assert.ok(!W.billsShownInMonth('2026-11').some(i => i.id === dec.id));
+  st = W.instStatus(dec); assert.equal(st.payBy, null); assert.equal(st.missedPayBy, true); assert.equal(st.missedDate, '2026-11-30'); assert.equal(st.overdue, false);
+  assert.ok(!W.overdue('2026-12-01').some(x => x.i.id === dec.id), 'not overdue on the real due date');
+  W.setToday('2026-12-02');
+  assert.ok(W.overdue('2026-12-02').some(x => x.i.id === dec.id), 'overdue only after the real due date');
+  assert.equal(W.instStatus(dec).missedPayBy, false, 'once overdue it is simply overdue');
+  // paid by the pay-by day: stays in November for good
+  W.setToday('2026-11-29');
+  W.recordPayment(dec.id, { amountCents: 70000, date: '2026-11-29' });
+  W.setToday('2026-12-15');
+  assert.ok(W.billsShownInMonth('2026-11').some(i => i.id === dec.id), 'paid on time: stays in November');
+  // paid late (after the pay-by day): it belongs to December
+  const jan = W.billsShownInMonth('2026-12').find(i => i.templateId === rent.id && i.dueDate === '2027-01-01');
+  assert.ok(jan, 'January rent shows in December (pay by Dec 30)');
+  W.setToday('2027-01-01'); W.recordPayment(jan.id, { amountCents: 70000, date: '2027-01-01' });
+  assert.ok(W.billsShownInMonth('2027-01').some(i => i.id === jan.id) && !W.billsShownInMonth('2026-12').some(i => i.id === jan.id), 'paid late: shows in January');
+  W.setToday(TODAY);
+});
+
+test('preferred pay day: edge cases (short months, same month, auto-pay, moved dates, weekly bills, editing)', () => {
+  fresh(true); const W = WT; const cat = Object.keys(W.D.categories)[0];
+  const mk = (name, anchor, extra) => W.addTemplate(Object.assign({ name, amountCents: 1000, anchor, frequency: 'monthly', category: cat, accountId: 'acc_checking' }, extra));
+  const a = mk('Loan', '2027-03-05', { payByDay: 31 });
+  W.ensureGenerated('2027-03');
+  const mar = Object.values(W.D.instances).find(i => i.templateId === a.id && i.dueDate === '2027-03-05');
+  assert.equal(W.payByDate(mar), '2027-02-28', '31st in February = Feb 28');
+  const b = mk('Phone', '2026-12-15', { payByDay: 10 });
+  W.ensureGenerated('2026-12');
+  const ph = Object.values(W.D.instances).find(i => i.templateId === b.id && i.dueDate === '2026-12-15');
+  assert.equal(W.payByDate(ph), '2026-12-10', 'earlier day in the same month');
+  const c = mk('Same', '2026-12-10', { payByDay: 10 });
+  W.ensureGenerated('2026-12');
+  assert.equal(W.payByDate(Object.values(W.D.instances).find(i => i.templateId === c.id && i.dueDate === '2026-12-10')), null, 'same day as the due date: no effect');
+  const auto = mk('Streaming', '2026-12-05', { payByDay: 1, autopay: true });
+  W.ensureGenerated('2026-12');
+  assert.equal(W.payByDate(Object.values(W.D.instances).find(i => i.templateId === auto.id && i.dueDate === '2026-12-05')), null, 'auto-pay bills keep their due date');
+  W.moveInstanceDue(ph.id, '2026-12-20');
+  assert.equal(W.payByDate(W.D.instances[ph.id]), null, 'a date moved by hand wins');
+  const wk = W.addTemplate({ name: 'Weekly', amountCents: 500, anchor: '2026-11-12', frequency: 'weekly', category: cat, accountId: 'acc_checking', payByDay: 1 });
+  W.ensureGenerated('2026-11');
+  assert.ok(Object.values(W.D.instances).filter(i => i.templateId === wk.id).every(i => W.payByDate(i) === null), 'weekly bills ignore it');
+  assert.equal(W.cleanPayByDay('0'), null); assert.equal(W.cleanPayByDay(32), null); assert.equal(W.cleanPayByDay('15'), 15);
+  // editing: set and clear for future months
+  W.updateTemplate(b.id, { payByDay: 12 }, { mode: 'future', fromMonth: '2026-11' }); assert.equal(W.D.templates[b.id].payByDay, 12);
+  W.updateTemplate(b.id, { payByDay: null }, { mode: 'future', fromMonth: '2026-11' }); assert.equal(W.D.templates[b.id].payByDay, undefined);
+  W.setToday(TODAY);
+});
+
+test('preferred pay day changes nothing outside the Bills screen and Calendar', () => {
+  const snap = withPayBy => {
+    fresh(true); const W = WT; const cat = Object.keys(W.D.categories)[0];
+    W.saveSettings({ reminders: Object.assign({}, W.settings().reminders, { enabled: true, daysBefore: [3, 1], hour: 9 }) });
+    W.addIncome && W.addIncome({ id: 'inc_job', name: 'Job', frequency: 'biweekly', anchor: '2026-11-13', netCents: 150000, kind: 'net' });
+    const r = W.addTemplate({ id: 'bill_rent', name: 'Rent', amountCents: 70000, anchor: '2026-11-01', frequency: 'monthly', category: cat, accountId: 'acc_checking', payByDay: withPayBy ? 30 : undefined });
+    W.addTemplate({ id: 'bill_phone', name: 'Phone', amountCents: 5000, anchor: '2026-11-15', frequency: 'monthly', category: cat, accountId: 'acc_checking', payByDay: withPayBy ? 10 : undefined });
+    W.ensureGenerated('2027-01');
+    W.setToday('2026-11-20');
+    W.recordPayment('i_bill_rent_2026-11-01', { amountCents: 70000, date: '2026-11-02' });
+    const ids = l => l.map(i => i.id);
+    const out = {
+      months: ['2026-11', '2026-12', '2027-01'].map(m => ids(W.instancesForMonth(m))),
+      between: ids(W.instancesBetween('2026-11-01', '2027-01-31')),
+      summary: ['2026-11', '2026-12'].map(m => W.billsSummary(m)),
+      overdue: ids(W.overdue('2026-11-20').map(x => x.i)),
+      projection: W.projection(60, '2026-11-20').events.map(e => e.date + e.label + e.amountCents),
+      paychecks: Object.values(W.D.instances).map(i => i.id + ':' + ((W.paycheckFor(i) || {}).date || '')).sort(),
+      reminders: W.reminderList('2026-11-20', 45).map(x => x.id + x.date + x.title),
+      status: Object.values(W.D.instances).map(i => { const st = W.instStatus(i); return i.id + st.status + st.remaining; }).sort(),
+      dueDates: Object.values(W.D.instances).map(i => i.id + i.dueDate).sort(),
+    };
+    W.resetMonthStatuses('2026-11');
+    out.afterReset = Object.values(WT.D.payments).map(p => p.instanceId + ':' + p.voided).sort();
+    W.setToday(TODAY);
+    return out;
+  };
+  const a = snap(false), b = snap(true);
+  for (const k of ['months', 'between', 'summary', 'overdue', 'projection', 'paychecks', 'reminders', 'status', 'dueDates', 'afterReset']) assert.deepEqual(b[k], a[k], k + ' identical with a preferred pay day');
+});

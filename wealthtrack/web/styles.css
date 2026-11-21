@@ -1557,3 +1557,8 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .month-tools summary { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
 .month-tools summary svg { width: 16px; height: 16px; }
 .month-tools .foot-actions { margin-top: 4px; }
+
+/* preferred pay day passed unpaid: amber (not overdue) */
+.missed-pb { color: var(--due); }
+.pay-by-only small { display: block; margin-top: 4px; line-height: 1.4; }
+.ev-due { opacity: .75; font-weight: 400; }

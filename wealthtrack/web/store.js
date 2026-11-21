@@ -272,6 +272,8 @@
           if (r && typeof r === 'object' && r.mode === 'off') t.reminder = { mode: 'off' };
           else if (r && typeof r === 'object' && r.mode === 'custom') t.reminder = { mode: 'custom', daysBefore: Array.from(new Set((Array.isArray(r.daysBefore) ? r.daysBefore : []).filter(d => Number.isInteger(d) && d >= 0 && d <= 30))).sort((a, b) => b - a), hour: Number.isInteger(r.hour) && r.hour >= 0 && r.hour < 24 ? r.hour : 9, minute: [0, 15, 30, 45].includes(r.minute) ? r.minute : 0 };
           else delete t.reminder;
+          // preferred pay day (core.js WT.cleanPayByDay): a whole number 1-31, anything else is dropped
+          { const n = Number(t.payByDay); if (Number.isInteger(n) && n >= 1 && n <= 31) t.payByDay = n; else delete t.payByDay; }
           return true;
         })(),
       instances: i => ref(i, 'templateId', true) && date(i, 'periodKey', true) && date(i, 'dueDate', true) && int(i, 'amountCents', true) && str(i, 'name', 200, true) &&

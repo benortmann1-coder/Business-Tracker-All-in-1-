@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.1'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.2'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -253,6 +253,13 @@
   // ------------------------------------------------------------ status helpers
   const STATUS = { paid: ['Paid', 'paid'], partial: ['Partly paid', 'partial'], 'due-soon': ['Due soon', 'due'], upcoming: ['Upcoming', 'due'], overdue: ['Overdue', 'over'], 'overdue-partial': ['Overdue · partly paid', 'over'], skipped: ['Skipped', 'skip'] };
   const pill = st => `<span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span>`;
+  // preferred pay day: "Pay by Nov 30 · due Dec 1" (the real due date is always shown too)
+  const md = d => W.MONTHS[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + (+d.slice(8, 10)); // "Nov 30"
+  function payByText(i, st) {
+    const d = W.diffDays(today(), st.payBy);
+    const when = d === 0 ? 'Pay today' : d === 1 ? 'Pay tomorrow' : d <= 14 ? `Pay in ${d} days · by ${md(st.payBy)}` : 'Pay by ' + md(st.payBy);
+    return when + ' · due ' + md(i.dueDate);
+  }
   function dueText(i, st) {
     const d = W.diffDays(today(), i.dueDate);
     if (st.status === 'paid' || st.status === 'skipped') return W.dateLabel(i.dueDate);
@@ -292,6 +299,8 @@
       : auto && st.remaining > 0 && st.status !== 'skipped' ? (i.dueDate === today() ? 'Auto-pays today' : 'Upcoming · auto-pays ' + W.shortDate(i.dueDate))
       : st.status === 'paid' ? 'Paid ' + paidOnTxt + (st.paid > i.amountCents ? ' · ' + fmt(st.paid) : '') + ' · due ' + W.shortDate(i.dueDate)
       : st.status === 'skipped' ? 'Skipped · ' + W.shortDate(i.dueDate)
+      : st.payBy ? payByText(i, st) + (st.paid > 0 ? ' · paid ' + fmt(st.paid) + ' ' + paidOnTxt : '')
+      : st.missedPayBy ? `<span class="missed-pb">${dueText(i, st)} · missed your ${esc(md(st.missedDate))} pay day</span>` + (st.paid > 0 ? ' · paid ' + fmt(st.paid) + ' ' + paidOnTxt : '')
       : dueText(i, st) + (st.paid > 0 ? ' · paid ' + fmt(st.paid) + ' ' + paidOnTxt : '');
     const catTag = `<span class="cat-tag" style="--c:${W.catColor(i.category)}" title="Category">${esc(W.catName(i.category))}</span>`;
     return `<div class="bill s-${st.status}${auto ? ' autopay' : ''}" data-inst="${i.id}" data-tpl="${esc(i.templateId || '')}">
@@ -654,9 +663,11 @@
   // One summary answers three questions: how much is still to pay, how much money is there, and is the month covered.
   // Every figure comes from W.monthOutlook (one definition each); the bill list, filters and tools follow.
   function viewBillMonth(rangeSeg) {
-    const mk = ui.month; const o = W.monthOutlook(mk); const sm = o.month;
+    const mk = ui.month;
+    if (W.hasPayBy() && W.addMonthKey(mk, 1) > (W.settings().generatedThrough || '')) W.ensureGenerated(W.addMonthKey(mk, 1)); // bills due next month may show here early
+    const o = W.monthOutlook(mk); const sm = o.month;
     const pct = sm.total ? Math.min(100, Math.round(sm.paid * 100 / sm.total)) : 0;
-    let items = W.instancesForMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
+    let items = W.billsShownInMonth(mk).map(i => ({ i, s: W.instStatus(i) }));
     items = applyBillSearch(items);
     const counts = {}; Object.keys(BILL_FILTERS).forEach(k => counts[k] = items.filter(BILL_FILTERS[k][1]).length);
     items = items.filter((BILL_FILTERS[ui.billFilter] || BILL_FILTERS.all)[1]);
@@ -668,7 +679,7 @@
       ${billSummary(o, pct)}
       ${prevOver.length ? `<div class="group-h" style="padding-top:14px"><span class="t over">Still unpaid from earlier months</span><span class="s"><b>${fmt(prevOver.reduce((a, x) => a + x.s.remaining, 0))}</b></span></div><div class="list">${prevOver.map(x => billRow(x.i)).join('')}</div>` : ''}
       ${billToolbar(counts, true, filterSummary(items))}
-      <div>${items.length ? renderBillGroups(items, group, { month: mk }) : `<div class="empty">${W.instancesForMonth(mk).length ? '<b>No bills match</b>Try a different filter or search.' : '<b>No bills for ' + W.monthLabel(mk) + '</b>Generate the month or add a bill.'}</div>`}</div>
+      <div>${items.length ? renderBillGroups(items, group, { month: mk }) : `<div class="empty">${W.billsShownInMonth(mk).length ? '<b>No bills match</b>Try a different filter or search.' : '<b>No bills for ' + W.monthLabel(mk) + '</b>Generate the month or add a bill.'}</div>`}</div>
       <details class="month-tools"${ui.monthToolsOpen ? ' open' : ''}><summary>${ic('gear')}Month tools</summary><div class="foot-actions"><button class="btn sm ghost" data-act="refreshMonth">${ic('cal')}Refresh due dates</button><button class="btn sm ghost" data-act="genNext">${ic('plus')}Generate next month</button><button class="btn sm ghost danger" data-act="resetMonth">${ic('undo')}Reset this month…</button></div></details>`;
   }
   // Month tools stay open across re-renders once you open them (so Generate next month doesn't snap it shut)
@@ -821,7 +832,7 @@
     const nxt = W.nextPaycheck(W.addDays(t, 1));
     const end = upDateOf(t); // only "Pick a date" reaches this list view
     W.ensureGenerated(W.monthOf(end) > curMonth() ? W.monthOf(end) : undefined);
-    let items = W.instancesBetween(t, end).map(i => ({ i, s: W.instStatus(i) }));
+    let items = W.billsShownBetween(t, end).map(i => ({ i, s: W.instStatus(i) }));
     const over = W.overdue().map(x => ({ i: x.i, s: x.s }));
     items = over.concat(items);
     if (!ui.upPaid) items = items.filter(x => x.s.remaining > 0 && x.s.status !== 'skipped');
@@ -893,6 +904,7 @@
   }
 
   // bill add / edit
+  const nth = n => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
   function billForm(o) {
     // o: {mode:'add'|'edit', t, inst, anchor}
     const t = o.t; const r = t ? W.ruleAt(t, o.inst ? o.inst.periodKey : today()) : null;
@@ -900,7 +912,7 @@
     const v = {
       name: i ? i.name : t ? t.name : '', amount: i ? i.amountCents : r ? r.amountCents : null, anchor: i ? i.dueDate : (o.anchor || (r ? (W.nextOccurrenceOnOrAfter(r, today()) || r.anchor) : today())),
       frequency: r ? r.frequency : 'monthly', interval: r ? r.interval : 1, unit: r ? r.unit : 'month', category: i ? i.category : t ? t.category : 'cat_other',
-      method: t ? t.method : '', source: i ? (i.accountId || t.accountId) : t ? t.accountId : W.defaultAccountId(), debtId: t ? t.debtId : '', payFrom: t ? t.payFrom : 'auto', sub: t ? t.subscription : false, eom: r ? !!r.eom : false, autopay: t ? (t.autopay != null ? t.autopay : t.subscription) : false, notes: i && i.custom && i.custom.note ? i.note : t ? t.notes : '',
+      method: t ? t.method : '', source: i ? (i.accountId || t.accountId) : t ? t.accountId : W.defaultAccountId(), debtId: t ? t.debtId : '', payFrom: t ? t.payFrom : 'auto', payByDay: t ? t.payByDay || null : null, sub: t ? t.subscription : false, eom: r ? !!r.eom : false, autopay: t ? (t.autopay != null ? t.autopay : t.subscription) : false, notes: i && i.custom && i.custom.note ? i.note : t ? t.notes : '',
     };
     return `<div class="form-grid">
       ${o.mode === 'edit' && i ? `<div class="full"><div class="seg" id="scopeSeg"><button type="button" class="on" data-scope="this">Only ${W.monthLabel(W.monthOf(i.periodKey))}</button><button type="button" data-scope="future">This &amp; all future months</button></div><input type="hidden" name="scope" value="this"><div class="tiny muted" style="margin-top:6px" id="scopeHelp">Changes apply to this month only. Other months stay the same.</div></div>` : ''}
@@ -920,6 +932,7 @@
       <label class="field sched"><span>Pay from paycheck</span><select class="input" name="payFrom">${incomeOptions(v.payFrom)}</select></label>
       <label class="check sched full"><input type="checkbox" name="autopay" ${v.autopay ? 'checked' : ''}> Auto-pay: deducted automatically, marked paid on the due date</label>
       <label class="check sched full"><input type="checkbox" name="sub" ${v.sub ? 'checked' : ''}> Subscription</label>
+      <label class="field sched full pay-by-only"><span>Preferred pay day</span><select class="input" name="payByDay">${opt('', 'None: show it on the due date', v.payByDay ? String(v.payByDay) : '')}${Array.from({ length: 30 }, (_, k) => opt(String(k + 1), 'The ' + nth(k + 1), v.payByDay ? String(v.payByDay) : '')).join('')}${opt('31', 'The last day of the month', v.payByDay ? String(v.payByDay) : '')}</select><small class="tiny muted">The bill shows on this day, before its due date, so you can pay it early (rent due the 1st, paid by the 30th). If the day passes unpaid, it goes back to the due date. Not for auto-pay bills.</small></label>
       ${billReminderField(t)}
       ${field('Notes', `<textarea class="input" name="notes" placeholder="Optional">${esc(v.notes)}</textarea>`, 'full')}
     </div>`;
@@ -941,6 +954,8 @@
       $('.eom-inline', form).style.display = on ? '' : 'none';
       if (on) { const mk = /^\d{4}-\d{2}$/.test(form.eomMonth.value) ? form.eomMonth.value : W.monthOf(form.anchor.value || today()); const d = W.monthEnd(mk); form.anchor.value = d; $('.eom-due', form).textContent = 'Due ' + W.dateLabel(d, true); }
     };
+    const pbSync = () => { const row = $('.pay-by-only', form); if (!row) return; const ok = MONTHLY_FREQ({ frequency: freq.value, unit: form.unit.value }) && !form.autopay.checked; row.hidden = !ok; };
+    [freq, form.unit, form.autopay].forEach(el => el && el.addEventListener('change', pbSync)); if (form.sub) form.sub.addEventListener('change', pbSync); pbSync();
     form.anchor.addEventListener('change', () => { if (/^\d{4}-\d{2}-\d{2}$/.test(form.anchor.value)) form.eomMonth.value = W.monthOf(form.anchor.value); });
     [freq, form.unit, form.eom].forEach(el => el.addEventListener('change', eomSync));
     form.eomMonth.addEventListener('change', eomSync); form.eomMonth.addEventListener('input', eomSync);
@@ -958,7 +973,7 @@
     // "last day of each month": only for schedules that repeat by months; the due date moves to its month's last day
     const eom = !!f.eom && MONTHLY_FREQ(f) && f.scope !== 'this';
     const anchor = eom && /^\d{4}-\d{2}$/.test(f.eomMonth || '') ? W.monthEnd(f.eomMonth) : needDate(f.anchor, 'due date');
-    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
+    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, payByDay: MONTHLY_FREQ(f) && !f.autopay && f.payByDay ? +f.payByDay : null, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
   }
   function addBill(anchor) {
     modal({ title: 'Add bill', body: billForm({ mode: 'add', anchor }), submit: 'Add bill', onMount: mountBillForm, onSubmit: f => { const d = readBillForm(f); W.addTemplate(d); W.ensureGenerated(W.addMonthKey(ui.month > curMonth() ? ui.month : curMonth(), 1)); toast(d.name + ' added'); refresh(); } });
@@ -2322,15 +2337,17 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
     const mk = ui.calMonth; W.ensureGenerated(mk > curMonth() ? mk : undefined);
     const first = W.monthStart(mk); const start = W.addDays(first, -W.dow(first));
     const t = today(); const end = W.addDays(start, 41);
-    const inst = W.instancesBetween(start, end); const pcs = W.paychecksBetween(start, end);
+    if (W.hasPayBy() && W.monthOf(end) > (W.settings().generatedThrough || '')) W.ensureGenerated(W.monthOf(end));
+    const inst = W.billsShownBetween(start, end); const pcs = W.paychecksBetween(start, end);
     const pays = W.list('payments').filter(p => !p.voided && p.date >= start && p.date <= end);
     const byDay = {}; const dueByDay = {};
     const push = (d, html) => (byDay[d] = byDay[d] || []).push(html);
     pcs.forEach(p => push(p.date, `<div class="ev income" title="${esc(p.income.name)} paycheck ${fmt(p.amountCents)}${p.received ? ' (received)' : ''}">${fmt0(p.amountCents)} payday</div>`));
     inst.forEach(i => {
       const s = W.instStatus(i); const cls = s.status === 'paid' ? 'paid' : s.overdue ? 'over' : s.status === 'partial' ? 'partial' : s.status === 'skipped' ? 'skip' : '';
-      if (s.status !== 'skipped') dueByDay[i.dueDate] = (dueByDay[i.dueDate] || 0) + s.remaining;
-      push(i.dueDate, `<div class="ev bill ${cls}${W.isAutopay(i) ? ' auto' : ''}" data-drag="${i.id}" title="${esc(i.name)} ${fmt(i.amountCents)} · ${STATUS[s.status][0]}${W.isAutopay(i) ? ' · auto-pay' : ''}">${esc(i.name)}</div>`);
+      const day = W.effDate(i); // a preferred pay day shows the bill on that day until it passes unpaid
+      if (s.status !== 'skipped') dueByDay[day] = (dueByDay[day] || 0) + s.remaining;
+      push(day, `<div class="ev bill ${cls}${W.isAutopay(i) ? ' auto' : ''}" data-drag="${i.id}" title="${esc(i.name)} ${fmt(i.amountCents)} · ${STATUS[s.status][0]}${W.isAutopay(i) ? ' · auto-pay' : ''}${s.payBy ? ' · pay by ' + md(s.payBy) + ', due ' + md(i.dueDate) : s.missedPayBy ? ' · due ' + md(i.dueDate) + ', missed your ' + md(s.missedDate) + ' pay day' : ''}">${esc(i.name)}${s.payBy ? '<span class="ev-due"> · due ' + md(i.dueDate) + '</span>' : ''}</div>`);
     });
     let cells = '';
     for (let k = 0; k < 42; k++) {
@@ -2338,7 +2355,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       const owe = dueByDay[d] || 0; const oweTxt = fmt0(Math.round(owe / 100) * 100).replace(/\.\d\d$/, '');
       cells += `<div class="day ${W.monthOf(d) !== mk ? 'other' : ''} ${d === t ? 'today' : ''} ${d < t ? 'past' : ''}" data-day="${d}" role="button" tabindex="0" aria-label="${W.dateLabel(d, true)}${evs.length ? ', ' + evs.length + ' item' + (evs.length > 1 ? 's' : '') : ''}"><div class="day-top"><span class="dnum">${W.parts(d).d}</span>${owe ? `<span class="owe ${d < t ? 'neg' : ''}" title="${fmt(owe)} still due">${oweTxt}</span>` : pd ? `<span class="owe pos" title="${pd} payment${pd > 1 ? 's' : ''} recorded">✓</span>` : ''}</div>${evs.slice(0, 4).join('')}${evs.length > 4 ? `<div class="more">+${evs.length - 4} more</div>` : ''}</div>`;
     }
-    const sm = W.billsSummary(mk);
+    const sm = W.billsSummary(mk, W.billsShownInMonth(mk));
     const mpcs = W.paychecksBetween(W.monthStart(mk), W.monthEnd(mk));
     return `<div class="topbar"><div><h1>Calendar</h1><div class="sub">Tap a day to pay or add bills. Drag a bill to another day to move it for this month only.</div></div>${monthSel('calMonth', mk)}</div>
       <div class="cal-sum">
@@ -2350,7 +2367,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
   }
   function dayModal(d) {
-    const inst = W.instancesBetween(d, d); const pcs = W.paychecksBetween(d, d);
+    const inst = W.billsShownBetween(d, d); const pcs = W.paychecksBetween(d, d);
     const pays = W.list('payments').filter(p => !p.voided && p.date === d);
     const exps = W.list('expenses').filter(e => e.date === d);
     const owe = inst.reduce((a, i) => a + (i.skipped ? 0 : W.instStatus(i).remaining), 0);
