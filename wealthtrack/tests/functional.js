@@ -101,17 +101,18 @@ function serve() {
   await fill('amount', '35'); await submit(); // $35 on a $30 bill
   ok(await page.locator('#main .bill.s-paid', { hasText: 'Gas Card Payment' }).count() === 1, 'overpayment marks paid');
 
-  // ---------------- Edit this month vs future
+  // ---------------- Edit bill: always this month and every month after (no "only this month")
   await page.evaluate(() => { WTApp.ui.month = WT.addMonthKey(WT.monthOf(WT.todayStr()), 1); WTApp.refresh(); });
   await billRow('Student Loan Payment').locator('[data-act=billMenu]').click(); await menuClick('Edit bill');
+  ok(await page.locator('#scopeSeg').count() === 0 && /every month after it/.test(await page.locator('.modal').textContent()), 'edit bill has no "only this month" choice and says it applies from that month on');
   await fill('amount', '200'); await submit();
-  const tp = await W(() => { const m = WT.monthOf(WT.todayStr()); const f = mk => Object.values(WT.D.instances).find(i => i.templateId === 'bill_student' && i.periodMonth === mk); return [f(m).amountCents, f(WT.addMonthKey(m, 1)).amountCents, f(WT.addMonthKey(m, 2)) ? f(WT.addMonthKey(m, 2)).amountCents : null]; });
-  WTensure: await W(() => WT.ensureGenerated(WT.addMonthKey(WT.monthOf(WT.todayStr()), 3)));
-  ok(tp[0] === 17500 && tp[1] === 20000, 'edit this month only: ' + tp.join(','));
+  await W(() => WT.ensureGenerated(WT.addMonthKey(WT.monthOf(WT.todayStr()), 3)));
+  const tp = await W(() => { const m = WT.monthOf(WT.todayStr()); const f = mk => (Object.values(WT.D.instances).find(i => i.templateId === 'bill_student' && i.periodMonth === mk) || {}).amountCents; return [f(m), f(WT.addMonthKey(m, 1)), f(WT.addMonthKey(m, 2)), f(WT.addMonthKey(m, 3))]; });
+  ok(tp[0] === 17500 && tp[1] === 20000 && tp[2] === 20000 && tp[3] === 20000, 'edit from next month: earlier month kept, that month and later changed: ' + tp.join(','));
   await billRow('Apartment').locator('[data-act=billMenu]').click(); await menuClick('Edit bill');
-  await page.locator('#scopeSeg button[data-scope=future]').click(); await fill('amount', '1250'); await submit();
+  await fill('amount', '1250'); await submit();
   const apt = await W(() => { const m = WT.monthOf(WT.todayStr()); return [0, 1, 2, 3].map(k => (Object.values(WT.D.instances).find(i => i.templateId === 'bill_apartment' && i.periodMonth === WT.addMonthKey(m, k)) || {}).amountCents); });
-  ok(apt[0] === 120000 && apt[1] === 125000 && apt[2] === 125000, 'edit future months: ' + apt.join(','));
+  ok(apt[0] === 120000 && apt[1] === 125000 && apt[2] === 125000 && apt[3] === 125000, 'edit from next month: this month kept, next month and later changed: ' + apt.join(','));
 
   // move date, skip/unskip
   await billRow('Auto Insurance').locator('[data-act=billMenu]').click(); await menuClick('Change due date');

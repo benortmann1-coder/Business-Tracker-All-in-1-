@@ -90,7 +90,7 @@ async function closeAll(page) { await page.keyboard.press('Escape'); await page.
 const MODALS = [
   ['bills', 'add bill', async p => { if (await p.locator('#main [data-act=addBill]').isVisible()) return p.click('#main [data-act=addBill]'); await p.click('.fab'); await p.click('#menu button:has-text("Add bill")'); }],
   ['bills', 'edit bill (this month)', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'Edit bill' }).click(); }],
-  ['bills', 'edit bill (future)', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'Edit bill' }).click(); await p.click('#scopeSeg [data-scope=future]'); }],
+  ['bills', 'edit bill (future)', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'Edit bill' }).click(); }],
   ['bills', 'bill menu', p => p.locator('.bill [data-act=billMenu]').first().click(), true],
   ['bills', 'payment', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'payment' }).first().click(); }],
   ['bills', 'move date', async p => { await p.locator('.bill [data-act=billMenu]').first().click(); await p.locator('.menu button', { hasText: 'due date' }).click(); }],

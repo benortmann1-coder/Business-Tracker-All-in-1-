@@ -19,7 +19,7 @@ Each install keeps its own data. The Android app, Chrome on your laptop and Safa
   - Recurring bills: weekly, every 2 weeks, monthly, quarterly, yearly, custom (every N days/weeks/months/years) or one time.
   - Each month gets its own copy of each bill, with its own paid/unpaid status.
   - You can make partial payments and pay future months early.
-  - Edits can apply to *this month only* or *this and all future months*.
+  - Edits apply to the month you edit and every month after it; earlier months and months already paid keep their amounts. (To change one month's date only, use Change due date or drag it on the Calendar.)
   - You can move one month's due date, skip a month, or pause, cancel or delete a bill.
   - Delete bills and subscriptions with the trash button (All bills, Subscriptions, or the Delete button when editing a bill). The bill disappears from this month on; every payment already recorded stays in History. Deleted bills are hidden under **Show deleted bills** on the All bills tab.
   - **Due on the last day of each month** (monthly, quarterly and yearly bills): tick it and the date picker becomes a small month picker; the bill is then due Nov 30, Dec 31, Feb 28 and so on.

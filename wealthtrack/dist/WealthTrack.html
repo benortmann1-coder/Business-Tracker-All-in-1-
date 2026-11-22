@@ -6879,7 +6879,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.3'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.4'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -7773,7 +7773,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       method: t ? t.method : '', source: i ? (i.accountId || t.accountId) : t ? t.accountId : W.defaultAccountId(), debtId: t ? t.debtId : '', payFrom: t ? t.payFrom : 'auto', payByDay: t ? t.payByDay || null : null, sub: t ? t.subscription : false, eom: r ? !!r.eom : false, autopay: t ? (t.autopay != null ? t.autopay : t.subscription) : false, notes: i && i.custom && i.custom.note ? i.note : t ? t.notes : '',
     };
     return `<div class="form-grid">
-      ${o.mode === 'edit' && i ? `<div class="full"><div class="seg" id="scopeSeg"><button type="button" class="on" data-scope="this">Only ${W.monthLabel(W.monthOf(i.periodKey))}</button><button type="button" data-scope="future">This &amp; all future months</button></div><input type="hidden" name="scope" value="this"><div class="tiny muted" style="margin-top:6px" id="scopeHelp">Changes apply to this month only. Other months stay the same.</div></div>` : ''}
+      ${o.mode === 'edit' && i ? (t && !t.deleted ? `<div class="full"><input type="hidden" name="scope" value="future"><div class="callout blue small">${ic('clock')}<div>Changes apply to <b>${W.monthLabel(W.monthOf(i.periodKey))}</b> and every month after it. Earlier months, and any month you already paid, keep their amounts.</div></div></div>` : `<div class="full"><input type="hidden" name="scope" value="this"><div class="callout small">${ic('info')}<div>This bill was deleted, so changes apply to ${W.monthLabel(W.monthOf(i.periodKey))} only.</div></div></div>`) : ''}
       ${field('Bill name', `<input class="input" name="name" required value="${esc(v.name)}" autofocus>`, 'full')}
       ${field('Amount due', moneyInput('amount', v.amount), 'amt-field')}
       ${field(o.mode === 'add' ? 'First due date' : 'Due date', `<input class="input" type="date" name="anchor" value="${v.anchor}">`, 'anchor-full')}
@@ -7829,12 +7829,6 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     [freq, form.unit, form.eom].forEach(el => el.addEventListener('change', eomSync));
     form.eomMonth.addEventListener('change', eomSync); form.eomMonth.addEventListener('input', eomSync);
     eomSync();
-    const seg = $('#scopeSeg', form);
-    if (seg) {
-      const setScope = s => { form.scope.value = s; $$('button', seg).forEach(b => b.classList.toggle('on', b.dataset.scope === s)); $$('.sched', form).forEach(e => e.style.display = s === 'this' ? 'none' : ''); $('#scopeHelp', form).textContent = s === 'this' ? 'Changes apply to this month only. Other months stay the same.' : 'Changes apply from this month on. Earlier months, and any month you already paid, keep their amounts.'; sync(); if (s === 'this') $$('.custom-only', form).forEach(e => e.style.display = 'none'); eomSync(); };
-      seg.onclick = e => { const b = e.target.closest('button'); if (b) setScope(b.dataset.scope); };
-      setScope('this');
-    }
   }
   const MONTHLY_FREQ = f => ['monthly', 'quarterly', 'yearly'].includes(f.frequency) || (f.frequency === 'custom' && (f.unit === 'month' || f.unit === 'year'));
   function readBillForm(f) {
