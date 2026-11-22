@@ -841,6 +841,7 @@ test('preferred pay day: edge cases (short months, same month, auto-pay, moved d
   const wk = W.addTemplate({ name: 'Weekly', amountCents: 500, anchor: '2026-11-12', frequency: 'weekly', category: cat, accountId: 'acc_checking', payByDay: 1 });
   W.ensureGenerated('2026-11');
   assert.ok(Object.values(W.D.instances).filter(i => i.templateId === wk.id).every(i => W.payByDate(i) === null), 'weekly bills ignore it');
+  assert.equal(W.payByFor('2026-12-01', 30), '2026-11-30'); assert.equal(W.payByFor('2027-03-01', 31), '2027-02-28'); assert.equal(W.payByFor('2026-12-15', 20), '2026-11-20'); assert.equal(W.payByFor('2026-12-15', null), null);
   assert.equal(W.cleanPayByDay('0'), null); assert.equal(W.cleanPayByDay(32), null); assert.equal(W.cleanPayByDay('15'), 15);
   // editing: set and clear for future months
   W.updateTemplate(b.id, { payByDay: 12 }, { mode: 'future', fromMonth: '2026-11' }); assert.equal(W.D.templates[b.id].payByDay, 12);

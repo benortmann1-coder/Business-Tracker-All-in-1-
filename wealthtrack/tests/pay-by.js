@@ -16,8 +16,8 @@ let pass = 0, fail = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL 
   // add the bill through the form
   await p.evaluate(() => { location.hash = '#/bills'; }); await p.waitForTimeout(200);
   await p.evaluate(() => document.querySelector('[data-act=addBill]') ? document.querySelector('[data-act=addBill]').click() : null); await p.waitForTimeout(250);
-  if (!(await p.locator('.modal [name=payByDay]').count())) { await p.evaluate(() => { WTApp.ui.billsTab = 'manage'; WTApp.refresh(); }); await p.waitForTimeout(200); await p.locator('[data-act=addBill]').first().click(); await p.waitForTimeout(250); }
-  ok(await p.locator('.modal [name=payByDay]').count() === 1, 'bill form has Preferred pay day');
+  if (!(await p.locator('.modal [name=payByDate]').count())) { await p.evaluate(() => { WTApp.ui.billsTab = 'manage'; WTApp.refresh(); }); await p.waitForTimeout(200); await p.locator('[data-act=addBill]').first().click(); await p.waitForTimeout(250); }
+  ok(await p.locator('.modal input[type=date][name=payByDate]').count() === 1, 'bill form has Preferred pay day as a date picker');
   await p.fill('.modal [name=name]', 'Rent'); await p.fill('.modal [name=amount]', '700'); await p.fill('.modal [name=anchor]', '2026-12-01');
   await p.selectOption('.modal [name=frequency]', 'monthly');
   ok(await p.locator('.modal .pay-by-only').isVisible(), 'shown for a monthly bill');
@@ -26,7 +26,13 @@ let pass = 0, fail = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL 
   await p.uncheck('.modal [name=autopay]'); if (await p.locator('.modal [name=sub]').isChecked()) await p.uncheck('.modal [name=sub]');
   await p.selectOption('.modal [name=frequency]', 'weekly'); await p.waitForTimeout(50);
   ok(!(await p.locator('.modal .pay-by-only').isVisible()), 'hidden for weekly bills');
-  await p.selectOption('.modal [name=frequency]', 'monthly'); await p.selectOption('.modal [name=payByDay]', '30');
+  await p.selectOption('.modal [name=frequency]', 'monthly'); await p.fill('.modal [name=payByDate]', '2026-11-30'); await p.waitForTimeout(80);
+  ok(/Pay by the 30th every month.*This bill: pay by Nov 30, 2026, due Dec 1, 2026/.test(await p.locator('#payByHint').textContent()), 'hint explains: ' + (await p.locator('#payByHint').textContent()).trim());
+  await p.fill('.modal [name=payByDate]', '2026-12-05'); await p.waitForTimeout(80);
+  ok(/pay by Nov 5, 2026, due Dec 1/.test(await p.locator('#payByHint').textContent()), 'picking Dec 5 means the 5th: Nov 5 for this bill');
+  await p.fill('.modal [name=payByDate]', '2026-12-01'); await p.waitForTimeout(80);
+  ok(/no effect here/.test(await p.locator('#payByHint').textContent()), 'the due date\'s own day is flagged as no effect');
+  await p.fill('.modal [name=payByDate]', '2026-11-30');
   await p.click('.modal [type=submit]'); await p.waitForTimeout(300);
   const tpl = await p.evaluate(() => Object.values(WT.D.templates).find(t => t.name === 'Rent'));
   ok(tpl && tpl.payByDay === 30, 'saved: pay by the 30th');
@@ -60,8 +66,8 @@ let pass = 0, fail = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL 
   // edit: preselected, and can be turned off
   await p.evaluate(id => { WT.setToday('2026-11-20'); WTApp.refresh(); }, decId); await p.waitForTimeout(150);
   await p.evaluate(id => { const t = Object.values(WT.D.templates).find(t => t.name === 'Rent'); document.body.insertAdjacentHTML('beforeend', `<button id="__e" data-act="editTpl" data-id="${t.id}"></button>`); document.getElementById('__e').click(); }); await p.waitForTimeout(250);
-  ok(await p.inputValue('.modal [name=payByDay]') === '30', 'edit form shows the 30th');
-  await p.selectOption('.modal [name=payByDay]', ''); await p.click('.modal [type=submit]'); await p.waitForTimeout(250);
+  ok(await p.inputValue('.modal [name=payByDate]') === '2026-11-30', 'edit form shows Nov 30 (pay-by date for the next bill)');
+  await p.click('.modal [data-pb-clear]'); ok(await p.inputValue('.modal [name=payByDate]') === '', 'Clear empties it'); await p.click('.modal [type=submit]'); await p.waitForTimeout(250);
   ok(await p.evaluate(() => Object.values(WT.D.templates).find(t => t.name === 'Rent').payByDay) === undefined, 'turned off');
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 2).join(' | ') : ''));
   await b.close(); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

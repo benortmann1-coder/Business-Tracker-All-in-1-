@@ -1562,3 +1562,4 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .missed-pb { color: var(--due); }
 .pay-by-only small { display: block; margin-top: 4px; line-height: 1.4; }
 .ev-due { opacity: .75; font-weight: 400; }
+.pb-wrap { display: flex !important; gap: 8px; align-items: center; } .pb-wrap .input { flex: 1; min-width: 0; } .pb-wrap .btn { flex: none; }

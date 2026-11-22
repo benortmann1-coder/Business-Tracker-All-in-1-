@@ -1572,6 +1572,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
 .missed-pb { color: var(--due); }
 .pay-by-only small { display: block; margin-top: 4px; line-height: 1.4; }
 .ev-due { opacity: .75; font-weight: 400; }
+.pb-wrap { display: flex !important; gap: 8px; align-items: center; } .pb-wrap .input { flex: 1; min-width: 0; } .pb-wrap .btn { flex: none; }
 
 </style>
 </head>
@@ -2104,9 +2105,14 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     const day = t && WT.cleanPayByDay(t.payByDay); if (!day) return null;
     if ((i.custom && i.custom.due) || WT.isAutopay(i)) return null;
     if (!monthlyish(ruleAt(t, i.periodKey || i.dueDate))) return null;
+    return WT.payByFor(i.dueDate, day);
+  };
+  // the pay-by date for a due date and a preferred day of the month (latest such day before the due date), or null
+  WT.payByFor = function (dueDate, day) {
+    day = WT.cleanPayByDay(day); if (!day || !dueDate) return null;
     const on = mk => mk + '-' + pad2(Math.min(day, dim(+mk.slice(0, 4), +mk.slice(5, 7))));
-    let d = on(monthOf(i.dueDate)); if (d > i.dueDate) d = on(addMonthKey(monthOf(i.dueDate), -1));
-    return d < i.dueDate ? d : null;
+    let d = on(monthOf(dueDate)); if (d > dueDate) d = on(addMonthKey(monthOf(dueDate), -1));
+    return d < dueDate ? d : null;
   };
   // where the bill belongs right now (see above); today defaults to the app's today
   WT.effDate = function (i, today) {
@@ -6873,7 +6879,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.2'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.3'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -7784,7 +7790,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       <label class="field sched"><span>Pay from paycheck</span><select class="input" name="payFrom">${incomeOptions(v.payFrom)}</select></label>
       <label class="check sched full"><input type="checkbox" name="autopay" ${v.autopay ? 'checked' : ''}> Auto-pay: deducted automatically, marked paid on the due date</label>
       <label class="check sched full"><input type="checkbox" name="sub" ${v.sub ? 'checked' : ''}> Subscription</label>
-      <label class="field sched full pay-by-only"><span>Preferred pay day</span><select class="input" name="payByDay">${opt('', 'None: show it on the due date', v.payByDay ? String(v.payByDay) : '')}${Array.from({ length: 30 }, (_, k) => opt(String(k + 1), 'The ' + nth(k + 1), v.payByDay ? String(v.payByDay) : '')).join('')}${opt('31', 'The last day of the month', v.payByDay ? String(v.payByDay) : '')}</select><small class="tiny muted">The bill shows on this day, before its due date, so you can pay it early (rent due the 1st, paid by the 30th). If the day passes unpaid, it goes back to the due date. Not for auto-pay bills.</small></label>
+      <label class="field sched full pay-by-only"><span>Preferred pay day</span><span class="pb-wrap"><input class="input" type="date" name="payByDate" value="${v.payByDay ? (W.payByFor(v.anchor, v.payByDay) || '') : ''}" aria-describedby="payByHint"><button type="button" class="btn sm ghost" data-pb-clear ${v.payByDay ? '' : 'hidden'}>Clear</button></span><small class="tiny muted" id="payByHint"></small></label>
       ${billReminderField(t)}
       ${field('Notes', `<textarea class="input" name="notes" placeholder="Optional">${esc(v.notes)}</textarea>`, 'full')}
     </div>`;
@@ -7806,6 +7812,17 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       $('.eom-inline', form).style.display = on ? '' : 'none';
       if (on) { const mk = /^\d{4}-\d{2}$/.test(form.eomMonth.value) ? form.eomMonth.value : W.monthOf(form.anchor.value || today()); const d = W.monthEnd(mk); form.anchor.value = d; $('.eom-due', form).textContent = 'Due ' + W.dateLabel(d, true); }
     };
+    // preferred pay day: you pick a date, the bill repeats on that day of the month (31 = the last day)
+    const pbHint = () => {
+      const h = $('#payByHint', form); if (!h) return; const v = form.payByDate.value; const clr = $('[data-pb-clear]', form); if (clr) clr.hidden = !v;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { h.textContent = 'Optional. Pick the date you like to pay it by, before its due date (rent due the 1st, paid by the 30th). It repeats on that day every month. If the day passes unpaid, the bill goes back to its due date.'; return; }
+      const day = +v.slice(8, 10); const due = /^\d{4}-\d{2}-\d{2}$/.test(form.anchor.value) ? form.anchor.value : '';
+      const ex = due ? W.payByFor(due, day) : null;
+      h.textContent = 'Pay by the ' + nth(day) + ' every month' + (day > 28 ? ' (or the last day in shorter months)' : '') + '.' + (ex ? ' This bill: pay by ' + W.shortDate(ex) + ', due ' + W.shortDate(due) + '.' : due ? ' That\'s on or after this bill\'s due date, so it has no effect here; pick an earlier date.' : '');
+    };
+    form.payByDate.addEventListener('change', pbHint); form.payByDate.addEventListener('input', pbHint); form.anchor.addEventListener('change', pbHint);
+    { const clr = $('[data-pb-clear]', form); if (clr) clr.onclick = () => { form.payByDate.value = ''; pbHint(); }; }
+    pbHint();
     const pbSync = () => { const row = $('.pay-by-only', form); if (!row) return; const ok = MONTHLY_FREQ({ frequency: freq.value, unit: form.unit.value }) && !form.autopay.checked; row.hidden = !ok; };
     [freq, form.unit, form.autopay].forEach(el => el && el.addEventListener('change', pbSync)); if (form.sub) form.sub.addEventListener('change', pbSync); pbSync();
     form.anchor.addEventListener('change', () => { if (/^\d{4}-\d{2}-\d{2}$/.test(form.anchor.value)) form.eomMonth.value = W.monthOf(form.anchor.value); });
@@ -7825,7 +7842,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     // "last day of each month": only for schedules that repeat by months; the due date moves to its month's last day
     const eom = !!f.eom && MONTHLY_FREQ(f) && f.scope !== 'this';
     const anchor = eom && /^\d{4}-\d{2}$/.test(f.eomMonth || '') ? W.monthEnd(f.eomMonth) : needDate(f.anchor, 'due date');
-    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, payByDay: MONTHLY_FREQ(f) && !f.autopay && f.payByDay ? +f.payByDay : null, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
+    return { name: f.name, amountCents: needMoney(f.amount, 'amount'), anchor: eom ? W.monthEnd(W.monthOf(anchor)) : anchor, frequency: f.frequency, interval: Math.max(1, parseInt(f.interval, 10) || 1), unit: f.unit, category: f.category, accountId: f.source, method: f.method || '', debtId: f.debtId || null, payFrom: f.payFrom || 'auto', subscription: !!f.sub, autopay: !!f.autopay, eom: eom, payByDay: MONTHLY_FREQ(f) && !f.autopay && /^\d{4}-\d{2}-\d{2}$/.test(f.payByDate || '') ? +f.payByDate.slice(8, 10) : null, notes: f.notes || '', reminder: f.scope === 'this' ? undefined : readBillReminder(f) };
   }
   function addBill(anchor) {
     modal({ title: 'Add bill', body: billForm({ mode: 'add', anchor }), submit: 'Add bill', onMount: mountBillForm, onSubmit: f => { const d = readBillForm(f); W.addTemplate(d); W.ensureGenerated(W.addMonthKey(ui.month > curMonth() ? ui.month : curMonth(), 1)); toast(d.name + ' added'); refresh(); } });

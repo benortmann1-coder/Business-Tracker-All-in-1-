@@ -518,9 +518,14 @@
     const day = t && WT.cleanPayByDay(t.payByDay); if (!day) return null;
     if ((i.custom && i.custom.due) || WT.isAutopay(i)) return null;
     if (!monthlyish(ruleAt(t, i.periodKey || i.dueDate))) return null;
+    return WT.payByFor(i.dueDate, day);
+  };
+  // the pay-by date for a due date and a preferred day of the month (latest such day before the due date), or null
+  WT.payByFor = function (dueDate, day) {
+    day = WT.cleanPayByDay(day); if (!day || !dueDate) return null;
     const on = mk => mk + '-' + pad2(Math.min(day, dim(+mk.slice(0, 4), +mk.slice(5, 7))));
-    let d = on(monthOf(i.dueDate)); if (d > i.dueDate) d = on(addMonthKey(monthOf(i.dueDate), -1));
-    return d < i.dueDate ? d : null;
+    let d = on(monthOf(dueDate)); if (d > dueDate) d = on(addMonthKey(monthOf(dueDate), -1));
+    return d < dueDate ? d : null;
   };
   // where the bill belongs right now (see above); today defaults to the app's today
   WT.effDate = function (i, today) {
