@@ -227,7 +227,7 @@
   function maybeStart() {
     try {
       if (open || testSkip() || !shouldOffer(W())) return false;
-      if (document.querySelector('.overlay, .auth-page')) return false; // another dialog or the PIN screen is up
+      if (document.querySelector('.overlay, .auth')) return false; // another dialog or the PIN screen is up
       start({ auto: true }); return true;
     } catch (e) { console.error(e); return false; }
   }

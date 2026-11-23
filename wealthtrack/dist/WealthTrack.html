@@ -5306,7 +5306,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
     if (firsts.goal) R.save_goal_done = { earned: true, date: firsts.goal, progress: 1, detail: (goalName || 'A goal') + ' reached its target.' };
     else {
       let best = null;
-      for (const g of goals) { if (!(g.targetCents > 0)) continue; const f = WT.goalSaved(g.id) / g.targetCents; if (!best || f > best.f) best = { f, g }; }
+      for (const g of goals) { if (g.archived || !(g.targetCents > 0)) continue; const f = WT.goalSaved(g.id) / g.targetCents; if (!best || f > best.f) best = { f, g }; }
       R.save_goal_done = { earned: false, date: null, progress: best ? Math.min(clamp01(best.f), 0.99) : 0, detail: best ? `Closest: ${best.g.name}, ${fmt(WT.goalSaved(best.g.id))} of ${fmt(best.g.targetCents)}.` + (best.f >= 1 ? ' Record a contribution toward it to count it.' : '') : 'Create a savings goal to start.' };
     }
   }
@@ -6216,7 +6216,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       return p;
     },
     // Plaintext rows are written before the lock record is removed (same crash-safety reasoning).
-    async disableLock(data) { Store.key = null; await Store.replaceAll(data); await Store._delSys('lock'); },
+    async disableLock(data) { const prevKey = Store.key; Store.key = null; try { await Store.replaceAll(data); } catch (e) { Store.key = prevKey; throw e; } await Store._delSys('lock'); },
     _putSys(r) { return new Promise((res, rej) => { const tx = Store.db.transaction('sys', 'readwrite'); tx.objectStore('sys').put(r); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
     _delSys(id) { return new Promise((res, rej) => { const tx = Store.db.transaction('sys', 'readwrite'); tx.objectStore('sys').delete(id); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
 
@@ -6382,6 +6382,19 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
       if (['plan', 'compare', 'customize'].includes(m.sbSection)) keep.sbSection = m.sbSection; // Smart Budget page section
       if (m.demoDone === true) keep.demoDone = true;
       if (['done', 'dismissed'].includes(m.setupWizard)) keep.setupWizard = m.setupWizard; // first-run setup wizard (setup-wizard.js)
+      if (typeof m.achievementsNotify === 'boolean') keep.achievementsNotify = m.achievementsNotify;
+      if (m.achievements && typeof m.achievements === 'object' && !Array.isArray(m.achievements)) {
+        const ach = {}; let n = 0;
+        for (const k of Object.keys(m.achievements)) {
+          if (n >= 100) break;
+          if (isRef(k) && typeof m.achievements[k] === 'string' && DATE.test(m.achievements[k])) { ach[k] = m.achievements[k]; n++; }
+        }
+        keep.achievements = ach;
+      }
+      if (m.tips && typeof m.tips === 'object' && !Array.isArray(m.tips)) {
+        const favs = Array.isArray(m.tips.favorites) ? Array.from(new Set(m.tips.favorites.filter(id => typeof id === 'string' && ID.test(id)))).slice(0, 400) : [];
+        keep.tips = { favorites: favs };
+      }
       if (Array.isArray(m.billOrder)) keep.billOrder = Array.from(new Set(m.billOrder.filter(isRef))).slice(0, 1000); // My order (Bills)
       if (Array.isArray(m.setAsides)) keep.setAsides = m.setAsides.filter(x => x && typeof x === 'object').slice(0, 50).map(x => ({ id: isRef(x.id) ? x.id : 'sa_' + Math.random().toString(36).slice(2), name: String(x.name == null ? '' : x.name).slice(0, 100), amountCents: Number.isInteger(x.amountCents) && x.amountCents >= 0 ? x.amountCents : 0 }));
       if ('projectionIncludesSetAsides' in m) keep.projectionIncludesSetAsides = !!m.projectionIncludesSetAsides;
@@ -6879,7 +6892,7 @@ body[data-route="progress"], body[data-route="debts"], body[data-route="goals"] 
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.4'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.5'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -10450,7 +10463,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       if (k === 'del') pin = pin.slice(0, -1); else if (/^\d$/.test(k) && pin.length < max) pin += k;
       draw();
     };
-    page.body.addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b) press(b.dataset.k); });
+    page.body.onclick = e => { const b = e.target.closest('[data-k]'); if (b) press(b.dataset.k); };
     const onKey = e => { if (!document.body.contains(page.el) || !page.body.contains(dots)) return document.removeEventListener('keydown', onKey); const all = document.querySelectorAll('.auth'); if (page.el !== all[all.length - 1] || document.querySelector('.overlay')) return; const k = /^\d$/.test(e.key) ? e.key : e.key === 'Backspace' ? 'del' : e.key === 'Enter' ? 'ok' : null; if (!k || (e.target.closest && e.target.closest('input, textarea, select'))) return; e.preventDefault(); press(k); };
     document.addEventListener('keydown', onKey);
     draw();
@@ -11718,7 +11731,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
   function maybeStart() {
     try {
       if (open || testSkip() || !shouldOffer(W())) return false;
-      if (document.querySelector('.overlay, .auth-page')) return false; // another dialog or the PIN screen is up
+      if (document.querySelector('.overlay, .auth')) return false; // another dialog or the PIN screen is up
       start({ auto: true }); return true;
     } catch (e) { console.error(e); return false; }
   }

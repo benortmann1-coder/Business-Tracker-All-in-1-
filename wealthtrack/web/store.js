@@ -180,7 +180,7 @@
       return p;
     },
     // Plaintext rows are written before the lock record is removed (same crash-safety reasoning).
-    async disableLock(data) { Store.key = null; await Store.replaceAll(data); await Store._delSys('lock'); },
+    async disableLock(data) { const prevKey = Store.key; Store.key = null; try { await Store.replaceAll(data); } catch (e) { Store.key = prevKey; throw e; } await Store._delSys('lock'); },
     _putSys(r) { return new Promise((res, rej) => { const tx = Store.db.transaction('sys', 'readwrite'); tx.objectStore('sys').put(r); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
     _delSys(id) { return new Promise((res, rej) => { const tx = Store.db.transaction('sys', 'readwrite'); tx.objectStore('sys').delete(id); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
 
@@ -346,6 +346,19 @@
       if (['plan', 'compare', 'customize'].includes(m.sbSection)) keep.sbSection = m.sbSection; // Smart Budget page section
       if (m.demoDone === true) keep.demoDone = true;
       if (['done', 'dismissed'].includes(m.setupWizard)) keep.setupWizard = m.setupWizard; // first-run setup wizard (setup-wizard.js)
+      if (typeof m.achievementsNotify === 'boolean') keep.achievementsNotify = m.achievementsNotify;
+      if (m.achievements && typeof m.achievements === 'object' && !Array.isArray(m.achievements)) {
+        const ach = {}; let n = 0;
+        for (const k of Object.keys(m.achievements)) {
+          if (n >= 100) break;
+          if (isRef(k) && typeof m.achievements[k] === 'string' && DATE.test(m.achievements[k])) { ach[k] = m.achievements[k]; n++; }
+        }
+        keep.achievements = ach;
+      }
+      if (m.tips && typeof m.tips === 'object' && !Array.isArray(m.tips)) {
+        const favs = Array.isArray(m.tips.favorites) ? Array.from(new Set(m.tips.favorites.filter(id => typeof id === 'string' && ID.test(id)))).slice(0, 400) : [];
+        keep.tips = { favorites: favs };
+      }
       if (Array.isArray(m.billOrder)) keep.billOrder = Array.from(new Set(m.billOrder.filter(isRef))).slice(0, 1000); // My order (Bills)
       if (Array.isArray(m.setAsides)) keep.setAsides = m.setAsides.filter(x => x && typeof x === 'object').slice(0, 50).map(x => ({ id: isRef(x.id) ? x.id : 'sa_' + Math.random().toString(36).slice(2), name: String(x.name == null ? '' : x.name).slice(0, 100), amountCents: Number.isInteger(x.amountCents) && x.amountCents >= 0 ? x.amountCents : 0 }));
       if ('projectionIncludesSetAsides' in m) keep.projectionIncludesSetAsides = !!m.projectionIncludesSetAsides;

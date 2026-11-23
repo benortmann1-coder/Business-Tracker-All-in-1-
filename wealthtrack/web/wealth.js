@@ -326,7 +326,7 @@
     if (firsts.goal) R.save_goal_done = { earned: true, date: firsts.goal, progress: 1, detail: (goalName || 'A goal') + ' reached its target.' };
     else {
       let best = null;
-      for (const g of goals) { if (!(g.targetCents > 0)) continue; const f = WT.goalSaved(g.id) / g.targetCents; if (!best || f > best.f) best = { f, g }; }
+      for (const g of goals) { if (g.archived || !(g.targetCents > 0)) continue; const f = WT.goalSaved(g.id) / g.targetCents; if (!best || f > best.f) best = { f, g }; }
       R.save_goal_done = { earned: false, date: null, progress: best ? Math.min(clamp01(best.f), 0.99) : 0, detail: best ? `Closest: ${best.g.name}, ${fmt(WT.goalSaved(best.g.id))} of ${fmt(best.g.targetCents)}.` + (best.f >= 1 ? ' Record a contribution toward it to count it.' : '') : 'Create a savings goal to start.' };
     }
   }

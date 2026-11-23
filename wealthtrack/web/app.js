@@ -21,7 +21,7 @@
   // Shared with the separate feature files (themes.js, reminders, widgets): one Pro answer, one upgrade dialog.
   window.WT_isPro = isPro;
   window.WT_proDialog = f => proDialog(f);
-  const APP_VERSION = '1.9.4'; // keep in sync with android/app/build.gradle versionName
+  const APP_VERSION = '1.9.5'; // keep in sync with android/app/build.gradle versionName
 
   // ------------------------------------------------------------ icons
   const P = {
@@ -3592,7 +3592,7 @@ ${d ? field('New escrow starts on', `<input class="input" type="date" name="escr
       if (k === 'del') pin = pin.slice(0, -1); else if (/^\d$/.test(k) && pin.length < max) pin += k;
       draw();
     };
-    page.body.addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b) press(b.dataset.k); });
+    page.body.onclick = e => { const b = e.target.closest('[data-k]'); if (b) press(b.dataset.k); };
     const onKey = e => { if (!document.body.contains(page.el) || !page.body.contains(dots)) return document.removeEventListener('keydown', onKey); const all = document.querySelectorAll('.auth'); if (page.el !== all[all.length - 1] || document.querySelector('.overlay')) return; const k = /^\d$/.test(e.key) ? e.key : e.key === 'Backspace' ? 'del' : e.key === 'Enter' ? 'ok' : null; if (!k || (e.target.closest && e.target.closest('input, textarea, select'))) return; e.preventDefault(); press(k); };
     document.addEventListener('keydown', onKey);
     draw();

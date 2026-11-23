@@ -108,3 +108,18 @@ test('backup sanitizer: prototype pollution, bad ids, bad types, bad colors, bad
   assert.throws(() => S.sanitizeData(null, WT.COLLS));
   assert.throws(() => S.sanitizeData([], WT.COLLS));
 });
+
+test('backup restore keeps milestones, milestone notifications and favorite tips, and cleans them', () => {
+  const raw = { meta: { settings: { id: 'settings',
+    achievementsNotify: true,
+    achievements: { debt_25: '2026-10-01', nw_1k: '2026-11-05', bad_date: 'yesterday', '<img>': '2026-11-01', __proto__: '2026-11-01' },
+    tips: { favorites: ['budgeting-03', 'budgeting-03', 'debt-01', '<script>', 42], other: 'x' } } } };
+  const { data } = S.sanitizeData(raw, WT.COLLS);
+  const s = data.meta.settings;
+  assert.equal(s.achievementsNotify, true);
+  assert.deepEqual(s.achievements, { debt_25: '2026-10-01', nw_1k: '2026-11-05' }, 'only real ids with real dates');
+  assert.deepEqual(s.tips, { favorites: ['budgeting-03', 'debt-01'] }, 'favorites de-duplicated, bad ids dropped');
+  const none = S.sanitizeData({ meta: { settings: { id: 'settings', achievementsNotify: 'yes', achievements: ['x'], tips: 'x' } } }, WT.COLLS).data.meta.settings;
+  assert.equal(none.achievementsNotify, undefined); assert.equal(none.achievements, undefined); assert.equal(none.tips, undefined);
+  assert.equal({}.polluted, undefined);
+});
